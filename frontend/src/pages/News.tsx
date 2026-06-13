@@ -1,82 +1,134 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Newspaper, Search, Loader2, RefreshCw, ExternalLink, AlertTriangle, ChevronRight } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { ChevronRight, ExternalLink, Newspaper } from "lucide-react";
 import { api, type NewsArticle } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  buildIntelPath,
+  MarketEmptyState,
+  MarketErrorState,
+  MarketIntelHeader,
+  MarketLoadingState,
+  normalizeChinaSymbol,
+  plainSymbol,
+  SymbolActionBar,
+} from "@/components/market/MarketIntelShell";
 import { toast } from "sonner";
 
-const REFRESH_MS = 300_000; // 5 min
+const REFRESH_MS = 300_000;
 const LS_NEWS_KEY = "vibe-news-watchlist";
 
 function loadWatchlist(): string[] {
   try {
     const raw = localStorage.getItem(LS_NEWS_KEY);
     if (raw) return JSON.parse(raw).map((p: { symbol: string }) => p.symbol);
-  } catch { /* */ }
+  } catch {
+    return [];
+  }
   return [];
 }
 
 function timeAgo(dateStr: string): string {
   if (!dateStr) return "";
-  try {
-    const d = new Date(dateStr);
-    const now = Date.now();
-    const diff = now - d.getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}分钟前`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}小时前`;
-    return `${Math.floor(hrs / 24)}天前`;
-  } catch {
-    return dateStr;
-  }
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return dateStr;
+  const diff = Date.now() - date.getTime();
+  const mins = Math.max(0, Math.floor(diff / 60000));
+  if (mins < 60) return `${mins} 分钟前`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs} 小时前`;
+  return `${Math.floor(hrs / 24)} 天前`;
+}
+
+function extractSymbols(article: NewsArticle): string[] {
+  const text = `${article.title} ${article.snippet}`;
+  const matches = text.match(/\b(?:00|30|60|68)\d{4}\b/g) ?? [];
+  return Array.from(new Set(matches)).slice(0, 3);
 }
 
 export function News() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeQuery, setActiveQuery] = useState("");
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  const [symbol, setSymbol] = useState(plainSymbol(searchParams.get("symbol") ?? ""));
+  const [activeQuery, setActiveQuery] = useState(searchParams.get("q") ?? "");
+  const [updatedAt, setUpdatedAt] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const [stockNews, setStockNews] = useState<{ code: string; name: string; articles: NewsArticle[] } | null>(null);
   const [stockLoading, setStockLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<"market" | "watchlist">("market");
+  const [mode, setMode] = useState<"market" | "watchlist">("market");
   const [watchlistStocks, setWatchlistStocks] = useState<{ code: string; name: string }[]>([]);
-  const [selectedStock, setSelectedStock] = useState<string | null>(null);
+  const [selectedStock, setSelectedStock] = useState<string | null>(searchParams.get("symbol"));
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const fetchNews = useCallback((q?: string) => {
-    setRefreshing(true);
-    api.listNews(q)
+  const fetchNews = useCallback((nextQuery?: string, silent = false) => {
+    if (!silent) setRefreshing(true);
+    api.listNews(nextQuery || undefined)
       .then((res) => {
         setArticles(res.articles);
         setActiveQuery(res.query);
+        setUpdatedAt(res.updated_at);
         setError(null);
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "获取新闻失败");
+        setError(err instanceof Error ? err.message : "获取新闻线索失败");
       })
-      .finally(() => setRefreshing(false));
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   }, []);
 
-  // Initial load
-  useEffect(() => {
-    api.listNews()
-      .then((res) => { setArticles(res.articles); setActiveQuery(res.query); })
-      .catch((err) => setError(err instanceof Error ? err.message : "获取新闻失败"))
-      .finally(() => setLoading(false));
+  const fetchStockNews = useCallback((code: string) => {
+    const normalized = normalizeChinaSymbol(code);
+    setStockLoading(true);
+    setSelectedStock(normalized);
+    setMode("watchlist");
+    api.getStockNews(normalized)
+      .then((res) => {
+        setStockNews({ code: res.code, name: res.name, articles: res.articles });
+        setUpdatedAt(res.updated_at);
+      })
+      .catch(() => toast.error("获取标的相关新闻失败"))
+      .finally(() => setStockLoading(false));
   }, []);
 
-  // Auto-refresh
-  useEffect(() => {
-    intervalRef.current = setInterval(() => fetchNews(activeQuery || undefined), REFRESH_MS);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [fetchNews, activeQuery]);
+  const applySearch = useCallback(() => {
+    const next = new URLSearchParams();
+    if (query.trim()) next.set("q", query.trim());
+    if (symbol.trim()) next.set("symbol", normalizeChinaSymbol(symbol));
+    setSearchParams(next);
+    if (symbol.trim()) fetchStockNews(symbol);
+    else {
+      setMode("market");
+      setStockNews(null);
+      fetchNews(query.trim() || undefined);
+    }
+  }, [fetchNews, fetchStockNews, query, setSearchParams, symbol]);
 
-  // Load watchlist for stock news tab
+  useEffect(() => {
+    setQuery(searchParams.get("q") ?? "");
+    setSymbol(plainSymbol(searchParams.get("symbol") ?? ""));
+  }, [searchParams]);
+
+  useEffect(() => {
+    const q = searchParams.get("q") ?? "";
+    const sym = searchParams.get("symbol");
+    fetchNews(q || undefined, true);
+    if (sym) fetchStockNews(sym);
+  }, [fetchNews, fetchStockNews, searchParams]);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => fetchNews(activeQuery || undefined, true), REFRESH_MS);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [activeQuery, fetchNews]);
+
   useEffect(() => {
     const codes = loadWatchlist();
-    // For each code, fetch the name via the position snapshot
     Promise.all(codes.slice(0, 10).map(async (code) => {
       try {
         const snap = await api.getPositionSnapshot(code);
@@ -87,146 +139,167 @@ export function News() {
     })).then(setWatchlistStocks);
   }, []);
 
-  // Stock news
-  const fetchStockNews = (code: string) => {
-    setStockLoading(true);
-    setSelectedStock(code);
-    api.getStockNews(code)
-      .then((res) => setStockNews({ code: res.code, name: res.name, articles: res.articles }))
-      .catch(() => toast.error("获取股票新闻失败"))
-      .finally(() => setStockLoading(false));
-  };
-
-  // Search
-  const handleSearch = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") {
-      fetchNews(searchQuery || undefined);
-    }
-  };
-
-  const displayArticles = activeTab === "watchlist" && stockNews
-    ? stockNews.articles
-    : articles;
+  const displayArticles = mode === "watchlist" && stockNews ? stockNews.articles : articles;
+  const flowParams = new URLSearchParams(searchParams);
+  if (selectedStock) flowParams.set("symbol", selectedStock);
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b shrink-0">
-        <div>
-          <h1 className="text-lg font-semibold">新闻</h1>
-          <p className="text-xs text-muted-foreground">A股财经要闻 · 新浪财经 + DuckDuckGo</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button onClick={() => fetchNews(activeQuery || undefined)} disabled={refreshing}
-            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-            <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
-          </button>
-        </div>
-      </div>
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+      <MarketIntelHeader
+        active="news"
+        query={query}
+        symbol={symbol}
+        onQueryChange={setQuery}
+        onSymbolChange={setSymbol}
+        onSearch={applySearch}
+        onRefresh={() => fetchNews(activeQuery || undefined)}
+        refreshing={refreshing}
+        updatedAt={updatedAt}
+      />
 
-      {/* Search bar */}
-      <div className="px-4 md:px-6 py-2 border-b shrink-0 flex items-center gap-3">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={handleSearch}
-            placeholder="搜索关键词，如 半导体、新能源、茅台..."
-            className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md border bg-muted/40 focus:outline-none focus:ring-1 focus:ring-primary"
-          />
-        </div>
-
-        {/* Tabs */}
-        <div className="flex items-center gap-1">
-          {(["market", "watchlist"] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { setActiveTab(tab); setStockNews(null); setSelectedStock(null); }}
-              className={cn("px-3 py-1.5 text-xs rounded-md transition-colors",
-                activeTab === tab ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted",
-              )}
-            >
-              {tab === "market" ? "市场要闻" : "自选相关"}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Article list */}
-        <div className="flex-1 overflow-y-auto">
-          {loading ? (
-            <div className="flex items-center justify-center py-20">
-              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="border-b px-4 py-3 md:px-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">{mode === "watchlist" && stockNews ? `${stockNews.name} 新闻` : "市场新闻线索"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {activeQuery ? `当前关键词：${activeQuery}` : "来自财经新闻和搜索源的最新线索"}
+                </p>
+              </div>
+              <div className="flex items-center gap-1 rounded-lg bg-muted/40 p-1">
+                {([
+                  ["market", "市场要闻"],
+                  ["watchlist", "自选相关"],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => {
+                      setMode(id);
+                      if (id === "market") setStockNews(null);
+                    }}
+                    className={cn(
+                      "rounded-md px-3 py-1.5 text-xs transition-colors",
+                      mode === id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          ) : error ? (
-            <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
-              <AlertTriangle className="w-8 h-8" />
-              <p className="text-sm">{error}</p>
-              <button onClick={() => fetchNews()} className="text-xs text-primary hover:underline">重试</button>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {displayArticles.length === 0 && (
-                <div className="flex items-center justify-center py-20 text-muted-foreground text-sm">
-                  暂无新闻
+          </div>
+
+          <div className="p-4 md:p-6">
+            {loading ? (
+              <MarketLoadingState label="正在加载新闻线索" />
+            ) : error ? (
+              <MarketErrorState message={error} onRetry={() => fetchNews(activeQuery || undefined)} />
+            ) : displayArticles.length === 0 ? (
+              <MarketEmptyState
+                icon={Newspaper}
+                title="暂无新闻线索"
+                description="可以换一个关键词，或从自选股入口查看单个标的新闻。"
+              />
+            ) : (
+              <div className="space-y-3">
+                {displayArticles.map((article, index) => {
+                  const symbols = extractSymbols(article);
+                  return (
+                    <article key={article.url || index} className="rounded-lg border bg-card p-4 transition-colors hover:bg-muted/20">
+                      <div className="flex items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <a
+                            href={article.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group inline-flex items-start gap-1.5 text-sm font-medium leading-snug hover:text-primary"
+                          >
+                            <span className="line-clamp-2">{article.title}</span>
+                            <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-45 group-hover:opacity-100" />
+                          </a>
+                          {article.snippet && (
+                            <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-muted-foreground">{article.snippet}</p>
+                          )}
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                            {article.source && <span className="rounded bg-muted px-1.5 py-0.5">{article.source}</span>}
+                            {article.published && <span>{timeAgo(article.published)}</span>}
+                            {symbols.map((item) => {
+                              const next = new URLSearchParams(searchParams);
+                              next.set("symbol", normalizeChinaSymbol(item));
+                              return (
+                                <Link
+                                  key={item}
+                                  to={buildIntelPath("/logic-chain", next)}
+                                  className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-primary hover:bg-primary/15"
+                                >
+                                  {item}
+                                </Link>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <Link
+                          to={buildIntelPath("/events", flowParams)}
+                          className="hidden rounded-md border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground sm:block"
+                        >
+                          验事件
+                        </Link>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </main>
+
+        <aside className="hidden w-[260px] shrink-0 overflow-y-auto border-l bg-muted/10 p-4 lg:block">
+          <div className="space-y-4">
+            <section className="rounded-lg border bg-card p-3">
+              <p className="text-sm font-medium">研究下一步</p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                新闻负责发现线索，后续需要到事件雷达验证影响，再沉淀到机会清单。
+              </p>
+              <SymbolActionBar
+                symbol={selectedStock || symbol || "600519"}
+                label="快捷流转"
+                params={flowParams}
+                className="mt-3"
+              />
+            </section>
+
+            <section className="rounded-lg border bg-card p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-medium">自选股新闻</p>
+                {stockLoading && <span className="text-xs text-muted-foreground">加载中</span>}
+              </div>
+              {watchlistStocks.length === 0 ? (
+                <p className="text-xs text-muted-foreground">暂无自选股，可先在持仓决策中维护关注标的。</p>
+              ) : (
+                <div className="space-y-1">
+                  {watchlistStocks.map((item) => (
+                    <button
+                      key={item.code}
+                      type="button"
+                      onClick={() => fetchStockNews(item.code)}
+                      className={cn(
+                        "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                        selectedStock === normalizeChinaSymbol(item.code)
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                      )}
+                    >
+                      <span className="truncate">{item.name}</span>
+                      <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </button>
+                  ))}
                 </div>
               )}
-              {displayArticles.map((a, i) => (
-                <a
-                  key={a.url || i}
-                  href={a.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-start gap-3 px-4 md:px-6 py-3 hover:bg-muted/30 transition-colors group"
-                >
-                  <div className="flex-1 min-w-0">
-                    <h3 className="text-sm font-medium leading-snug group-hover:text-primary transition-colors line-clamp-2">
-                      {a.title}
-                    </h3>
-                    {a.snippet && (
-                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{a.snippet}</p>
-                    )}
-                    <div className="flex items-center gap-2 mt-1.5 text-[10px] text-muted-foreground">
-                      {a.source && <span className="font-medium">{a.source}</span>}
-                      {a.published && <span>{timeAgo(a.published)}</span>}
-                    </div>
-                  </div>
-                  <ExternalLink className="w-3.5 h-3.5 shrink-0 mt-1 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Watchlist sidebar */}
-        {activeTab === "watchlist" && (
-          <aside className="w-[170px] shrink-0 border-l overflow-y-auto p-3 space-y-0.5 hidden md:block">
-            <p className="text-[10px] text-muted-foreground font-medium px-1 mb-1">自选股</p>
-            {watchlistStocks.length === 0 && (
-              <p className="text-[10px] text-muted-foreground px-1">暂无自选股</p>
-            )}
-            {watchlistStocks.map((s) => (
-              <button
-                key={s.code}
-                onClick={() => fetchStockNews(s.code)}
-                className={cn(
-                  "w-full flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors text-left",
-                  selectedStock === s.code ? "bg-primary/10 text-primary font-medium" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                <span className="truncate">{s.name}</span>
-                {stockLoading && selectedStock === s.code && (
-                  <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                )}
-                {!stockLoading && <ChevronRight className="w-3 h-3 shrink-0 opacity-40" />}
-              </button>
-            ))}
-          </aside>
-        )}
+            </section>
+          </div>
+        </aside>
       </div>
     </div>
   );

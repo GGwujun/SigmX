@@ -14,6 +14,7 @@ const API_ONLY_PATHS = [
   "/upload",
   "/shadow-reports",
   "/position",   // /position/analyze, /position/snapshot/{code} — API only
+  "/alpha-forge"
 ];
 
 // SPA page paths that ALSO have API endpoints at the same URL.
@@ -23,11 +24,12 @@ const SPA_WITH_API_PATHS = [
   "/news",
   "/opportunity",
   "/logic-chain",
+  "/position-decision"
 ];
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
-  const apiTarget = env.VITE_API_URL || "http://localhost:8899";
+  const apiTarget = env.VITE_API_URL || "http://localhost:8000";
   const apiProxy = { target: apiTarget, changeOrigin: true };
   const apiProxyWithHtmlFallback = {
     ...apiProxy,

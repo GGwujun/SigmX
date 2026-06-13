@@ -261,7 +261,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ target, market: market || "A-shares" }),
     }),
+  listAlphaForgeRuns: () => request<AlphaForgeRunListItem[]>("/alpha-forge/runs"),
   getAlphaForgeRun: (runId: string) => request<AlphaForgeRunDetail>(`/alpha-forge/runs/${encodeURIComponent(runId)}`),
+  cancelAlphaForgeRun: (runId: string) =>
+    request<{ status: string; run_id: string }>(`/alpha-forge/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
   alphaForgeEventsUrl: (runId: string) => withAuthQuery(`${BASE}/alpha-forge/runs/${encodeURIComponent(runId)}/events`),
 };
 
@@ -1206,6 +1209,20 @@ export interface AlphaForgeRunInfo {
   target: string;
   market: string;
   created_at: string;
+}
+
+export interface AlphaForgeRunListItem {
+  run_id: string;
+  status: string;
+  target: string;
+  market: string;
+  preset_name: string;
+  created_at: string;
+  completed_at: string | null;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  task_count: number;
+  completed_count: number;
 }
 
 export interface AlphaForgeRunDetail {

@@ -40,6 +40,18 @@ logger = logging.getLogger(__name__)
 
 REPORTS_ROOT = Path.home() / ".vibe-trading" / "alpha_forge_reports"
 
+
+def _get_store():
+    """Return a SwarmStore pointing at the SAME base_dir the runtime uses.
+
+    The runtime (api_server._get_swarm_runtime) builds SwarmStore from
+    ``swarm_runs_root()`` (agent/.swarm/runs). SwarmStore has NO default
+    base_dir — ``SwarmStore()`` raises TypeError. We must reuse the exact
+    same root so runs created by the runtime are visible here.
+    """
+    from src.swarm.store import SwarmStore, swarm_runs_root
+    return SwarmStore(base_dir=swarm_runs_root())
+
 # SSE manager singleton — populated by register_alpha_forge_routes
 _sse_manager: dict[str, Any] = {}
 
@@ -165,6 +177,98 @@ def _save_report(report_id: str, content_md: str, meta: dict[str, Any]) -> Path:
         json.dumps(meta, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+
+
+# Pipeline order for assembling the full report. Each entry maps an agent_id
+# to (display section title, layer label). Ordered top-to-bottom = how the
+# final report reads.
+_AGENT_SECTIONS: list[tuple[str, str, str]] = [
+    # Layer 1 — parallel research (7 analysts)
+    ("technical_analyst", "技术分析", "第一部分：多维度研究"),
+    ("sentiment_analyst", "情绪分析", "第一部分：多维度研究"),
+    ("news_analyst", "新闻舆情", "第一部分：多维度研究"),
+    ("fundamental_analyst", "基本面分析", "第一部分：多维度研究"),
+    ("policy_analyst", "政策分析", "第一部分：多维度研究"),
+    ("capital_flow_analyst", "资金面分析", "第一部分：多维度研究"),
+    ("lockup_analyst", "解禁 / 减持监控", "第一部分：多维度研究"),
+    # Layer 2 — quality gate
+    ("quality_gate", "质量门控结论", "第二部分：质量门控"),
+    # Layer 3 — debate
+    ("bull_case", "多方论证", "第三部分：多空辩论"),
+    ("bear_case", "空方论证", "第三部分：多空辩论"),
+    ("neutral_synthesis", "中性综合", "第三部分：多空辩论"),
+    # Layer 4-6 — decision chain
+    ("trader", "交易决策", "第四部分：交易决策"),
+    ("risk_officer", "风控评估", "第五部分：风控评估"),
+    ("portfolio_manager", "最终决策", "第六部分：最终决策"),
+]
+
+
+def _assemble_full_report(run_dir: Path, target: str, stock_name: str) -> str:
+    """Assemble the complete report by concatenating every agent's report.md.
+
+    Walks ``run_dir/artifacts/<agent_id>/report.md`` in pipeline order and
+    stitches them under structured section headers. Agents that produced no
+    report.md (failed / produced text only) are noted as "（无输出）" so the
+    reader can see what evidence was actually gathered.
+
+    Args:
+        run_dir: The swarm run directory (.swarm/runs/<run_id>).
+        target: Stock code (e.g. "300253.SZ").
+        stock_name: Resolved stock name (e.g. "卫宁健康").
+
+    Returns:
+        The full markdown report string.
+    """
+    artifacts_dir = run_dir / "artifacts"
+    parts: list[str] = []
+
+    # --- Header ---
+    display_name = f"{target}" + (f"（{stock_name}）" if stock_name else "")
+    header = [
+        "# AlphaForge 投研分析报告",
+        "",
+        f"- **股票代码**：{target}",
+    ]
+    if stock_name:
+        header.append(f"- **股票名称**：{stock_name}")
+    header.extend([
+        f"- **分析日期**：{datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+        "- **报告类型**：AI 多 Agent 全流程投研报告（14 Agent / 6 层流水线）",
+        "",
+        "> ⚠️ 本报告由 AI 多 Agent 系统自动生成，仅供学习研究与技术演示，不构成任何投资建议。"
+        "投资决策请咨询持牌专业机构，使用本报告所产生的任何损失由使用者自行承担。",
+        "",
+        "---",
+        "",
+    ])
+    parts.append("\n".join(header))
+
+    # --- Per-agent sections, grouped by layer ---
+    current_layer = None
+    for agent_id, title, layer in _AGENT_SECTIONS:
+        # Emit a layer header when the layer changes
+        if layer != current_layer:
+            current_layer = layer
+            parts.append(f"\n# {layer}\n")
+
+        report_path = artifacts_dir / agent_id / "report.md"
+        if report_path.is_file():
+            body = report_path.read_text(encoding="utf-8").strip()
+        else:
+            # Fall back to summary.md if report.md is missing
+            summary_path = artifacts_dir / agent_id / "summary.md"
+            if summary_path.is_file():
+                body = summary_path.read_text(encoding="utf-8").strip()
+            else:
+                body = "（该环节未产出可归档内容）"
+
+        parts.append(f"\n## {title}\n")
+        parts.append(body)
+        parts.append("")  # blank line separator
+
+    return "\n".join(parts).strip() + "\n"
+
     return report_dir
 
 
@@ -176,8 +280,14 @@ def register_alpha_forge_routes(
     app: FastAPI,
     require_auth: Callable[[Request], Awaitable[None]],
     require_event_stream_auth: Callable[[Request], Awaitable[None]],
+    get_swarm_runtime: Callable[[], Any] | None = None,
 ) -> None:
-    """Register AlphaForge routes on the FastAPI app."""
+    """Register AlphaForge routes on the FastAPI app.
+
+    Args:
+        get_swarm_runtime: Callable that returns the SwarmRuntime singleton.
+            Passed from api_server.py's _get_swarm_runtime().
+    """
 
     # ── List Reports ──────────────────────────────────────────────
     @app.get("/alpha-forge/reports")
@@ -318,30 +428,16 @@ def register_alpha_forge_routes(
         _=Depends(require_auth),
     ):
         """Create a new AlphaForge analysis run using the swarm preset."""
-        # We delegate to the swarm subsystem
         from src.swarm.presets import build_run_from_preset
-        from src.swarm.runtime import SwarmRuntime
         from src.swarm.store import SwarmStore
 
-        # Check preset exists
-        try:
-            run = build_run_from_preset("alpha_forge", {
-                "target": body.target,
-                "market": body.market,
-            })
-        except FileNotFoundError:
-            raise HTTPException(
-                status_code=404,
-                detail="alpha_forge preset not found. Ensure alpha_forge.yaml is in presets/ directory.",
-            )
-
-        # Start the run via the global swarm runtime (set up in api_server.py)
-        swarm_runtime = _sse_manager.get("swarm_runtime")
-        if swarm_runtime is None:
+        if get_swarm_runtime is None:
             raise HTTPException(
                 status_code=503,
-                detail="Swarm runtime not available. Start the server with swarm support enabled.",
+                detail="Swarm runtime not available. The server was started without swarm support.",
             )
+
+        swarm_runtime = get_swarm_runtime()
 
         try:
             swarm_run = swarm_runtime.start_run(
@@ -354,30 +450,74 @@ def register_alpha_forge_routes(
 
         # Register a completion callback to save the report
         def _on_run_complete(run_id: str) -> None:
-            """Save the final report when the swarm run completes."""
+            """Save the full assembled report when the swarm run completes."""
             try:
-                from src.swarm.store import SwarmStore
-                store = SwarmStore()
+                store = _get_store()
+                run_dir = store.run_dir(run_id)
                 completed_run = store.load_run(run_id)
-                if completed_run is None or not completed_run.final_report:
-                    logger.warning("No final report for run %s, skipping report save", run_id)
-                    return
 
-                content = completed_run.final_report
+                # Extract stock name from whatever agent reports are available.
+                # PM (portfolio_manager) is the richest source; fall back to any
+                # agent's report.md, then to the run's final_report.
+                code_part = body.target.split(".")[0]  # e.g. "300253"
+                code_re = re.compile(
+                    rf"(?:SZ|SH|BJ)?0*{re.escape(code_part)}"
+                    rf"(?:\.(?:SZ|SH|BJ))?\s*[（(]?\s*([一-鿿]{{2,8}})\s*[）)]?"
+                )
+                label_re = re.compile(
+                    r"(?:标的|股票名称|公司名称|公司|证券简称)\s*[:：]\s*"
+                    r"(?:[A-Za-z0-9.\s/]+\s)?([一-鿿]{2,8})"
+                )
+
+                def _extract_name(text: str) -> str:
+                    if not text:
+                        return ""
+                    for line in text.split("\n")[:40]:
+                        m = code_re.search(line)
+                        if m:
+                            return m.group(1)
+                    for line in text.split("\n")[:40]:
+                        m = label_re.search(line)
+                        if m:
+                            return m.group(1)
+                    return ""
+
+                stock_name = ""
+                # Try PM report first, then all agents, then final_report
+                candidates = [run_dir / "artifacts" / "portfolio_manager" / "report.md"]
+                candidates += [
+                    run_dir / "artifacts" / a[0] / "report.md"
+                    for a in _AGENT_SECTIONS
+                ]
+                for cand in candidates:
+                    if cand.is_file():
+                        stock_name = _extract_name(cand.read_text(encoding="utf-8"))
+                        if stock_name:
+                            break
+                if not stock_name and completed_run and completed_run.final_report:
+                    stock_name = _extract_name(completed_run.final_report)
+
+                # Choose the final report content.
+                # Preferred: the report_writer agent's unified report (ONE coherent
+                # document, written per the strict skeleton). Falls back to the
+                # multi-agent assembly only if report_writer produced nothing.
+                writer_path = run_dir / "artifacts" / "report_writer" / "report.md"
+                if writer_path.is_file():
+                    writer_content = writer_path.read_text(encoding="utf-8").strip()
+                    if len(writer_content) > 500:  # sanity: real report, not a stub
+                        content = writer_content
+                        logger.info("Using report_writer unified report for %s", body.target)
+                    else:
+                        content = _assemble_full_report(run_dir, body.target, stock_name)
+                        logger.info("report_writer output too short, falling back to assembly for %s", body.target)
+                else:
+                    content = _assemble_full_report(run_dir, body.target, stock_name)
+                    logger.info("No report_writer output, using assembly for %s", body.target)
+
                 # Generate report ID
                 now = datetime.now(timezone.utc)
                 ts = now.strftime("%Y%m%d-%H%M%S")
                 report_id = f"af_{body.target.replace('.', '_')}_{ts}"
-
-                # Extract stock name from report content
-                stock_name = ""
-                for line in content.split("\n")[:10]:
-                    m = re.search(r"(\S+)\s*[（(]\s*{0}".format(body.target.split(".")[0]), line)
-                    if not m:
-                        m = re.search(r"#\s*[\d]+\s*[（(]?\s*(\S+)\s*[）)]?", line)
-                    if m:
-                        stock_name = m.group(1)
-                        break
 
                 meta = {
                     "target": body.target,
@@ -387,7 +527,7 @@ def register_alpha_forge_routes(
                     "created_at": now.isoformat(),
                     "run_id": run_id,
                 }
-                # Extract signal and rating from content
+                # Extract signal and rating from the PM section
                 extra = _extract_metadata_from_md(content)
                 meta.update(extra)
 
@@ -398,11 +538,11 @@ def register_alpha_forge_routes(
 
         # Register callback with the runtime
         swarm_runtime._live_callbacks[swarm_run.id] = lambda event: None  # placeholder
-        # Use store to poll for completion — simpler: register via a background thread
+        # Poll for completion in a background thread, then save the report.
         import threading
         def _poll_completion():
             import time as time_mod
-            store_obj = __import__("src.swarm.store", fromlist=["SwarmStore"]).SwarmStore()
+            store_obj = _get_store()
             while True:
                 time_mod.sleep(5)
                 try:
@@ -424,14 +564,71 @@ def register_alpha_forge_routes(
         )
 
     # ── Get Run Status ────────────────────────────────────────────
+    # ── List Runs ─────────────────────────────────────────────────
+    @app.get("/alpha-forge/runs")
+    async def list_alpha_forge_runs(request: Request, _=Depends(require_auth)):
+        """List all AlphaForge swarm runs (filtered to alpha_forge preset)."""
+        store = _get_store()
+        all_runs = store.list_runs(limit=100)
+
+        from src.swarm.task_store import TaskStore
+
+        af_runs = []
+        for r in all_runs:
+            if r.preset_name != "alpha_forge":
+                continue
+            # Live completed count from per-task files (run.json is stale mid-layer)
+            completed_count = 0
+            task_count = len(r.tasks)
+            try:
+                task_store = TaskStore(store.run_dir(r.id))
+                live_tasks = task_store.load_all()
+                task_count = len(live_tasks)
+                completed_count = sum(1 for t in live_tasks if t.status.value == "completed")
+            except Exception:
+                completed_count = sum(1 for t in r.tasks if t.status.value == "completed")
+
+            af_runs.append({
+                "run_id": r.id,
+                "status": r.status.value,
+                "target": (r.user_vars or {}).get("target", ""),
+                "market": (r.user_vars or {}).get("market", "A-shares"),
+                "preset_name": r.preset_name,
+                "created_at": r.created_at,
+                "completed_at": r.completed_at,
+                "total_input_tokens": getattr(r, "total_input_tokens", 0),
+                "total_output_tokens": getattr(r, "total_output_tokens", 0),
+                "task_count": task_count,
+                "completed_count": completed_count,
+            })
+        return af_runs
+
     @app.get("/alpha-forge/runs/{run_id}")
     async def get_alpha_forge_run(run_id: str, request: Request, _=Depends(require_auth)):
-        """Get the status of an AlphaForge swarm run."""
-        from src.swarm.store import SwarmStore
-        store = SwarmStore()
+        """Get the status of an AlphaForge swarm run.
+
+        Reads live per-task status from the TaskStore (tasks/*.json), NOT the
+        run.json snapshot — run.json is only refreshed at layer boundaries, so
+        mid-layer tasks would otherwise all read "pending" even while running.
+        """
+        store = _get_store()
         run = store.load_run(run_id)
         if run is None:
             raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+
+        # Live task status from individual task files (real-time), falling back
+        # to run.json's snapshot if TaskStore cannot load them.
+        live_tasks = []
+        try:
+            from src.swarm.task_store import TaskStore
+            run_dir = store.run_dir(run_id)
+            task_store = TaskStore(run_dir)
+            live_tasks = task_store.load_all()
+        except Exception:
+            logger.warning("Failed to load live task status for %s", run_id, exc_info=True)
+            live_tasks = []
+
+        tasks_source = live_tasks if live_tasks else run.tasks
 
         return {
             "run_id": run.id,
@@ -448,8 +645,62 @@ def register_alpha_forge_routes(
                     "agent_id": t.agent_id,
                     "status": t.status.value,
                 }
-                for t in run.tasks
+                for t in tasks_source
             ],
+        }
+
+    # ── Force Cancel Run (disk-level, no runtime memory dependency) ──
+    @app.post("/alpha-forge/runs/{run_id}/cancel")
+    async def cancel_alpha_forge_run(run_id: str, request: Request, _=Depends(require_auth)):
+        """Force-cancel an AlphaForge run by marking it cancelled on disk.
+
+        Unlike ``/swarm/runs/{id}/cancel`` (which needs the run to be active
+        in the current runtime's memory), this marks the run + every task as
+        cancelled directly in the task files and run.json. Survives server
+        restarts and handles already-dead runs. The in-flight worker threads
+        (if any are still alive in the old process) will wind down on their
+        own next iteration; their writes to already-cancelled task files are
+        harmless no-ops.
+        """
+        store = _get_store()
+        run = store.load_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
+
+        # 1. Try the graceful in-memory cancel first (works if run is active).
+        cancelled_in_memory = False
+        if get_swarm_runtime is not None:
+            try:
+                cancelled_in_memory = get_swarm_runtime().cancel_run(run_id)
+            except Exception:
+                cancelled_in_memory = False
+
+        # 2. Force disk-level cancellation regardless.
+        from datetime import datetime, timezone
+        from src.swarm.models import RunStatus, TaskStatus
+        from src.swarm.task_store import TaskStore
+
+        run_dir = store.run_dir(run_id)
+        try:
+            task_store = TaskStore(run_dir)
+            for t in task_store.load_all():
+                if t.status not in (TaskStatus.completed, TaskStatus.failed, TaskStatus.cancelled):
+                    task_store.update_status(t.id, TaskStatus.cancelled)
+        except Exception:
+            logger.warning("Failed to cancel task files for %s", run_id, exc_info=True)
+
+        run.status = RunStatus.cancelled
+        run.completed_at = datetime.now(timezone.utc).isoformat()
+        try:
+            store.update_run(run)
+        except Exception:
+            logger.warning("Failed to write cancelled run.json for %s", run_id, exc_info=True)
+
+        return {
+            "status": "cancelled",
+            "run_id": run_id,
+            "in_memory_cancel": cancelled_in_memory,
+            "disk_cancel": True,
         }
 
     # ── SSE Events Stream ─────────────────────────────────────────
@@ -460,8 +711,7 @@ def register_alpha_forge_routes(
         _=Depends(require_event_stream_auth),
     ):
         """SSE stream for live AlphaForge run progress."""
-        from src.swarm.store import SwarmStore
-        store = SwarmStore()
+        store = _get_store()
 
         # Verify run exists
         run = store.load_run(run_id)

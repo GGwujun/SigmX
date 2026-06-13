@@ -1,32 +1,35 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import {
-  TrendingUp,
-  TrendingDown,
-  AlertTriangle,
-  Loader2,
+  Building2,
   ChevronDown,
   ChevronUp,
-  RefreshCw,
-  X,
-  Globe,
-  Landmark,
   Coins,
   Cpu,
-  Building2,
+  Globe,
+  Landmark,
+  TrendingDown,
+  TrendingUp,
+  X,
 } from "lucide-react";
 import { api, type EventItem, type EventsCategory, type HistoryPoint } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { echarts } from "@/lib/echarts";
 import { getChartTheme } from "@/lib/chart-theme";
 import { useDarkMode } from "@/hooks/useDarkMode";
+import {
+  buildIntelPath,
+  MarketEmptyState,
+  MarketErrorState,
+  MarketIntelHeader,
+  MarketLoadingState,
+  normalizeChinaSymbol,
+  plainSymbol,
+} from "@/components/market/MarketIntelShell";
 import { toast } from "sonner";
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
 const REFRESH_INTERVAL_MS = 120_000;
-const BIG_MOVE_THRESHOLD = 0.10;
+const BIG_MOVE_THRESHOLD = 0.1;
 
 const CATEGORY_ICONS: Record<string, typeof Globe> = {
   geopolitical: Globe,
@@ -36,351 +39,296 @@ const CATEGORY_ICONS: Record<string, typeof Globe> = {
   world: Building2,
 };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+type SortKey = "probability" | "prob_change_24h" | "volume_raw" | "resolve_time";
 
-function fmtProbability(p: number): string {
-  return `${(p * 100).toFixed(1)}%`;
+function fmtProbability(value: number): string {
+  return `${(value * 100).toFixed(1)}%`;
 }
 
-function fmtChange(c: number): string {
-  const sign = c >= 0 ? "+" : "";
-  return `${sign}${(c * 100).toFixed(1)}pt`;
+function fmtChange(value: number): string {
+  return `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}pt`;
 }
 
-function isBigMove(c: number): boolean {
-  return Math.abs(c) >= BIG_MOVE_THRESHOLD;
+function isBigMove(value: number): boolean {
+  return Math.abs(value) >= BIG_MOVE_THRESHOLD;
 }
 
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
+function parseVolume(value: string): number {
+  const cleaned = value.replace(/[$,]/g, "");
+  if (cleaned.endsWith("M")) return parseFloat(cleaned) * 1_000_000;
+  if (cleaned.endsWith("K")) return parseFloat(cleaned) * 1_000;
+  return parseFloat(cleaned) || 0;
+}
+
+export function Events() {
+  const { dark } = useDarkMode();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [categories, setCategories] = useState<EventsCategory[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  const [symbol, setSymbol] = useState(plainSymbol(searchParams.get("symbol") ?? ""));
+  const [activeCat, setActiveCat] = useState(searchParams.get("category") ?? "all");
+  const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
+  const [updatedAt, setUpdatedAt] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchData = useCallback((silent = false) => {
+    if (!silent) setRefreshing(true);
+    api.listEvents()
+      .then((res) => {
+        setCategories(res.categories);
+        setUpdatedAt(res.updated_at);
+        setError(null);
+        if (activeCat !== "all" && !res.categories.some((cat) => cat.id === activeCat)) {
+          setActiveCat("all");
+        }
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : "加载事件雷达失败";
+        if (!categories.length) setError(msg);
+        else toast.error(msg);
+      })
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
+  }, [activeCat, categories.length]);
+
+  useEffect(() => {
+    setQuery(searchParams.get("q") ?? "");
+    setSymbol(plainSymbol(searchParams.get("symbol") ?? ""));
+    setActiveCat(searchParams.get("category") ?? "all");
+  }, [searchParams]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchData(true);
+  }, [fetchData]);
+
+  useEffect(() => {
+    intervalRef.current = setInterval(() => fetchData(true), REFRESH_INTERVAL_MS);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [fetchData]);
+
+  const applySearch = useCallback(() => {
+    const next = new URLSearchParams();
+    if (query.trim()) next.set("q", query.trim());
+    if (symbol.trim()) next.set("symbol", normalizeChinaSymbol(symbol));
+    if (activeCat !== "all") next.set("category", activeCat);
+    setSearchParams(next);
+  }, [activeCat, query, setSearchParams, symbol]);
+
+  const allEvents = useMemo(() => {
+    return categories.flatMap((cat) => cat.events.map((event) => ({ ...event, categoryId: cat.id, categoryLabel: cat.label, categorySource: cat.source })));
+  }, [categories]);
+
+  const visibleEvents = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return allEvents
+      .filter((event) => activeCat === "all" || event.categoryId === activeCat)
+      .filter((event) => !q || `${event.title} ${event.threshold} ${event.categoryLabel} ${event.source}`.toLowerCase().includes(q));
+  }, [activeCat, allEvents, query]);
+
+  const bigMoveCount = visibleEvents.filter((event) => isBigMove(event.prob_change_24h)).length;
+  const maxMove = visibleEvents.reduce((max, event) => Math.max(max, Math.abs(event.prob_change_24h)), 0);
+
+  return (
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+      <MarketIntelHeader
+        active="events"
+        query={query}
+        symbol={symbol}
+        onQueryChange={setQuery}
+        onSymbolChange={setSymbol}
+        onSearch={applySearch}
+        onRefresh={() => fetchData()}
+        refreshing={refreshing}
+        updatedAt={updatedAt}
+      />
+
+      <div className="border-b px-4 py-3 md:px-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <CategoryButton active={activeCat === "all"} label="全部事件" count={allEvents.length} onClick={() => updateCategory("all")} />
+          {categories.map((cat) => {
+            const Icon = CATEGORY_ICONS[cat.id] || Globe;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => updateCategory(cat.id)}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors",
+                  activeCat === cat.id ? "border-primary/40 bg-primary/10 text-primary" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+                {cat.label}
+                <span className="tabular-nums opacity-70">{cat.events.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
+        <main className={cn("min-w-0 overflow-y-auto", selectedEvent && "hidden lg:block")}>
+          <div className="grid gap-3 border-b p-4 md:grid-cols-3 md:px-6">
+            <StatCard label="当前事件" value={`${visibleEvents.length}`} />
+            <StatCard label="大幅异动" value={`${bigMoveCount}`} />
+            <StatCard label="最大变化" value={fmtChange(maxMove)} />
+          </div>
+
+          <div className="p-4 md:p-6">
+            {loading ? (
+              <MarketLoadingState label="正在加载事件雷达" />
+            ) : error ? (
+              <MarketErrorState message={error} onRetry={() => fetchData()} />
+            ) : visibleEvents.length === 0 ? (
+              <MarketEmptyState
+                icon={Globe}
+                title="当前筛选下暂无事件"
+                description="可以切换事件分类，或减少关键词限制后再试。"
+              />
+            ) : (
+              <EventsTable
+                events={visibleEvents}
+                selectedId={selectedEvent?.id ?? null}
+                onSelect={setSelectedEvent}
+              />
+            )}
+          </div>
+        </main>
+
+        <aside className={cn("border-l bg-muted/10", !selectedEvent && "hidden lg:block")}>
+          {selectedEvent ? (
+            <DetailPanel
+              event={selectedEvent}
+              dark={dark}
+              params={searchParams}
+              symbol={symbol}
+              onClose={() => setSelectedEvent(null)}
+            />
+          ) : (
+            <div className="p-4">
+              <MarketEmptyState
+                icon={Globe}
+                title="选择一个事件查看详情"
+                description="详情里会展示概率历史，并提供进入机会清单和逻辑链的下一步动作。"
+              />
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+
+  function updateCategory(nextCategory: string) {
+    setActiveCat(nextCategory);
+    setSelectedEvent(null);
+    const next = new URLSearchParams(searchParams);
+    if (nextCategory === "all") next.delete("category");
+    else next.set("category", nextCategory);
+    setSearchParams(next);
+  }
+}
+
+function CategoryButton({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs transition-colors",
+        active ? "border-primary/40 bg-primary/10 text-primary" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
+      )}
+    >
+      {label}
+      <span className="tabular-nums opacity-70">{count}</span>
+    </button>
+  );
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-3">
+      <p className="text-[10px] text-muted-foreground">{label}</p>
+      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
+    </div>
+  );
+}
 
 function ProbabilityBar({ value }: { value: number }) {
   return (
     <div className="flex items-center gap-2">
-      <div className="h-2 flex-1 min-w-[48px] rounded-full bg-muted/50 overflow-hidden">
+      <div className="h-2 min-w-[52px] flex-1 overflow-hidden rounded-full bg-muted/60">
         <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{
-            width: `${Math.round(value * 100)}%`,
-            background: value >= 0.5 ? "hsl(var(--success))" : "hsl(var(--warning))",
-          }}
+          className={cn("h-full rounded-full", value >= 0.5 ? "bg-green-500" : "bg-amber-500")}
+          style={{ width: `${Math.round(value * 100)}%` }}
         />
       </div>
-      <span className="text-xs tabular-nums font-medium w-12 text-right">{fmtProbability(value)}</span>
+      <span className="w-12 text-right text-xs font-medium tabular-nums">{fmtProbability(value)}</span>
     </div>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Probability trend chart
-// ---------------------------------------------------------------------------
-
-function ProbabilityChart({
-  history,
-  eventTitle,
-  dark,
-}: {
-  history: HistoryPoint[];
-  eventTitle: string;
-  dark: boolean;
-}) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current || !history.length) return;
-
-    const theme = getChartTheme();
-    const chart = echarts.init(containerRef.current);
-
-    const times = history.map((p) => p.time.slice(0, 10));
-    const probs = history.map((p) => Math.round(p.probability * 1000) / 10);
-
-    chart.setOption({
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: theme.tooltipBg,
-        borderColor: theme.tooltipBorder,
-        textStyle: { color: theme.tooltipText, fontSize: 12 },
-        formatter: (params: { data: number; axisValue: string }[]) => {
-          if (!params?.length) return "";
-          const p = params[0];
-          return `${p.axisValue}<br/><b>${p.data}%</b>`;
-        },
-      },
-      grid: { left: 48, right: 16, top: 16, bottom: 32 },
-      xAxis: {
-        type: "category",
-        data: times,
-        axisLine: { lineStyle: { color: theme.axisColor } },
-        axisLabel: { color: theme.textColor, fontSize: 10, rotate: times.length > 30 ? 45 : 0 },
-        axisTick: { show: false },
-      },
-      yAxis: {
-        type: "value",
-        min: 0,
-        max: 100,
-        axisLabel: { color: theme.textColor, fontSize: 11, formatter: "{value}%" },
-        splitLine: { lineStyle: { color: theme.gridColor } },
-      },
-      series: [
-        {
-          type: "line",
-          data: probs,
-          smooth: true,
-          symbol: "none",
-          lineStyle: { color: theme.infoColor, width: 2 },
-          areaStyle: {
-            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-              { offset: 0, color: theme.infoColor + "44" },
-              { offset: 1, color: theme.infoColor + "04" },
-            ]),
-          },
-        },
-      ],
-    });
-
-    const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(containerRef.current);
-
-    return () => {
-      ro.disconnect();
-      chart.dispose();
-    };
-  }, [history, eventTitle, dark]);
-
-  if (!history.length) {
-    return (
-      <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-        暂无历史数据
-      </div>
-    );
-  }
-
-  return <div ref={containerRef} className="w-full h-full" />;
-}
-
-// ---------------------------------------------------------------------------
-// Detail panel
-// ---------------------------------------------------------------------------
-
-function DetailPanel({
-  event,
-  onClose,
-  dark,
-}: {
-  event: EventItem;
-  onClose: () => void;
-  dark: boolean;
-}) {
-  const [history, setHistory] = useState<HistoryPoint[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [range, setRange] = useState<30 | 90>(30);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setError(null);
-
-    api
-      .getEventHistory(event.source, event.id, range)
-      .then((res) => {
-        if (!alive) return;
-        setHistory(res.history);
-      })
-      .catch((err: unknown) => {
-        if (!alive) return;
-        const msg = err instanceof Error ? err.message : "加载历史数据失败";
-        setError(msg);
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, [event.source, event.id, range]);
-
-  return (
-    <div className="border rounded-xl p-4 bg-card space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <h3 className="font-semibold text-sm leading-snug">{event.title}</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            {event.source === "kalshi" ? "Kalshi" : "Polymarket"}
-            {event.threshold !== "—" && ` · ${event.threshold}`}
-          </p>
-        </div>
-        <button
-          onClick={onClose}
-          className="shrink-0 p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground"
-          aria-label="关闭详情"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Key stats */}
-      <div className="grid grid-cols-3 gap-3">
-        <div className="bg-muted/40 rounded-lg p-3 text-center">
-          <p className="text-2xl font-bold tabular-nums">{fmtProbability(event.probability)}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">当前概率</p>
-        </div>
-        <div className="bg-muted/40 rounded-lg p-3 text-center">
-          <p
-            className={cn(
-              "text-2xl font-bold tabular-nums flex items-center justify-center gap-1",
-              event.prob_change_24h >= 0 ? "text-green-500" : "text-red-500",
-            )}
-          >
-            {event.prob_change_24h >= 0 ? (
-              <TrendingUp className="w-4 h-4" />
-            ) : (
-              <TrendingDown className="w-4 h-4" />
-            )}
-            {fmtChange(event.prob_change_24h)}
-          </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">24h 变化</p>
-        </div>
-        <div className="bg-muted/40 rounded-lg p-3 text-center">
-          <p className="text-2xl font-bold tabular-nums">{event.volume}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">成交量</p>
-        </div>
-      </div>
-
-      {/* Resolve time */}
-      {event.resolve_time && (
-        <p className="text-xs text-muted-foreground">
-          揭晓时间:{" "}
-          <span className="font-medium text-foreground">
-            {event.resolve_time}
-          </span>
-        </p>
-      )}
-
-      {/* Range toggle */}
-      <div className="flex items-center gap-1">
-        {([30, 90] as const).map((r) => (
-          <button
-            key={r}
-            onClick={() => setRange(r)}
-            className={cn(
-              "px-2.5 py-0.5 text-xs rounded-md border transition-colors",
-              range === r
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-muted/40 text-muted-foreground border-transparent hover:bg-muted",
-            )}
-          >
-            {r}天
-          </button>
-        ))}
-      </div>
-
-      {/* Chart */}
-      <div className="h-[280px]">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-          </div>
-        ) : error ? (
-          <div className="flex items-center justify-center h-full text-sm text-muted-foreground gap-2">
-            <AlertTriangle className="w-4 h-4" />
-            {error}
-          </div>
-        ) : (
-          <ProbabilityChart history={history} eventTitle={event.title} dark={dark} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Events table
-// ---------------------------------------------------------------------------
-
-type SortKey = "probability" | "prob_change_24h" | "volume_raw" | "resolve_time";
 
 function EventsTable({
   events,
   selectedId,
   onSelect,
-  dark: _dark,
 }: {
-  events: EventItem[];
+  events: Array<EventItem & { categoryLabel?: string; categoryId?: string; categorySource?: string }>;
   selectedId: string | null;
-  onSelect: (e: EventItem) => void;
-  dark: boolean;
+  onSelect: (event: EventItem) => void;
 }) {
   const [sortKey, setSortKey] = useState<SortKey>("prob_change_24h");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
+  const sorted = useMemo(() => {
+    return [...events].sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "probability") cmp = a.probability - b.probability;
+      if (sortKey === "prob_change_24h") cmp = a.prob_change_24h - b.prob_change_24h;
+      if (sortKey === "volume_raw") cmp = parseVolume(a.volume) - parseVolume(b.volume);
+      if (sortKey === "resolve_time") cmp = a.resolve_time.localeCompare(b.resolve_time);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+  }, [events, sortDir, sortKey]);
+
   const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((d) => (d === "desc" ? "asc" : "desc"));
-    } else {
+    if (sortKey === key) setSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
+    else {
       setSortKey(key);
       setSortDir("desc");
     }
   };
 
-  const parseVolume = (v: string): number => {
-    const cleaned = v.replace(/[$,]/g, "");
-    if (cleaned.endsWith("M")) return parseFloat(cleaned) * 1_000_000;
-    if (cleaned.endsWith("K")) return parseFloat(cleaned) * 1_000;
-    return parseFloat(cleaned) || 0;
-  };
-
-  const sorted = [...events].sort((a, b) => {
-    let cmp = 0;
-    switch (sortKey) {
-      case "probability":
-        cmp = a.probability - b.probability;
-        break;
-      case "prob_change_24h":
-        cmp = a.prob_change_24h - b.prob_change_24h;
-        break;
-      case "volume_raw":
-        cmp = parseVolume(a.volume) - parseVolume(b.volume);
-        break;
-      case "resolve_time":
-        cmp = a.resolve_time.localeCompare(b.resolve_time);
-        break;
-    }
-    return sortDir === "asc" ? cmp : -cmp;
-  });
-
   const SortIcon = ({ col }: { col: SortKey }) => {
     if (sortKey !== col) return null;
-    return sortDir === "asc" ? (
-      <ChevronUp className="w-3 h-3 inline ml-0.5" />
-    ) : (
-      <ChevronDown className="w-3 h-3 inline ml-0.5" />
-    );
+    return sortDir === "asc" ? <ChevronUp className="ml-0.5 inline h-3 w-3" /> : <ChevronDown className="ml-0.5 inline h-3 w-3" />;
   };
 
-  const thClass =
-    "px-3 py-2 text-left text-[11px] font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none whitespace-nowrap";
-
-  if (!events.length) {
-    return (
-      <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
-        该分类暂无事件
-      </div>
-    );
-  }
+  const thClass = "px-3 py-2 text-left text-[11px] font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none whitespace-nowrap";
 
   return (
-    <div className="overflow-x-auto">
+    <div className="overflow-x-auto rounded-lg border bg-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b">
-            <th className={thClass + " w-full"} onClick={() => toggleSort("prob_change_24h")}>
+          <tr className="border-b bg-muted/25">
+            <th className={`${thClass} w-full`} onClick={() => toggleSort("prob_change_24h")}>
               事件 <SortIcon col="prob_change_24h" />
             </th>
             <th className={thClass} onClick={() => toggleSort("probability")}>
@@ -399,55 +347,37 @@ function EventsTable({
         </thead>
         <tbody>
           {sorted.map((event) => {
-            const isSelected = event.id === selectedId;
+            const selected = event.id === selectedId;
             const big = isBigMove(event.prob_change_24h);
             return (
               <tr
                 key={event.id}
                 onClick={() => onSelect(event)}
                 className={cn(
-                  "border-b last:border-0 cursor-pointer transition-colors hover:bg-muted/50",
-                  isSelected && "bg-primary/5 hover:bg-primary/10 border-primary/20",
+                  "cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50",
+                  selected && "bg-primary/5 hover:bg-primary/10",
                   big && "bg-amber-500/5",
                 )}
               >
-                <td className="px-3 py-2.5">
+                <td className="px-3 py-3">
                   <p className="text-xs font-medium leading-snug">{event.title}</p>
-                  {event.threshold !== "—" && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {event.threshold}
-                    </p>
-                  )}
-                  {big && (
-                    <span className="inline-block mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 font-medium">
-                      大幅异动
-                    </span>
-                  )}
+                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                    {event.categoryLabel && <span>{event.categoryLabel}</span>}
+                    {event.threshold && event.threshold !== "-" && <span>{event.threshold}</span>}
+                    {big && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">大幅异动</span>}
+                  </div>
                 </td>
-                <td className="px-3 py-2.5">
+                <td className="px-3 py-3">
                   <ProbabilityBar value={event.probability} />
                 </td>
-                <td className="px-3 py-2.5">
-                  <span
-                    className={cn(
-                      "text-xs font-medium tabular-nums flex items-center gap-1",
-                      event.prob_change_24h >= 0 ? "text-green-500" : "text-red-500",
-                    )}
-                  >
-                    {event.prob_change_24h >= 0 ? (
-                      <TrendingUp className="w-3 h-3" />
-                    ) : (
-                      <TrendingDown className="w-3 h-3" />
-                    )}
+                <td className="px-3 py-3">
+                  <span className={cn("flex items-center gap-1 text-xs font-medium tabular-nums", event.prob_change_24h >= 0 ? "text-green-500" : "text-red-500")}>
+                    {event.prob_change_24h >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                     {fmtChange(event.prob_change_24h)}
                   </span>
                 </td>
-                <td className="px-3 py-2.5 text-xs tabular-nums text-muted-foreground">
-                  {event.volume}
-                </td>
-                <td className="px-3 py-2.5 text-xs tabular-nums text-muted-foreground whitespace-nowrap">
-                  {event.resolve_time}
-                </td>
+                <td className="px-3 py-3 text-xs tabular-nums text-muted-foreground">{event.volume}</td>
+                <td className="whitespace-nowrap px-3 py-3 text-xs tabular-nums text-muted-foreground">{event.resolve_time}</td>
               </tr>
             );
           })}
@@ -457,234 +387,200 @@ function EventsTable({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Main page
-// ---------------------------------------------------------------------------
-
-export function Events() {
-  const { dark } = useDarkMode();
-  const [categories, setCategories] = useState<EventsCategory[]>([]);
+function DetailPanel({
+  event,
+  dark,
+  params,
+  symbol,
+  onClose,
+}: {
+  event: EventItem;
+  dark: boolean;
+  params: URLSearchParams;
+  symbol: string;
+  onClose: () => void;
+}) {
+  const [history, setHistory] = useState<HistoryPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeCat, setActiveCat] = useState<string>("geopolitical");
-  const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
-  const [updatedAt, setUpdatedAt] = useState<string>("");
-  const [refreshing, setRefreshing] = useState(false);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [range, setRange] = useState<30 | 90>(30);
 
-  const fetchData = useCallback(
-    (silent = false) => {
-      if (!silent) setRefreshing(true);
-
-      api
-        .listEvents()
-        .then((res) => {
-          setCategories(res.categories);
-          setUpdatedAt(res.updated_at);
-          setError(null);
-
-          const firstWithEvents = res.categories.find((c) => c.events.length > 0);
-          if (firstWithEvents && !res.categories.find((c) => c.id === activeCat)) {
-            setActiveCat(firstWithEvents.id);
-          }
-        })
-        .catch((err: unknown) => {
-          const msg = err instanceof Error ? err.message : "加载失败";
-          if (!categories.length) setError(msg);
-          else toast.error(msg);
-        })
-        .finally(() => {
-          setLoading(false);
-          setRefreshing(false);
-        });
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  // Initial load
   useEffect(() => {
     let alive = true;
     setLoading(true);
-
-    api
-      .listEvents()
+    setError(null);
+    api.getEventHistory(event.source, event.id, range)
       .then((res) => {
-        if (!alive) return;
-        setCategories(res.categories);
-        setUpdatedAt(res.updated_at);
-        const firstWithEvents = res.categories.find((c) => c.events.length > 0);
-        if (firstWithEvents) setActiveCat(firstWithEvents.id);
+        if (alive) setHistory(res.history);
       })
-      .catch((err: unknown) => {
-        if (!alive) return;
-        setError(err instanceof Error ? err.message : "加载失败");
+      .catch((err) => {
+        if (alive) setError(err instanceof Error ? err.message : "加载历史数据失败");
       })
       .finally(() => {
         if (alive) setLoading(false);
       });
-
     return () => {
       alive = false;
     };
-  }, []);
+  }, [event.id, event.source, range]);
 
-  // Auto-refresh
-  useEffect(() => {
-    intervalRef.current = setInterval(() => fetchData(true), REFRESH_INTERVAL_MS);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [fetchData]);
-
-  const activeCategory = categories.find((c) => c.id === activeCat);
-  const activeEvents = activeCategory?.events ?? [];
+  const next = new URLSearchParams(params);
+  next.set("q", event.title);
+  if (symbol.trim()) next.set("symbol", normalizeChinaSymbol(symbol));
 
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-      {/* Top bar */}
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b shrink-0">
-        <div>
-          <h1 className="text-lg font-semibold">预测市场</h1>
-          <p className="text-xs text-muted-foreground">
-            Polymarket 实时预测市场事件概率
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {updatedAt && (
-            <span className="text-[10px] text-muted-foreground hidden sm:inline">
-              更新于 {new Date(updatedAt).toLocaleTimeString()}
-            </span>
-          )}
-          <button
-            onClick={() => fetchData()}
-            disabled={refreshing}
-            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-            aria-label="刷新"
-          >
-            <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
+    <div className="h-full overflow-y-auto p-4">
+      <div className="rounded-lg border bg-card p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold leading-snug">{event.title}</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {event.source}
+              {event.threshold && event.threshold !== "-" ? ` · ${event.threshold}` : ""}
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <X className="h-4 w-4" />
           </button>
         </div>
-      </div>
 
-      {/* Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Category sidebar */}
-        <aside className="w-[160px] shrink-0 border-r overflow-y-auto p-3 space-y-1 hidden md:block">
-          {categories.map((cat) => {
-            const Icon = CATEGORY_ICONS[cat.id] || Globe;
-            const count = cat.events.length;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => {
-                  setActiveCat(cat.id);
-                  setSelectedEvent(null);
-                }}
-                className={cn(
-                  "w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition-colors text-left",
-                  activeCat === cat.id
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                <Icon className="w-4 h-4 shrink-0" />
-                <span className="flex-1 truncate">{cat.label}</span>
-                <span className="text-[10px] tabular-nums opacity-60">{count}</span>
-              </button>
-            );
-          })}
-        </aside>
+        <div className="mt-4 grid grid-cols-3 gap-2">
+          <DetailMetric label="当前概率" value={fmtProbability(event.probability)} />
+          <DetailMetric label="24h 变化" value={fmtChange(event.prob_change_24h)} trend={event.prob_change_24h >= 0 ? "up" : "down"} />
+          <DetailMetric label="成交量" value={event.volume} />
+        </div>
 
-        {/* Mobile category tabs */}
-        <div className="md:hidden flex items-center gap-1 px-4 py-2 border-b overflow-x-auto shrink-0">
-          {categories.map((cat) => (
+        {event.resolve_time && (
+          <p className="mt-3 text-xs text-muted-foreground">
+            揭晓时间：<span className="text-foreground">{event.resolve_time}</span>
+          </p>
+        )}
+
+        <div className="mt-4 flex items-center gap-1">
+          {([30, 90] as const).map((item) => (
             <button
-              key={cat.id}
-              onClick={() => {
-                setActiveCat(cat.id);
-                setSelectedEvent(null);
-              }}
+              key={item}
+              type="button"
+              onClick={() => setRange(item)}
               className={cn(
-                "px-3 py-1.5 text-xs rounded-full transition-colors whitespace-nowrap",
-                activeCat === cat.id
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-muted text-muted-foreground",
+                "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                range === item ? "border-primary bg-primary text-primary-foreground" : "border-transparent bg-muted/50 text-muted-foreground hover:bg-muted",
               )}
             >
-              {cat.label}
+              {item} 天
             </button>
           ))}
         </div>
 
-        {/* Main area: table + optional detail */}
-        <div className="flex-1 flex overflow-hidden">
-          {/* Table */}
-          <div
-            className={cn(
-              "flex-1 overflow-y-auto",
-              selectedEvent ? "hidden lg:block" : "",
-            )}
-          >
-            {/* Source badge */}
-            {activeCategory && (
-              <div className="px-4 py-2 border-b flex items-center gap-2">
-                <span className="text-[10px] text-muted-foreground">数据源</span>
-                <span className="text-xs font-medium px-2 py-0.5 rounded bg-muted">
-                  {activeCategory.source}
-                </span>
-                <span className="text-[10px] text-muted-foreground ml-auto">
-                  {activeEvents.length} 个事件
-                </span>
-              </div>
-            )}
-
-            {loading ? (
-              <div className="flex items-center justify-center py-20">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : error ? (
-              <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
-                <AlertTriangle className="w-8 h-8" />
-                <p className="text-sm">{error}</p>
-                <button
-                  onClick={() => fetchData()}
-                  className="text-xs text-primary hover:underline"
-                >
-                  重试
-                </button>
-              </div>
-            ) : (
-              <EventsTable
-                events={activeEvents}
-                selectedId={selectedEvent?.id ?? null}
-                onSelect={setSelectedEvent}
-                dark={dark}
-              />
-            )}
-          </div>
-
-          {/* Detail panel */}
-          {selectedEvent && (
-            <div className="hidden lg:block w-[380px] shrink-0 border-l overflow-y-auto p-4">
-              <DetailPanel event={selectedEvent} onClose={() => setSelectedEvent(null)} dark={dark} />
-            </div>
+        <div className="mt-4 h-[260px] rounded-lg border bg-background/60 p-2">
+          {loading ? (
+            <MarketLoadingState label="正在加载概率历史" />
+          ) : error ? (
+            <MarketErrorState message={error} />
+          ) : (
+            <ProbabilityChart history={history} dark={dark} />
           )}
+        </div>
 
-          {/* Mobile detail modal */}
-          {selectedEvent && (
-            <div className="lg:hidden fixed inset-0 z-50 bg-background/80 backdrop-blur-sm">
-              <div className="absolute inset-x-0 bottom-0 top-12 overflow-y-auto p-4">
-                <DetailPanel
-                  event={selectedEvent}
-                  onClose={() => setSelectedEvent(null)}
-                  dark={dark}
-                />
-              </div>
-            </div>
+        <div className="mt-4 space-y-2">
+          <Link to={buildIntelPath("/opportunity", next)} className="block rounded-md bg-primary px-3 py-2 text-center text-xs font-medium text-primary-foreground hover:opacity-90">
+            查看机会候选
+          </Link>
+          {symbol.trim() ? (
+            <Link to={buildIntelPath("/logic-chain", next)} className="block rounded-md border px-3 py-2 text-center text-xs hover:bg-muted">
+              进入标的逻辑链
+            </Link>
+          ) : (
+            <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+              输入标的代码后，可直接从事件进入逻辑链。
+            </p>
           )}
         </div>
       </div>
     </div>
   );
+}
+
+function DetailMetric({
+  label,
+  value,
+  trend,
+}: {
+  label: string;
+  value: string;
+  trend?: "up" | "down";
+}) {
+  return (
+    <div className="rounded-lg bg-muted/40 p-3 text-center">
+      <p className={cn("text-lg font-semibold tabular-nums", trend === "up" && "text-green-500", trend === "down" && "text-red-500")}>{value}</p>
+      <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function ProbabilityChart({ history, dark }: { history: HistoryPoint[]; dark: boolean }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current || !history.length) return;
+    const theme = getChartTheme();
+    const chart = echarts.init(containerRef.current);
+    const times = history.map((point) => point.time.slice(0, 10));
+    const probs = history.map((point) => Math.round(point.probability * 1000) / 10);
+
+    chart.setOption({
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: theme.tooltipBg,
+        borderColor: theme.tooltipBorder,
+        textStyle: { color: theme.tooltipText, fontSize: 12 },
+        formatter: (params: { data: number; axisValue: string }[]) => {
+          if (!params?.length) return "";
+          const point = params[0];
+          return `${point.axisValue}<br/><b>${point.data}%</b>`;
+        },
+      },
+      grid: { left: 42, right: 12, top: 12, bottom: 28 },
+      xAxis: {
+        type: "category",
+        data: times,
+        axisLine: { lineStyle: { color: theme.axisColor } },
+        axisLabel: { color: theme.textColor, fontSize: 10, rotate: times.length > 30 ? 45 : 0 },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        max: 100,
+        axisLabel: { color: theme.textColor, fontSize: 11, formatter: "{value}%" },
+        splitLine: { lineStyle: { color: theme.gridColor } },
+      },
+      series: [{
+        type: "line",
+        data: probs,
+        smooth: true,
+        symbol: "none",
+        lineStyle: { color: theme.infoColor, width: 2 },
+        areaStyle: {
+          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: `${theme.infoColor}44` },
+            { offset: 1, color: `${theme.infoColor}04` },
+          ]),
+        },
+      }],
+    });
+
+    const ro = new ResizeObserver(() => chart.resize());
+    ro.observe(containerRef.current);
+    return () => {
+      ro.disconnect();
+      chart.dispose();
+    };
+  }, [dark, history]);
+
+  if (!history.length) {
+    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">暂无历史数据</div>;
+  }
+
+  return <div ref={containerRef} className="h-full w-full" />;
 }

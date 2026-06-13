@@ -1,9 +1,27 @@
-import { useState, useEffect, useCallback, useRef } from "react";
-import { Loader2, RefreshCw, AlertTriangle, TrendingUp, TrendingDown, Flame, Sparkles, Zap, Circle } from "lucide-react";
-import { api, type OpportunityCategory } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  Circle,
+  Flame,
+  Lightbulb,
+  Sparkles,
+  TrendingDown,
+  TrendingUp,
+  Zap,
+} from "lucide-react";
+import { api, type Opportunity, type OpportunityCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import {
+  buildIntelPath,
+  MarketEmptyState,
+  MarketErrorState,
+  MarketIntelHeader,
+  MarketLoadingState,
+  normalizeChinaSymbol,
+  plainSymbol,
+} from "@/components/market/MarketIntelShell";
 
-const REFRESH_MS = 300_000; // 5 min
+const REFRESH_MS = 300_000;
 
 const CAT_ICONS: Record<string, typeof Flame> = {
   breakout: Flame,
@@ -19,19 +37,27 @@ const CAT_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
   amber: { bg: "bg-amber-500/5 border-amber-500/20", text: "text-amber-600 dark:text-amber-400", bar: "bg-amber-500" },
 };
 
-function fmtPrice(p: number): string {
-  return p >= 1000 ? p.toFixed(0) : p.toFixed(2);
+type SortKey = "confidence" | "change" | "name";
+
+function fmtPrice(value: number): string {
+  return value >= 1000 ? value.toFixed(0) : value.toFixed(2);
 }
 
-function fmtPct(p: number): string {
-  return `${p >= 0 ? "+" : ""}${p.toFixed(2)}%`;
+function fmtPct(value: number): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
 export function Opportunity() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [categories, setCategories] = useState<OpportunityCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState(searchParams.get("q") ?? "");
+  const [symbol, setSymbol] = useState(plainSymbol(searchParams.get("symbol") ?? ""));
+  const [category, setCategory] = useState(searchParams.get("category") ?? "all");
+  const [sortKey, setSortKey] = useState<SortKey>("confidence");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchData = useCallback((silent = false) => {
@@ -39,88 +65,189 @@ export function Opportunity() {
     api.listOpportunities()
       .then((res) => {
         setCategories(res.categories);
+        setUpdatedAt(res.updated_at);
         setError(res.error ?? null);
       })
-      .catch((err) => setError(err instanceof Error ? err.message : "加载失败"))
-      .finally(() => { setLoading(false); setRefreshing(false); });
+      .catch((err) => setError(err instanceof Error ? err.message : "加载机会清单失败"))
+      .finally(() => {
+        setLoading(false);
+        setRefreshing(false);
+      });
   }, []);
 
-  useEffect(() => { setLoading(true); fetchData(true); }, [fetchData]);
   useEffect(() => {
-    intervalRef.current = setInterval(() => fetchData(true), REFRESH_MS);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+    setQuery(searchParams.get("q") ?? "");
+    setSymbol(plainSymbol(searchParams.get("symbol") ?? ""));
+    setCategory(searchParams.get("category") ?? "all");
+  }, [searchParams]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchData(true);
   }, [fetchData]);
 
+  useEffect(() => {
+    intervalRef.current = setInterval(() => fetchData(true), REFRESH_MS);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [fetchData]);
+
+  const applySearch = useCallback(() => {
+    const next = new URLSearchParams();
+    if (query.trim()) next.set("q", query.trim());
+    if (symbol.trim()) next.set("symbol", normalizeChinaSymbol(symbol));
+    if (category !== "all") next.set("category", category);
+    setSearchParams(next);
+  }, [category, query, setSearchParams, symbol]);
+
+  const allItems = useMemo(() => {
+    return categories.flatMap((cat) => cat.opportunities.map((item) => ({ ...item, categoryLabel: cat.label, categoryId: cat.id, color: cat.color })));
+  }, [categories]);
+
+  const visibleItems = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const sym = plainSymbol(symbol);
+    return allItems
+      .filter((item) => category === "all" || item.categoryId === category)
+      .filter((item) => {
+        if (sym && !plainSymbol(item.symbol).includes(sym)) return false;
+        if (!q) return true;
+        return `${item.name} ${item.symbol} ${item.reason} ${item.categoryLabel}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        if (sortKey === "change") return b.change_pct - a.change_pct;
+        if (sortKey === "name") return a.name.localeCompare(b.name, "zh-CN");
+        return b.confidence - a.confidence;
+      });
+  }, [allItems, category, query, sortKey, symbol]);
+
   return (
-    <div className="h-[calc(100vh-3.5rem)] flex flex-col">
-      <div className="flex items-center justify-between px-4 md:px-6 py-3 border-b shrink-0">
-        <div>
-          <h1 className="text-lg font-semibold">机会清单</h1>
-          <p className="text-xs text-muted-foreground">A股全市场自动扫描 · 四维度发现交易机会</p>
+    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+      <MarketIntelHeader
+        active="opportunity"
+        query={query}
+        symbol={symbol}
+        onQueryChange={setQuery}
+        onSymbolChange={setSymbol}
+        onSearch={applySearch}
+        onRefresh={() => fetchData()}
+        refreshing={refreshing}
+        updatedAt={updatedAt}
+      />
+
+      <div className="border-b px-4 py-3 md:px-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={category}
+            onChange={(event) => {
+              setCategory(event.target.value);
+              const next = new URLSearchParams(searchParams);
+              if (event.target.value === "all") next.delete("category");
+              else next.set("category", event.target.value);
+              setSearchParams(next);
+            }}
+            className="h-9 rounded-md border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/15"
+          >
+            <option value="all">全部机会</option>
+            {categories.map((cat) => (
+              <option key={cat.id} value={cat.id}>{cat.label}</option>
+            ))}
+          </select>
+          <select
+            value={sortKey}
+            onChange={(event) => setSortKey(event.target.value as SortKey)}
+            className="h-9 rounded-md border bg-background px-3 text-xs outline-none focus:ring-2 focus:ring-primary/15"
+          >
+            <option value="confidence">按置信度排序</option>
+            <option value="change">按涨跌幅排序</option>
+            <option value="name">按名称排序</option>
+          </select>
+          <span className="text-xs text-muted-foreground">当前 {visibleItems.length} 个候选机会</span>
         </div>
-        <button onClick={() => fetchData()} disabled={refreshing}
-          className="p-1.5 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-colors">
-          <RefreshCw className={cn("w-4 h-4", refreshing && "animate-spin")} />
-        </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
         {loading ? (
-          <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 animate-spin text-muted-foreground" /></div>
+          <MarketLoadingState label="正在扫描候选机会" />
         ) : error ? (
-          <div className="flex flex-col items-center justify-center py-20 gap-3 text-muted-foreground">
-            <AlertTriangle className="w-8 h-8" />
-            <p className="text-sm">{error}</p>
-            <button onClick={() => fetchData()} className="text-xs text-primary hover:underline">重试</button>
-          </div>
+          <MarketErrorState message={error} onRetry={() => fetchData()} />
+        ) : visibleItems.length === 0 ? (
+          <MarketEmptyState
+            icon={Lightbulb}
+            title="当前筛选下暂无候选机会"
+            description="可以放宽分类或关键词，也可以先去新闻线索里寻找新的主题。"
+            action={
+              <Link to={buildIntelPath("/news", searchParams)} className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted">
+                查看新闻线索
+              </Link>
+            }
+          />
         ) : (
-          categories.map((cat) => {
-            const Icon = CAT_ICONS[cat.id] || Circle;
-            const color = CAT_COLORS[cat.color] || CAT_COLORS.green;
-            return (
-              <section key={cat.id}>
-                <div className="flex items-center gap-2 mb-3">
-                  <Icon className={cn("w-5 h-5", color.text)} />
-                  <h2 className="text-base font-semibold">{cat.label}</h2>
-                  <span className="text-xs text-muted-foreground ml-1">{cat.opportunities.length} 个机会</span>
-                </div>
-
-                {cat.opportunities.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-4">暂未发现此类机会</p>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                    {cat.opportunities.map((opp) => (
-                      <div key={opp.symbol} className={cn("border rounded-xl p-4 transition-colors hover:shadow-sm", color.bg)}>
-                        <div className="flex items-start justify-between mb-2">
-                          <div>
-                            <p className="font-semibold text-sm">{opp.name}</p>
-                            <p className="font-mono text-[10px] text-muted-foreground">{opp.symbol}</p>
-                          </div>
-                          <span className={cn("text-xs font-bold px-2 py-0.5 rounded-full", color.text, color.bg)}>
-                            {(opp.confidence * 100).toFixed(0)}%
-                          </span>
-                        </div>
-                        <div className="flex items-baseline gap-2 mb-2">
-                          <span className="text-lg font-bold tabular-nums">¥{fmtPrice(opp.price)}</span>
-                          <span className={cn("text-xs font-medium", opp.change_pct >= 0 ? "text-green-500" : "text-red-500")}>
-                            {opp.change_pct >= 0 ? <TrendingUp className="w-3 h-3 inline mr-0.5" /> : <TrendingDown className="w-3 h-3 inline mr-0.5" />}
-                            {fmtPct(opp.change_pct)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground leading-relaxed">{opp.reason}</p>
-                        {/* Confidence bar */}
-                        <div className="mt-2 h-1 rounded-full bg-muted/50 overflow-hidden">
-                          <div className={cn("h-full rounded-full transition-all", color.bar)} style={{ width: `${opp.confidence * 100}%` }} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </section>
-            );
-          })
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {visibleItems.map((item) => (
+              <OpportunityCard key={`${item.categoryId}-${item.symbol}`} item={item} params={searchParams} />
+            ))}
+          </div>
         )}
       </div>
     </div>
+  );
+}
+
+function OpportunityCard({
+  item,
+  params,
+}: {
+  item: Opportunity & { categoryLabel: string; categoryId: string; color: string };
+  params: URLSearchParams;
+}) {
+  const color = CAT_COLORS[item.color] || CAT_COLORS.green;
+  const Icon = CAT_ICONS[item.categoryId] || Circle;
+  const next = new URLSearchParams(params);
+  next.set("symbol", normalizeChinaSymbol(item.symbol));
+  if (!next.get("q")) next.set("q", item.name);
+
+  return (
+    <article className={cn("flex min-h-[238px] flex-col rounded-lg border bg-card p-4 transition-colors hover:shadow-sm", color.bg)}>
+      <div className="mb-3 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5">
+            <Icon className={cn("h-4 w-4", color.text)} />
+            <p className="truncate text-sm font-semibold">{item.name}</p>
+          </div>
+          <p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{item.symbol}</p>
+        </div>
+        <span className={cn("rounded-full px-2 py-0.5 text-xs font-semibold", color.text, "bg-background/70")}>
+          {(item.confidence * 100).toFixed(0)}%
+        </span>
+      </div>
+
+      <div className="mb-3 flex items-baseline gap-2">
+        <span className="text-xl font-bold tabular-nums">¥{fmtPrice(item.price)}</span>
+        <span className={cn("text-xs font-medium", item.change_pct >= 0 ? "text-green-500" : "text-red-500")}>
+          {item.change_pct >= 0 ? <TrendingUp className="mr-0.5 inline h-3 w-3" /> : <TrendingDown className="mr-0.5 inline h-3 w-3" />}
+          {fmtPct(item.change_pct)}
+        </span>
+      </div>
+
+      <p className="line-clamp-3 flex-1 text-xs leading-relaxed text-muted-foreground">{item.reason}</p>
+
+      <div className="mt-3 h-1 rounded-full bg-background/60">
+        <div className={cn("h-full rounded-full", color.bar)} style={{ width: `${item.confidence * 100}%` }} />
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <Link to={buildIntelPath("/news", next)} className="rounded-md border bg-background/70 px-2.5 py-1 text-xs hover:bg-muted">
+          看新闻
+        </Link>
+        <Link to={buildIntelPath("/events", next)} className="rounded-md border bg-background/70 px-2.5 py-1 text-xs hover:bg-muted">
+          验事件
+        </Link>
+        <Link to={buildIntelPath("/logic-chain", next)} className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90">
+          进逻辑链
+        </Link>
+      </div>
+    </article>
   );
 }

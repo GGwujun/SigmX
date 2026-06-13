@@ -3110,7 +3110,7 @@ register_logic_chain_routes(app, require_auth, require_event_stream_auth)
 # ============================================================================
 
 from src.api.alpha_forge_routes import register_alpha_forge_routes  # noqa: E402
-register_alpha_forge_routes(app, require_auth, require_event_stream_auth)
+register_alpha_forge_routes(app, require_auth, require_event_stream_auth, _get_swarm_runtime)
 
 
 # ============================================================================

@@ -10,18 +10,42 @@ import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
 // Bump on each release; one place keeps the footer in sync with package.json.
 const APP_VERSION = "v0.1.9";
 
-const NAV = [
-  { to: "/", icon: BarChart3, label: "首页" },
-  { to: "/agent", icon: Bot, label: "智能体" },
-  { to: "/alpha-zoo", icon: Layers, label: "因子工厂" },
-  { to: "/settings", icon: Settings, label: "设置" },
-  { to: "/correlation", icon: BarChart3, label: "相关性矩阵" },
-  { to: "/events", icon: TrendingUp, label: "事件" },
-  { to: "/position-decision", icon: Target, label: "持仓决策" },
-  { to: "/news", icon: Newspaper, label: "新闻" },
-  { to: "/opportunity", icon: Lightbulb, label: "机会清单" },
-  { to: "/logic-chain", icon: GitBranch, label: "逻辑链" },
-  { to: "/alpha-forge", icon: Zap, label: "AlphaForge" },
+const NAV_GROUPS = [
+  {
+    title: "工作台",
+    items: [
+      { to: "/", icon: BarChart3, label: "今日总览" },
+    ],
+  },
+  {
+    title: "AI 投研",
+    items: [
+      { to: "/agent", icon: Bot, label: "智能体" },
+      { to: "/alpha-forge", icon: Zap, label: "AlphaForge" },
+    ],
+  },
+  {
+    title: "市场情报",
+    items: [
+      { to: "/news", icon: Newspaper, label: "新闻线索" },
+      { to: "/events", icon: TrendingUp, label: "事件雷达" },
+      { to: "/opportunity", icon: Lightbulb, label: "机会清单" },
+      { to: "/logic-chain", icon: GitBranch, label: "逻辑链" },
+      { to: "/correlation", icon: BarChart3, label: "相关性矩阵" },
+    ],
+  },
+  {
+    title: "交易决策",
+    items: [
+      { to: "/position-decision", icon: Target, label: "持仓决策" },
+    ],
+  },
+  {
+    title: "策略实验室",
+    items: [
+      { to: "/alpha-zoo", icon: Layers, label: "因子工厂" },
+    ],
+  },
 ];
 
 export function Layout() {
@@ -78,7 +102,7 @@ export function Layout() {
     <div className="flex h-screen bg-background">
       {/* Sidebar */}
       <aside className={cn(
-        "border-r bg-card flex flex-col shrink-0 transition-all duration-200",
+        "border-r bg-card flex flex-col shrink-0 overflow-hidden transition-all duration-200",
         collapsed ? "w-12" : "w-64"
       )}>
         {/* Brand */}
@@ -90,47 +114,56 @@ export function Layout() {
         </div>
 
         {/* Nav */}
-        <nav className={cn("space-y-0.5", collapsed ? "p-1" : "p-2")}>
-          {NAV.map(({ to, icon: Icon, label }) => {
-            const text = label;
-            return (
-              <Link
-                key={to}
-                to={to}
-                className={cn(
-                  "flex items-center rounded-md text-sm transition-colors",
-                  collapsed ? "justify-center p-2" : "gap-3 px-3 py-2",
-                  (to === "/" ? pathname === "/" : pathname.startsWith(to))
-                    ? "bg-primary/10 text-primary font-medium"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                )}
-                title={collapsed ? text : undefined}
-              >
-                <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {!collapsed && text}
-              </Link>
-            );
-          })}
+        <nav className={cn("shrink-0 overflow-auto", collapsed ? "p-1 space-y-1" : "max-h-[46vh] p-2 space-y-3")}>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.title} className="space-y-0.5">
+              {!collapsed && (
+                <div className="px-3 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">
+                  {group.title}
+                </div>
+              )}
+              {group.items.map(({ to, icon: Icon, label }) => {
+                const active = to === "/" ? pathname === "/" : pathname.startsWith(to);
+                return (
+                  <Link
+                    key={to}
+                    to={to}
+                    className={cn(
+                      "flex items-center rounded-md text-sm transition-colors",
+                      collapsed ? "justify-center p-2" : "gap-3 px-3 py-2",
+                      active
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    )}
+                    title={collapsed ? `${group.title} / ${label}` : undefined}
+                  >
+                    <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {!collapsed && label}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
-        {/* Sessions — hidden when collapsed */}
+        {/* Agent sessions — always available in the expanded sidebar */}
         {!collapsed && (
-          <div className="flex-1 overflow-auto border-t mt-2 flex flex-col">
+          <div className="min-h-0 flex-1 overflow-hidden border-t mt-2 flex flex-col">
             <div className="flex items-center justify-between px-4 py-2">
               <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <MessageSquare className="h-3.5 w-3.5" />
-                Sessions
+                会话
               </span>
               <Link
                 to="/agent"
                 className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                title="New Chat"
+                title="新建会话"
               >
                 <Plus className="h-3.5 w-3.5" />
               </Link>
             </div>
 
-            <div className="px-2 pb-2 space-y-0.5 overflow-auto flex-1">
+            <div className="min-h-0 px-2 pb-2 space-y-0.5 overflow-auto flex-1">
               {sessionsLoading ? (
                 <div className="space-y-1.5 px-2 py-1">
                   {[1, 2, 3].map((i) => (
@@ -138,7 +171,7 @@ export function Layout() {
                   ))}
                 </div>
               ) : sessions.length === 0 ? (
-                <p className="px-3 py-2 text-xs text-muted-foreground/60">No sessions yet</p>
+                <p className="px-3 py-2 text-xs text-muted-foreground/60">暂无会话</p>
               ) : null}
               {sessions.map((s) => {
                 const isActive = s.session_id === activeSessionId;
@@ -181,22 +214,22 @@ export function Layout() {
                     )}
                     {!isRenaming && isDeleting ? (
                       <div className="absolute right-0.5 flex items-center gap-0.5">
-                        <button onClick={() => deleteSession(s.session_id)} className="p-1 text-danger hover:bg-danger/10 rounded text-[10px] font-medium">Confirm</button>
-                        <button onClick={() => setDeleteTarget(null)} className="p-1 text-muted-foreground hover:bg-muted rounded text-[10px]">Cancel</button>
+                        <button onClick={() => deleteSession(s.session_id)} className="p-1 text-danger hover:bg-danger/10 rounded text-[10px] font-medium">确认</button>
+                        <button onClick={() => setDeleteTarget(null)} className="p-1 text-muted-foreground hover:bg-muted rounded text-[10px]">取消</button>
                       </div>
                     ) : !isRenaming ? (
                       <div className="absolute right-1 opacity-0 group-hover:opacity-100 flex items-center gap-0.5 transition-opacity">
                         <button
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setRenameTarget(s.session_id); setRenameValue(s.title || ""); }}
                           className="p-1 text-muted-foreground hover:text-foreground rounded"
-                          title="Rename"
+                          title="重命名"
                         >
                           <Pencil className="h-3 w-3" />
                         </button>
                         <button
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(s.session_id); }}
                           className="p-1 text-muted-foreground hover:text-danger rounded"
-                          title="Delete?"
+                          title="删除？"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -209,35 +242,50 @@ export function Layout() {
           </div>
         )}
 
-        {/* Spacer when collapsed */}
+        {/* Spacer keeps the footer pinned down while the sidebar is collapsed. */}
         {collapsed && <div className="flex-1" />}
 
         {/* Footer */}
         <div className={cn("border-t", collapsed ? "p-1 flex flex-col items-center gap-1" : "p-3 space-y-2")}>
           {collapsed ? (
             <>
-              <button onClick={toggle} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title={dark ? "Light" : "Dark"}>
+              <Link to="/settings" className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title="设置">
+                <Settings className="h-3.5 w-3.5" />
+              </Link>
+              <button onClick={toggle} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title={dark ? "浅色模式" : "深色模式"}>
                 {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
               </button>
-              <button onClick={() => setCollapsed(false)} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title="Expand">
+              <button onClick={() => setCollapsed(false)} className="p-1.5 text-muted-foreground hover:text-foreground rounded transition-colors" title="展开侧栏">
                 <ChevronsRight className="h-3.5 w-3.5" />
               </button>
             </>
           ) : (
             <>
               <div className="flex items-center justify-between">
-                <button
-                  onClick={toggle}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
-                  {dark ? "Light" : "Dark"}
-                </button>
+                <div className="flex items-center gap-2">
+                  <Link
+                    to="/settings"
+                    className={cn(
+                      "flex items-center gap-1.5 text-xs transition-colors",
+                      pathname.startsWith("/settings") ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Settings className="h-3.5 w-3.5" />
+                    设置
+                  </Link>
+                  <button
+                    onClick={toggle}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    {dark ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+                    {dark ? "浅色" : "深色"}
+                  </button>
+                </div>
                 <div className="flex items-center gap-1">
                   <button
                     onClick={() => setCollapsed(true)}
                     className="p-1 text-muted-foreground hover:text-foreground rounded transition-colors"
-                    title="Collapse"
+                    title="收起侧栏"
                   >
                     <ChevronsLeft className="h-3.5 w-3.5" />
                   </button>
