@@ -162,7 +162,7 @@ export function LogicChain() {
                   </div>
                   <div className="text-left sm:text-right">
                     <p className="text-2xl font-bold tabular-nums">¥{fmtPrice(result.price)}</p>
-                    <p className={cn("text-sm font-medium", result.change_pct >= 0 ? "text-green-500" : "text-red-500")}>
+                    <p className={cn("text-sm font-medium", result.change_pct >= 0 ? "text-success" : "text-danger")}>
                       {result.change_pct >= 0 ? <TrendingUp className="mr-0.5 inline h-3.5 w-3.5" /> : <TrendingDown className="mr-0.5 inline h-3.5 w-3.5" />}
                       {fmtPct(result.change_pct)}
                     </p>
@@ -186,15 +186,15 @@ export function LogicChain() {
                         >
                           <div className={cn(
                             "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
-                            tone === "green" && "bg-green-500/10",
-                            tone === "amber" && "bg-amber-500/10",
-                            tone === "red" && "bg-red-500/10",
+                            tone === "green" && "bg-success/10",
+                            tone === "amber" && "bg-warning/10",
+                            tone === "red" && "bg-danger/10",
                           )}>
                             <Icon className={cn(
                               "h-4 w-4",
-                              tone === "green" && "text-green-500",
-                              tone === "amber" && "text-amber-500",
-                              tone === "red" && "text-red-500",
+                              tone === "green" && "text-success",
+                              tone === "amber" && "text-warning",
+                              tone === "red" && "text-danger",
                             )} />
                           </div>
                           <div className="min-w-0 flex-1">
@@ -222,9 +222,9 @@ export function LogicChain() {
                               <div
                                 className={cn(
                                   "h-full rounded-full",
-                                  tone === "green" && "bg-green-500",
-                                  tone === "amber" && "bg-amber-500",
-                                  tone === "red" && "bg-red-500",
+                                  tone === "green" && "bg-success",
+                                  tone === "amber" && "bg-warning",
+                                  tone === "red" && "bg-danger",
                                 )}
                                 style={{ width: `${layer.score * 100}%` }}
                               />
@@ -240,10 +240,10 @@ export function LogicChain() {
               <section className={cn(
                 "rounded-lg border-2 p-5",
                 result.decision.score >= 0.6
-                  ? "border-green-500/35 bg-green-500/5"
+                  ? "border-success/35 bg-success/5"
                   : result.decision.score >= 0.4
-                    ? "border-amber-500/35 bg-amber-500/5"
-                    : "border-red-500/35 bg-red-500/5",
+                    ? "border-warning/35 bg-warning/5"
+                    : "border-danger/35 bg-danger/5",
               )}>
                 <div className="mb-4 flex items-center gap-3">
                   <Target className="h-5 w-5 text-primary" />
@@ -304,7 +304,7 @@ function DecisionMetric({
 }) {
   return (
     <div className="rounded-lg bg-background p-3 text-center">
-      <p className={cn("text-lg font-bold tabular-nums", success && "text-green-500", danger && "text-red-500")}>{value}</p>
+      <p className={cn("text-lg font-bold tabular-nums", success && "text-success", danger && "text-danger")}>{value}</p>
       <p className="mt-1 text-[10px] text-muted-foreground">{label}</p>
     </div>
   );

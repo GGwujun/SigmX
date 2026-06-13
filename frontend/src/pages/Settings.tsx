@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
-import { Database, KeyRound, Loader2, RotateCcw, Save, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { Bell, Database, KeyRound, Loader2, RotateCcw, Save, Send, Server, ShieldCheck, SlidersHorizontal } from "lucide-react";
 import { toast } from "sonner";
-import { api, isAuthRequiredError, type DataSourceSettings, type LLMProviderOption, type LLMSettings } from "@/lib/api";
+import { api, isAuthRequiredError, type DataSourceSettings, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig } from "@/lib/api";
 import { getApiAuthKey, setApiAuthKey } from "@/lib/apiAuth";
 import { cn } from "@/lib/utils";
 
@@ -49,6 +49,7 @@ export function Settings() {
   const [saving, setSaving] = useState(false);
   const [dataSaving, setDataSaving] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
+  const [tab, setTab] = useState<"system" | "notify">("system");
 
   useEffect(() => {
     let alive = true;
@@ -220,6 +221,31 @@ export function Settings() {
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <PageHeader />
 
+      {/* Tab switch */}
+      <div className="flex gap-1 border-b">
+        {([
+          { id: "system" as const, label: "系统配置" },
+          { id: "notify" as const, label: "通知配置" },
+        ]).map(t => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              tab === t.id
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "notify" ? (
+        <NotifyTab />
+      ) : (
+        <>
       {localApiAccessSection}
 
       <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.8fr)]">
@@ -459,6 +485,164 @@ export function Settings() {
           </div>
         </Section>
       </form>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ─── Notify tab ─── */
+
+const PLATFORMS: { key: keyof NotifyConfig; label: string; hasSecret: boolean }[] = [
+  { key: "feishu", label: "飞书", hasSecret: true },
+  { key: "dingtalk", label: "钉钉", hasSecret: true },
+  { key: "wechat", label: "企业微信", hasSecret: false },
+];
+
+function NotifyTab() {
+  const [cfg, setCfg] = useState<NotifyConfig | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState<string | null>(null); // platform key being tested
+  const [platform, setPlatform] = useState<keyof NotifyConfig>("feishu");
+
+  useEffect(() => {
+    api.getNotifyConfig().then(c => setCfg(c)).catch(e => toast.error(unknownError(e)));
+  }, []);
+
+  const patch = (key: keyof NotifyConfig, change: Partial<PlatformConfig>) => {
+    setCfg(prev => prev ? { ...prev, [key]: { ...prev[key], ...change } } : prev);
+  };
+
+  const save = async () => {
+    if (!cfg) return;
+    setSaving(true);
+    try {
+      await api.saveNotifyConfig(cfg);
+      toast.success("通知配置已保存");
+    } catch (e) {
+      toast.error(unknownError(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const test = async (key: keyof NotifyConfig) => {
+    if (!cfg) return;
+    // Save first so the test uses the latest config.
+    setSaving(true);
+    try { await api.saveNotifyConfig(cfg); } catch (e) { toast.error(unknownError(e)); setSaving(false); return; }
+    setSaving(false);
+    setTesting(key);
+    try {
+      const res = await api.testNotify(key);
+      if (res.ok) toast.success(`${key} 测试发送成功：${res.message}`);
+      else toast.error(`${key} 测试失败：${res.message}`);
+    } catch (e) {
+      toast.error(unknownError(e));
+    } finally {
+      setTesting(null);
+    }
+  };
+
+  if (!cfg) {
+    return <div className="flex min-h-32 items-center justify-center text-sm text-muted-foreground"><Loader2 className="mr-2 h-4 w-4 animate-spin" />加载通知配置…</div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <p className="text-xs text-muted-foreground">
+        配置飞书 / 钉钉 / 企业微信群机器人，用于推送行情摘要。Webhook 在各平台「群机器人」设置中获取。
+      </p>
+
+      {/* Platform sub-tabs */}
+      <div className="flex gap-1 border-b">
+        {PLATFORMS.map(({ key, label }) => (
+          <button
+            key={key}
+            onClick={() => setPlatform(key)}
+            className={cn(
+              "px-4 py-2 text-sm font-medium border-b-2 transition-colors",
+              platform === key ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {(() => {
+        const { key, label, hasSecret } = PLATFORMS.find(p => p.key === platform)!;
+        const p = cfg[key];
+        return (
+          <Section key={key} icon={Bell} title={`${label}通知`} desc={`${label}群机器人推送配置`}>
+            <div className="space-y-3">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={p.enabled} onChange={e => patch(key, { enabled: e.target.checked })} className="h-4 w-4" />
+                启用{label}通知
+              </label>
+
+              <div className="space-y-1">
+                <div className={labelClass}>{label}群机器人 Webhook</div>
+                <input
+                  value={p.webhook_url}
+                  onChange={e => patch(key, { webhook_url: e.target.value })}
+                  placeholder={key === "feishu" ? "https://open.feishu.cn/open-apis/bot/v2/hook/..." : key === "dingtalk" ? "https://oapi.dingtalk.com/robot/send?access_token=..." : "https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."}
+                  className={fieldClass}
+                />
+              </div>
+
+              {hasSecret && (
+                <div className="space-y-1">
+                  <div className={labelClass}>签名密钥</div>
+                  <input
+                    type="password"
+                    value={p.secret}
+                    onChange={e => patch(key, { secret: e.target.value })}
+                    placeholder={`${label}机器人安全设置中的签名密钥，可选`}
+                    className={fieldClass}
+                  />
+                </div>
+              )}
+
+              {/* Push schedule (stored, but scheduled push is a future feature) */}
+              <div className="grid gap-3 sm:grid-cols-3 pt-1">
+                {([
+                  { en: "pre_market_enabled", t: "pre_market_time", label: "盘前推送" },
+                  { en: "after_close_enabled", t: "after_close_time", label: "盘后推送" },
+                  { en: "custom_enabled", t: "custom_time", label: "自定义推送" },
+                ] as const).map(s => (
+                  <div key={s.en} className="space-y-1">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={p[s.en]} onChange={e => patch(key, { [s.en]: e.target.checked } as Partial<PlatformConfig>)} className="h-4 w-4" />
+                      {s.label}
+                    </label>
+                    <input type="time" value={p[s.t]} onChange={e => patch(key, { [s.t]: e.target.value } as Partial<PlatformConfig>)} className={fieldClass} />
+                  </div>
+                ))}
+              </div>
+              <p className={hintClass}>注：定时自动推送为后续功能，当前仅支持手动测试发送。</p>
+
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => test(key)}
+                  disabled={testing === key || !p.webhook_url}
+                  className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm hover:bg-muted disabled:opacity-40"
+                >
+                  {testing === key ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  测试发送
+                </button>
+              </div>
+            </div>
+          </Section>
+        );
+      })()}
+
+      <div className="flex justify-end">
+        <button onClick={save} disabled={saving} className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-40">
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          保存通知配置
+        </button>
+      </div>
     </div>
   );
 }
@@ -466,13 +650,9 @@ export function Settings() {
 function PageHeader() {
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
-        <ShieldCheck className="h-4 w-4 text-primary" />
-        系统配置
-      </div>
       <h1 className="text-2xl font-semibold tracking-tight">设置</h1>
       <p className="max-w-3xl text-sm text-muted-foreground">
-        管理模型供应商、生成参数、API 访问密钥和市场数据源。这里的配置会影响智能体、AlphaForge、回测和投研功能。
+        管理模型供应商、生成参数、API 密钥、市场数据源，以及飞书 / 钉钉 / 企业微信通知推送。
       </p>
     </div>
   );

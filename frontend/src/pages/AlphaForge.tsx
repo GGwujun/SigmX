@@ -24,13 +24,13 @@ import { api, type AlphaForgeReportDetail, type AlphaForgeReportItem, type Alpha
 import { cn } from "@/lib/utils";
 
 const SIGNAL_COLORS: Record<string, string> = {
-  BUY: "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
-  SELL: "text-red-600 dark:text-red-400 bg-red-500/10",
-  HOLD: "text-amber-600 dark:text-amber-400 bg-amber-500/10",
-  "买入": "text-emerald-600 dark:text-emerald-400 bg-emerald-500/10",
-  "卖出": "text-red-600 dark:text-red-400 bg-red-500/10",
-  "持有": "text-amber-600 dark:text-amber-400 bg-amber-500/10",
-  "减持": "text-red-600 dark:text-red-400 bg-red-500/10",
+  BUY: "text-success bg-success/10",
+  SELL: "text-danger bg-danger/10",
+  HOLD: "text-warning bg-warning/10",
+  "买入": "text-success bg-success/10",
+  "卖出": "text-danger bg-danger/10",
+  "持有": "text-warning bg-warning/10",
+  "减持": "text-danger bg-danger/10",
 };
 
 const AGENT_LABELS: Record<string, string> = {

@@ -1,8 +1,9 @@
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import pkg from "./package.json";
 
-// Purely API routes — never a browser page, always proxy to backend
+// 纯 API 路由：不会作为浏览器页面打开，始终代理到后端。
 const API_ONLY_PATHS = [
   "/sessions",
   "/swarm/presets",
@@ -13,18 +14,28 @@ const API_ONLY_PATHS = [
   "/live",
   "/upload",
   "/shadow-reports",
-  "/position",   // /position/analyze, /position/snapshot/{code} — API only
-  "/alpha-forge"
+  "/alpha-forge",
+  "/auth",
+  "/credits",
+  "/notify",
+  // Fund API uses specific sub-paths (NOT bare "/fund" — that prefix would
+  // swallow the /fund-opportunity and /fund-arbitrage SPA pages on refresh).
+  "/fund/scan",
+  "/fund/source-status",
+  "/fund/analyze",
+  "/fund/runs",
+  "/fund/reports"
 ];
 
 // SPA page paths that ALSO have API endpoints at the same URL.
-// Use HTML fallback: browser refresh returns index.html, JS fetch returns JSON.
+// 使用 HTML 兜底：浏览器刷新返回 index.html，JS fetch 返回 JSON。
 const SPA_WITH_API_PATHS = [
   "/events",
   "/news",
   "/opportunity",
   "/logic-chain",
-  "/position-decision"
+  "/position-decision",
+  "/account"
 ];
 
 export default defineConfig(({ mode }) => {
@@ -42,6 +53,11 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react()],
+    // Inject app version from package.json as a build-time constant so the
+    // UI footer stays in sync without a hardcoded duplicate.
+    define: {
+      __APP_VERSION__: JSON.stringify(pkg.version),
+    },
     resolve: {
       alias: { "@": path.resolve(__dirname, "./src") },
     },
@@ -50,6 +66,10 @@ export default defineConfig(({ mode }) => {
       proxy: {
         // API-only routes: always proxy to backend
         ...Object.fromEntries(API_ONLY_PATHS.map((p) => [p, apiProxy])),
+        // Single-fund detail API: /fund/{6-digit-code} (dynamic, not a fixed prefix)
+        "^/fund/\\d{6}/?$": apiProxy,
+        // /position-decision 是前端页面，不能被 /position 前缀误代理。
+        "^/position/": apiProxy,
         // SPA pages that share a URL with API: HTML fallback on browser refresh
         ...Object.fromEntries(SPA_WITH_API_PATHS.map((p) => [p, apiProxyWithHtmlFallback])),
         // SPA RunDetail page — only the two-segment ``/runs/{id}``

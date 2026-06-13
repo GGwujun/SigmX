@@ -31,10 +31,10 @@ const CAT_ICONS: Record<string, typeof Flame> = {
 };
 
 const CAT_COLORS: Record<string, { bg: string; text: string; bar: string }> = {
-  red: { bg: "bg-red-500/5 border-red-500/20", text: "text-red-600 dark:text-red-400", bar: "bg-red-500" },
-  green: { bg: "bg-green-500/5 border-green-500/20", text: "text-green-600 dark:text-green-400", bar: "bg-green-500" },
-  blue: { bg: "bg-blue-500/5 border-blue-500/20", text: "text-blue-600 dark:text-blue-400", bar: "bg-blue-500" },
-  amber: { bg: "bg-amber-500/5 border-amber-500/20", text: "text-amber-600 dark:text-amber-400", bar: "bg-amber-500" },
+  red: { bg: "bg-danger/5 border-danger/20", text: "text-danger", bar: "bg-danger" },
+  green: { bg: "bg-success/5 border-success/20", text: "text-success", bar: "bg-success" },
+  blue: { bg: "bg-info/5 border-info/20", text: "text-info", bar: "bg-info" },
+  amber: { bg: "bg-warning/5 border-warning/20", text: "text-warning", bar: "bg-warning" },
 };
 
 type SortKey = "confidence" | "change" | "name";
@@ -209,7 +209,7 @@ function OpportunityCard({
   if (!next.get("q")) next.set("q", item.name);
 
   return (
-    <article className={cn("flex min-h-[238px] flex-col rounded-lg border bg-card p-4 transition-colors hover:shadow-sm", color.bg)}>
+    <article className={cn("flex min-h-[238px] flex-col rounded-md border bg-card p-4 transition-colors hover:border-primary/35 hover:bg-primary/[0.03]", color.bg)}>
       <div className="mb-3 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5">
@@ -225,7 +225,7 @@ function OpportunityCard({
 
       <div className="mb-3 flex items-baseline gap-2">
         <span className="text-xl font-bold tabular-nums">¥{fmtPrice(item.price)}</span>
-        <span className={cn("text-xs font-medium", item.change_pct >= 0 ? "text-green-500" : "text-red-500")}>
+        <span className={cn("text-xs font-medium", item.change_pct >= 0 ? "text-success" : "text-danger")}>
           {item.change_pct >= 0 ? <TrendingUp className="mr-0.5 inline h-3 w-3" /> : <TrendingDown className="mr-0.5 inline h-3 w-3" />}
           {fmtPct(item.change_pct)}
         </span>

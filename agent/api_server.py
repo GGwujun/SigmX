@@ -534,7 +534,14 @@ app.add_middleware(
 # text/html`` (e.g. a user pasting the URL into the address bar).
 
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-_SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset({"/correlation"})
+_SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset({
+    "/correlation",
+    "/events",
+    "/news",
+    "/opportunity",
+    "/logic-chain",
+    "/position-decision",
+})
 # Each regex matches a complete request path. Trailing slash optional.
 _SPA_HTML_PATH_REGEX: tuple[re.Pattern[str], ...] = (
     # ``/runs/{run_id}`` — RunDetail page. Excludes ``/runs/{id}/code``,
@@ -650,22 +657,32 @@ def _validate_api_auth(
     query_api_key: Optional[str] = None,
     allow_query: bool = False,
 ) -> None:
-    """Validate configured auth, preserving loopback-only dev mode."""
-    # Loopback clients are always trusted, even when API_AUTH_KEY is set.
-    # The key only gates non-local (LAN/remote) access.
-    if _is_local_client(request):
-        return
+    """Validate auth: a valid user JWT (preferred) or the legacy API key.
 
-    api_key = _configured_api_key()
-    if not api_key:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="API_AUTH_KEY is required for non-local API access",
-        )
+    Login is required even from localhost (per the product spec). The Bearer
+    credential is first treated as a JWT; if that fails, it falls back to the
+    legacy ``API_AUTH_KEY`` comparison (preserves remote API-key access).
+    """
+    from src.auth.jwt_utils import user_id_from_token
 
     token = _auth_credential_from_header_or_query(cred, query_api_key, allow_query=allow_query)
-    if not token or not hmac.compare_digest(token, api_key):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+
+    # 1) User JWT (primary path after login/register)
+    if token and user_id_from_token(token):
+        return
+
+    # 2) Legacy API key fallback (remote deployments configured with API_AUTH_KEY)
+    api_key = _configured_api_key()
+    if token and api_key and hmac.compare_digest(token, api_key):
+        return
+
+    # No valid credential.
+    if not api_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未登录或登录已过期，请先登录",
+        )
+    raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 def _is_local_client(request: Request) -> bool:
@@ -3109,8 +3126,45 @@ register_logic_chain_routes(app, require_auth, require_event_stream_auth)
 # AlphaForge routes (Web UI) — defined in src/api/alpha_forge_routes.py
 # ============================================================================
 
+# ============================================================================
+# Auth routes (register/login/disclaimer/me) — must register before other
+# routes since they change the global auth model (JWT now required).
+# ============================================================================
+
+from src.api.auth_routes import register_auth_routes  # noqa: E402
+register_auth_routes(app)
+
+
+# ============================================================================
+# Credits + account routes (Web UI) — defined in src/api/credits_routes.py
+# ============================================================================
+
+from src.api.credits_routes import register_credits_routes  # noqa: E402
+register_credits_routes(app)
+
+
+# ============================================================================
+# Notify routes (Feishu/DingTalk/WeChat) — defined in src/api/notify_routes.py
+# ============================================================================
+
+from src.api.notify_routes import register_notify_routes  # noqa: E402
+register_notify_routes(app, require_auth, require_event_stream_auth)
+
+
+# ============================================================================
+# AlphaForge routes (Web UI)
+# ============================================================================
+
 from src.api.alpha_forge_routes import register_alpha_forge_routes  # noqa: E402
 register_alpha_forge_routes(app, require_auth, require_event_stream_auth, _get_swarm_runtime)
+
+
+# ============================================================================
+# Fund Arbitrage routes (Web UI) — defined in src/api/fund_routes.py
+# ============================================================================
+
+from src.api.fund_routes import register_fund_arbitrage_routes  # noqa: E402
+register_fund_arbitrage_routes(app, require_auth, require_event_stream_auth, _get_swarm_runtime)
 
 
 # ============================================================================

@@ -89,10 +89,10 @@ function ProfileTile({
           onClick={onAdjustToggle}
           disabled={disabled}
           className="inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-          title="Adjust this mandate"
+          title="调整此授权"
         >
           <SlidersHorizontal className="h-3 w-3" />
-          Adjust
+          调整
         </button>
       </div>
 
@@ -148,7 +148,7 @@ function ProfileTile({
               className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               <X className="h-3 w-3" />
-              Cancel
+              取消
             </button>
             <button
               type="button"
@@ -157,7 +157,7 @@ function ProfileTile({
               className="inline-flex items-center gap-1 rounded-lg bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground transition-opacity disabled:opacity-40"
             >
               <Check className="h-3 w-3" />
-              Send adjustment
+              发送调整
             </button>
           </div>
         </div>
@@ -169,7 +169,7 @@ function ProfileTile({
           className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:opacity-40"
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
-          {busy ? "Committing…" : `Commit “${profile.label}”`}
+          {busy ? "提交中…" : `提交“${profile.label}”`}
         </button>
       )}
     </div>
@@ -226,7 +226,7 @@ export const MandateProposalCard = memo(function MandateProposalCard({ proposal,
       <div className="flex gap-3">
         <AgentAvatar />
         <div className="flex-1 min-w-0">
-          <span className="inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+          <span className="inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg bg-success/10 px-2.5 py-1 text-xs font-medium text-success">
             <ShieldCheck className="h-3 w-3 shrink-0" />
             <span className="shrink-0">
               Mandate {committed.selected_ordinal != null ? `#${committed.selected_ordinal} ` : ""}active
@@ -237,7 +237,7 @@ export const MandateProposalCard = memo(function MandateProposalCard({ proposal,
             {dailyCap != null && <span className="shrink-0 font-mono text-[11px]">· {dailyCap}/day</span>}
             {expires && (
               <span className="shrink-0 text-[10px] text-muted-foreground">
-                · expires {expires.toLocaleDateString()}
+                · 到期 {expires.toLocaleDateString()}
               </span>
             )}
           </span>
@@ -254,20 +254,20 @@ export const MandateProposalCard = memo(function MandateProposalCard({ proposal,
       <div className="flex-1 min-w-0 space-y-3 rounded-2xl border border-primary/20 bg-background/95 p-4 shadow-sm">
         <div className="flex items-start gap-2">
           {isReauth ? (
-            <ShieldAlert className="h-4 w-4 shrink-0 text-amber-500" />
+            <ShieldAlert className="h-4 w-4 shrink-0 text-warning" />
           ) : (
             <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
           )}
           <div className="min-w-0">
             <p className="text-sm font-semibold text-foreground">
-              {isReauth ? "Re-authorize connector mandate" : "Connector runtime mandate"}
+              {isReauth ? "重新授权连接器委托" : "连接器运行授权"}
             </p>
             {proposal.intent_normalized && (
               <p className="text-xs text-muted-foreground">{proposal.intent_normalized}</p>
             )}
             {proposal.account && (
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {proposal.account.broker} · {proposal.account.type} account · funded by {proposal.account.funded_by}
+                {proposal.account.broker} · {proposal.account.type} 账户 · 资金来源 {proposal.account.funded_by}
               </p>
             )}
           </div>
@@ -289,7 +289,7 @@ export const MandateProposalCard = memo(function MandateProposalCard({ proposal,
               onAdjustCancel={() => setAdjustingOrdinal(null)}
               onAdjustSubmit={(text) => {
                 setAdjustingOrdinal(null);
-                onAdjust(`For mandate proposal "${profile.label}" (option ${profile.ordinal}): ${text}`);
+                onAdjust(`针对授权方案「${profile.label}」（选项 ${profile.ordinal}）：${text}`);
               }}
             />
           ))}

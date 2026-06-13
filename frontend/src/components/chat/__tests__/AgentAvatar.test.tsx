@@ -7,9 +7,10 @@ describe("AgentAvatar", () => {
     expect(screen.getByText("P")).toBeInTheDocument();
   });
 
-  it("has gradient background styling", () => {
+  it("uses theme primary styling", () => {
     const { container } = render(<AgentAvatar />);
     const el = container.firstChild as HTMLElement;
-    expect(el.className).toMatch(/bg-gradient/);
+    expect(el.className).toContain("bg-primary/10");
+    expect(el.className).toContain("text-primary");
   });
 });

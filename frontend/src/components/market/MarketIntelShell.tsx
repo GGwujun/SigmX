@@ -81,7 +81,7 @@ export function MarketIntelHeader({
   if (symbol.trim()) params.set("symbol", normalizeChinaSymbol(symbol));
 
   return (
-    <div className="border-b bg-background/95">
+    <div className="border-b bg-card/80">
       <div className="px-4 md:px-6 py-4 space-y-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -97,7 +97,7 @@ export function MarketIntelHeader({
                 type="button"
                 onClick={onRefresh}
                 disabled={refreshing}
-                className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/5 hover:text-foreground disabled:opacity-50"
               >
                 <RefreshCw className={cn("h-3.5 w-3.5", refreshing && "animate-spin")} />
                 刷新
@@ -116,7 +116,7 @@ export function MarketIntelHeader({
                 if (event.key === "Enter") onSearch();
               }}
               placeholder="搜索关键词、行业主题、事件线索"
-              className="h-10 w-full rounded-lg border bg-muted/30 pl-9 pr-3 text-sm outline-none transition focus:border-primary/60 focus:bg-background focus:ring-2 focus:ring-primary/15"
+              className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
             />
           </div>
           <input
@@ -126,12 +126,12 @@ export function MarketIntelHeader({
               if (event.key === "Enter") onSearch();
             }}
             placeholder="标的代码，如 600519"
-            className="h-10 rounded-lg border bg-muted/30 px-3 text-sm outline-none transition focus:border-primary/60 focus:bg-background focus:ring-2 focus:ring-primary/15"
+            className="h-10 rounded-md border bg-background px-3 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
           />
           <button
             type="button"
             onClick={onSearch}
-            className="h-10 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:opacity-90"
+            className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:opacity-90"
           >
             进入研究
           </button>
@@ -146,10 +146,10 @@ export function MarketIntelHeader({
                 key={stage.id}
                 to={buildIntelPath(stage.path, params)}
                 className={cn(
-                  "group flex min-w-[152px] items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+                  "group flex min-w-[152px] items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors",
                   current
-                    ? "border-primary/40 bg-primary/10 text-primary"
-                    : "border-border bg-card text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                    ? "border-primary/45 bg-primary/10 text-primary shadow-[inset_0_-2px_0_hsl(var(--primary))]"
+                    : "border-border bg-background text-muted-foreground hover:border-primary/25 hover:bg-primary/[0.03] hover:text-foreground",
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
@@ -181,7 +181,7 @@ export function MarketEmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed bg-muted/10 px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-dashed bg-muted/10 px-6 py-14 text-center">
       <Icon className="h-10 w-10 text-muted-foreground/35" />
       <div>
         <p className="text-sm font-medium">{title}</p>
@@ -200,7 +200,7 @@ export function MarketErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-danger/20 bg-danger/5 px-6 py-14 text-center text-muted-foreground">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-md border border-danger/20 bg-danger/5 px-6 py-14 text-center text-muted-foreground">
       <AlertTriangle className="h-9 w-9 text-danger/70" />
       <p className="text-sm text-foreground">数据加载失败</p>
       <p className="max-w-md text-xs">{message}</p>
@@ -243,13 +243,13 @@ export function SymbolActionBar({
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       <span className="text-xs text-muted-foreground">{label ?? "下一步"}</span>
-      <Link to={buildIntelPath("/news", next)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted">
+      <Link to={buildIntelPath("/news", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
         看新闻
       </Link>
-      <Link to={buildIntelPath("/events", next)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted">
+      <Link to={buildIntelPath("/events", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
         验事件
       </Link>
-      <Link to={buildIntelPath("/opportunity", next)} className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted">
+      <Link to={buildIntelPath("/opportunity", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
         查机会
       </Link>
       <Link to={buildIntelPath("/logic-chain", next)} className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90">

@@ -29,6 +29,8 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
+
+from src.api.auth_routes import require_user  # JWT validator → returns user dict
 from fastapi.responses import FileResponse, PlainTextResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -425,7 +427,7 @@ def register_alpha_forge_routes(
     async def create_alpha_forge_run(
         body: AlphaForgeRunRequest,
         request: Request,
-        _=Depends(require_auth),
+        user=Depends(require_user),
     ):
         """Create a new AlphaForge analysis run using the swarm preset."""
         from src.swarm.presets import build_run_from_preset
@@ -447,6 +449,22 @@ def register_alpha_forge_routes(
         except Exception as e:
             logger.error("Failed to start alpha_forge run: %s", e, exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to start run: {e}")
+
+        # ── Credits: consume after the run is created (so run_id is the ref) ──
+        from src.credits.store import CreditStore
+        from src.credits.constants import COST_ALPHA_FORGE
+        credits = CreditStore()
+        if not credits.consume(user["id"], COST_ALPHA_FORGE, swarm_run.id, f"AlphaForge {body.target}"):
+            # Couldn't bill — cancel the just-started run and refuse.
+            try:
+                swarm_runtime.cancel_run(swarm_run.id)
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=402,
+                detail=f"积分不足，本次分析需要 {COST_ALPHA_FORGE} 积分",
+            )
+        billing_user_id = user["id"]
 
         # Register a completion callback to save the report
         def _on_run_complete(run_id: str) -> None:
@@ -550,6 +568,11 @@ def register_alpha_forge_routes(
                     if r and r.status.value in ("completed", "failed", "cancelled"):
                         if r.status.value == "completed":
                             _on_run_complete(swarm_run.id)
+                        else:
+                            # Run failed/cancelled → refund (idempotent per run_id).
+                            from src.credits.store import CreditStore
+                            from src.credits.constants import COST_ALPHA_FORGE
+                            CreditStore().refund(billing_user_id, COST_ALPHA_FORGE, swarm_run.id, f"AlphaForge 失败退还 {body.target}")
                         break
                 except Exception:
                     break

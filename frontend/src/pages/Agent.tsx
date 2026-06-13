@@ -85,14 +85,14 @@ function liveActionStyle(kind: string): { icon: typeof Activity; tone: string } 
   switch (kind) {
     case "order_rejected":
     case "breach":
-      return { icon: Ban, tone: "border-amber-500/40 bg-amber-500/5 text-amber-600 dark:text-amber-400" };
+      return { icon: Ban, tone: "border-warning/40 bg-warning/5 text-warning" };
     case "halt_tripped":
       return { icon: OctagonX, tone: "border-destructive/40 bg-destructive/5 text-destructive" };
     case "mandate_committed":
     case "halt_cleared":
-      return { icon: CheckCircle2, tone: "border-emerald-500/40 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400" };
+      return { icon: CheckCircle2, tone: "border-success/40 bg-success/5 text-success" };
     default:
-      return { icon: Activity, tone: "border-sky-500/40 bg-sky-500/5 text-sky-600 dark:text-sky-400" };
+      return { icon: Activity, tone: "border-info/40 bg-info/5 text-info" };
   }
 }
 
@@ -108,7 +108,7 @@ function LiveActionChip({ action }: { action: LiveAction }) {
       <div className="flex-1 min-w-0">
         <div className={["inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs", tone].join(" ")}>
           <Icon className="h-3 w-3 shrink-0" />
-          <span className="shrink-0 font-medium uppercase tracking-wide text-[10px]">RUNTIME</span>
+          <span className="shrink-0 font-medium tracking-wide text-[10px]">运行时</span>
           <span className="shrink-0 font-medium">{liveActionLabel(action)}</span>
           {action.intent_normalized && (
             <span className="truncate text-foreground/80">· {action.intent_normalized}</span>
@@ -144,7 +144,7 @@ function getGoalProgress(snapshot: GoalSnapshot | null): {
     met,
     total,
     label: total > 0 ? `${met}/${total}` : "",
-    metLabel: total > 0 ? `${met}/${total} met` : "",
+    metLabel: total > 0 ? `已达成 ${met}/${total}` : "",
     evidenceTotal,
   };
 }
@@ -551,7 +551,7 @@ export function Agent() {
       "attempt.failed": (d) => {
         touch();
         act().clearStreaming();
-        act().addMessage({ id: "", type: "error", content: String(d.error || "Execution failed"), timestamp: Date.now() });
+        act().addMessage({ id: "", type: "error", content: String(d.error || "执行失败"), timestamp: Date.now() });
         act().setStatus("idle");
         // Clear stale toolCalls so the next turn's running indicator doesn't
         // briefly show the previous turn's progress before fresh events land.
@@ -612,7 +612,7 @@ export function Agent() {
         // the RunnerStatus panel re-polls so its per-broker rows show "halted".
         setLiveHalted(halted);
         setLiveStatusRefresh((n) => n + 1);
-        toast.warning("连接器运行时已停止 — runner stopped, resting orders cancelled");
+        toast.warning("连接器运行时已停止，运行器已停机，挂单已取消");
       },
 
       "live.resumed": (d) => {
@@ -622,7 +622,7 @@ export function Agent() {
         void d;
         setLiveHalted(null);
         setLiveStatusRefresh((n) => n + 1);
-        toast.success("Connector runtime resumed");
+        toast.success("连接器运行时已恢复");
       },
 
       "live.action": (d) => {
@@ -1149,7 +1149,7 @@ export function Agent() {
           {/* Swarm preset badge */}
           {swarmPreset && (
             <div className="flex items-center gap-1">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-violet-500/10 text-violet-600 dark:text-violet-400 text-xs font-medium">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-primary/10 text-primary text-xs font-medium">
                 <Users className="h-3 w-3" />
                 {swarmPreset.title}
                 <button type="button" onClick={() => setSwarmPreset(null)} className="hover:text-destructive transition-colors">
@@ -1176,22 +1176,22 @@ export function Agent() {
                 onClick={() => setGoalDetailsOpen((open) => !open)}
                 className="inline-flex max-w-full items-center gap-1.5 justify-self-start rounded-lg bg-primary/10 px-2.5 py-1 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/15"
                 title={goalSnapshot.goal.objective}
-                aria-label="Active research goal"
+                aria-label="当前研究目标"
                 aria-expanded={goalDetailsOpen}
               >
                 <Target className="h-3 w-3 shrink-0" />
-                <span className="shrink-0">Goal</span>
+                <span className="shrink-0">目标</span>
                 <span className="truncate text-muted-foreground">
                   {goalSnapshot.goal.ui_summary || goalSnapshot.goal.objective}
                 </span>
                 {goalProgress.metLabel && (
-                  <span className="shrink-0 font-mono text-[11px] text-emerald-600 dark:text-emerald-400">
+                  <span className="shrink-0 font-mono text-[11px] text-success">
                     {goalProgress.metLabel}
                   </span>
                 )}
                 {goalProgress.evidenceTotal > 0 && (
-                  <span className="shrink-0 rounded bg-background px-1 font-mono text-[10px] text-primary" title="Evidence collected toward this research goal">
-                    {goalProgress.evidenceTotal} evidence
+                  <span className="shrink-0 rounded bg-background px-1 font-mono text-[10px] text-primary" title="当前研究目标已收集的证据">
+                    {goalProgress.evidenceTotal} 条证据
                   </span>
                 )}
                 <ChevronDown
@@ -1240,7 +1240,7 @@ export function Agent() {
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg border bg-muted/20 p-2.5">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Criteria
+                        条件
                       </div>
                       <div className="mt-1 font-mono text-base font-semibold text-foreground">
                         {goalProgress.label || "0/0"}
@@ -1248,7 +1248,7 @@ export function Agent() {
                     </div>
                     <div className="rounded-lg border bg-muted/20 p-2.5">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Evidence
+                        证据
                       </div>
                       <div className="mt-1 font-mono text-base font-semibold text-foreground">
                         {goalProgress.evidenceTotal}
@@ -1276,7 +1276,7 @@ export function Agent() {
                             </span>
                           </span>
                           <span className="rounded-full border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
-                            {evidenceCount} ev
+                            {evidenceCount} 条
                           </span>
                         </div>
                       );
@@ -1285,12 +1285,12 @@ export function Agent() {
                   {goalSnapshot.evidence.length > 0 && (
                     <div className="grid gap-1.5 border-t pt-2">
                       <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                        Recent Evidence
+                        最近证据
                       </div>
                       {latestGoalEvidence(goalSnapshot).map((item) => (
                         <div key={item.evidence_id} className="rounded-lg bg-muted/20 px-2 py-1.5">
                           <div className="mb-0.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                            <span className="truncate">{item.source_provider || "evidence"}</span>
+                            <span className="truncate">{item.source_provider || "证据"}</span>
                             <span>{statusLabel(item.verification_status)}</span>
                           </div>
                           <div className="line-clamp-2 text-[11px] leading-relaxed text-foreground">
@@ -1356,7 +1356,7 @@ export function Agent() {
           {uploading && (
             <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Loader2 className="h-3 w-3 animate-spin" />
-              Uploading...
+              上传中...
             </div>
           )}
           {/* Persistent kill switch — distinct from the per-turn Stop button
@@ -1374,10 +1374,10 @@ export function Agent() {
                   onClick={handleHaltLive}
                   disabled={halting}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-destructive/40 bg-destructive/5 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-40"
-                  title="Instantly halt connector runtime activity"
+                  title="立即停止连接器运行时活动"
                 >
                   {halting ? <Loader2 className="h-3 w-3 animate-spin" /> : <OctagonX className="h-3 w-3" />}
-                  Halt connector runtime
+                  停止连接器运行时
                 </button>
               )}
             </div>
@@ -1390,7 +1390,7 @@ export function Agent() {
                 onClick={() => setShowUploadMenu(prev => !prev)}
                 disabled={status === "streaming" || uploading}
                 className="w-9 h-9 rounded-full border flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-40 shrink-0"
-                title="More options"
+                title="更多选项"
               >
                 <Plus className="h-4 w-4" />
               </button>
@@ -1519,7 +1519,7 @@ export function Agent() {
                 type="button"
                 onClick={handleCancel}
                 className="px-4 py-2.5 rounded-xl bg-destructive text-destructive-foreground text-sm font-medium hover:opacity-90 transition-opacity"
-                title="Stop generation"
+                title="停止生成"
               >
                 <Square className="h-4 w-4" />
               </button>

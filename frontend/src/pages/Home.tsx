@@ -19,6 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import { api, type AlphaForgeReportItem, type OpportunityCategory, type RunListItem } from "@/lib/api";
+import { cached as cachedFetch } from "@/lib/cache";
 import { cn } from "@/lib/utils";
 
 interface DashboardState {
@@ -85,6 +86,12 @@ function signalTone(signal?: string): string {
   return "text-muted-foreground bg-muted";
 }
 
+// Cached fetchers for the three dashboard sources. 60s TTL; module-level so
+// navigating away and back returns instantly, with a silent background refresh.
+const oppCache = cachedFetch("home:opportunities", () => api.listOpportunities(), 60_000);
+const reportsCache = cachedFetch<AlphaForgeReportItem[]>("home:reports", () => api.listAlphaForgeReports(), 60_000);
+const runsCache = cachedFetch<RunListItem[]>("home:runs", () => api.listRuns(), 60_000);
+
 export function Home() {
   const [data, setData] = useState<DashboardState>({
     opportunities: [],
@@ -95,36 +102,55 @@ export function Home() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadDashboard = async (silent = false) => {
-    if (silent) setRefreshing(true);
-    else setLoading(true);
-
+  // stale-while-revalidate: read() returns cached data instantly (if present)
+  // and triggers a background refresh when stale. First-ever load waits.
+  const loadDashboard = async () => {
     const errors: string[] = [];
-    const [opportunitiesResult, reportsResult, runsResult] = await Promise.allSettled([
-      api.listOpportunities(),
-      api.listAlphaForgeReports(),
-      api.listRuns(),
+    const [oppR, repR, runR] = await Promise.allSettled([
+      oppCache.read(),
+      reportsCache.read(),
+      runsCache.read(),
     ]);
 
-    const opportunities =
-      opportunitiesResult.status === "fulfilled"
-        ? opportunitiesResult.value.categories
-        : [];
-    if (opportunitiesResult.status === "rejected") errors.push("机会清单暂不可用");
+    const opportunities = oppR.status === "fulfilled" ? oppR.value.data.categories : [];
+    if (oppR.status === "rejected") errors.push("机会清单暂不可用");
 
-    const reports = reportsResult.status === "fulfilled" ? reportsResult.value : [];
-    if (reportsResult.status === "rejected") errors.push("投研报告暂不可用");
+    const reports = repR.status === "fulfilled" ? repR.value.data : [];
+    if (repR.status === "rejected") errors.push("投研报告暂不可用");
 
-    const runs = runsResult.status === "fulfilled" ? runsResult.value : [];
-    if (runsResult.status === "rejected") errors.push("回测记录暂不可用");
+    const runs = runR.status === "fulfilled" ? runR.value.data : [];
+    if (runR.status === "rejected") errors.push("回测记录暂不可用");
 
     setData({ opportunities, reports, runs, errors });
     setLoading(false);
+  };
+
+  // Force re-fetch (refresh button) — bypasses TTL.
+  const forceRefresh = async () => {
+    setRefreshing(true);
+    const errors: string[] = [];
+    const [oppR, repR, runR] = await Promise.allSettled([
+      oppCache.refresh(),
+      reportsCache.refresh(),
+      runsCache.refresh(),
+    ]);
+    const opportunities = oppR.status === "fulfilled" ? oppR.value.categories : [];
+    if (oppR.status === "rejected") errors.push("机会清单暂不可用");
+    const reports = repR.status === "fulfilled" ? repR.value : [];
+    if (repR.status === "rejected") errors.push("投研报告暂不可用");
+    const runs = runR.status === "fulfilled" ? runR.value : [];
+    if (runR.status === "rejected") errors.push("回测记录暂不可用");
+    setData({ opportunities, reports, runs, errors });
     setRefreshing(false);
   };
 
   useEffect(() => {
     loadDashboard();
+    // After the initial read (which may have kicked off bg refreshes), poll
+    // once more shortly after so a stale-while-revalidate update is picked up
+    // without the user clicking refresh.
+    const t = setTimeout(() => { loadDashboard(); }, 2500);
+    return () => clearTimeout(t);
   }, []);
 
   const topOpportunities = useMemo(
@@ -140,7 +166,7 @@ export function Home() {
 
   return (
     <div className="min-h-full bg-background">
-      <header className="border-b bg-card/60">
+      <header className="border-b bg-card/80">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -155,9 +181,9 @@ export function Home() {
             </div>
             <div className="flex items-center gap-2">
               <button
-                onClick={() => loadDashboard(true)}
+                onClick={forceRefresh}
                 disabled={refreshing || loading}
-                className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm text-muted-foreground transition-colors hover:border-primary/35 hover:bg-primary/5 hover:text-foreground disabled:opacity-50"
               >
                 <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
                 刷新
@@ -220,10 +246,10 @@ export function Home() {
                       <Link
                         key={to}
                         to={to}
-                        className="group rounded-md border bg-card p-4 transition-colors hover:border-primary/40 hover:bg-muted/30"
+                        className="group rounded-md border bg-card p-4 transition-colors hover:border-primary/45 hover:bg-primary/[0.03]"
                       >
                         <div className="flex items-start gap-3">
-                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-primary/10 text-primary">
                             <Icon className="h-4 w-4" />
                           </div>
                           <div className="min-w-0">
@@ -247,9 +273,9 @@ export function Home() {
                   {topOpportunities.length === 0 ? (
                     <EmptyState text="暂无机会数据。请确认数据源后刷新。" />
                   ) : (
-                    <div className="overflow-hidden rounded-md border">
+                    <div className="overflow-hidden rounded-md border bg-card">
                       <table className="w-full text-sm">
-                        <thead className="bg-muted/40 text-xs text-muted-foreground">
+                        <thead className="bg-muted/35 text-xs text-muted-foreground">
                           <tr>
                             <th className="px-3 py-2 text-left font-medium">标的</th>
                             <th className="px-3 py-2 text-right font-medium">价格</th>
@@ -259,7 +285,7 @@ export function Home() {
                         </thead>
                         <tbody className="divide-y">
                           {topOpportunities.map((item) => (
-                            <tr key={`${item.category}-${item.symbol}`} className="hover:bg-muted/20">
+                            <tr key={`${item.category}-${item.symbol}`} className="hover:bg-primary/[0.03]">
                               <td className="px-3 py-2">
                                 <div className="font-medium">{item.name}</div>
                                 <div className="font-mono text-[11px] text-muted-foreground">{item.symbol}</div>
@@ -283,13 +309,15 @@ export function Home() {
                 <Panel title="市场情报" desc="把新闻、事件、机会和推理工具串成研究入口。">
                   <div className="space-y-2">
                     {INTELLIGENCE_LINKS.map(({ to, icon: Icon, label, desc }) => (
-                      <Link key={to} to={to} className="flex items-center gap-3 rounded-md border px-3 py-2.5 transition-colors hover:bg-muted/30">
-                        <Icon className="h-4 w-4 text-primary" />
+                      <Link key={to} to={to} className="group flex items-center gap-3 rounded-md border bg-card px-3 py-2.5 transition-colors hover:border-primary/35 hover:bg-primary/[0.03]">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-primary/15 bg-primary/10 text-primary">
+                          <Icon className="h-4 w-4" />
+                        </span>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-medium">{label}</div>
                           <div className="truncate text-xs text-muted-foreground">{desc}</div>
                         </div>
-                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+                        <ArrowRight className="h-3.5 w-3.5 text-muted-foreground transition-colors group-hover:text-primary" />
                       </Link>
                     ))}
                   </div>
@@ -308,7 +336,7 @@ export function Home() {
                         <Link
                           key={report.report_id}
                           to="/alpha-forge"
-                          className="block rounded-md border px-3 py-2 transition-colors hover:bg-muted/30"
+                          className="block rounded-md border bg-card px-3 py-2 transition-colors hover:border-primary/35 hover:bg-primary/[0.03]"
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate text-sm font-medium">{report.stock_name || report.target}</span>
@@ -340,7 +368,7 @@ export function Home() {
                         <Link
                           key={run.run_id}
                           to={`/runs/${run.run_id}`}
-                          className="block rounded-md border px-3 py-2 transition-colors hover:bg-muted/30"
+                          className="block rounded-md border bg-card px-3 py-2 transition-colors hover:border-primary/35 hover:bg-primary/[0.03]"
                         >
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate text-sm font-medium">{run.prompt || run.run_id}</span>
@@ -378,13 +406,13 @@ function MetricPanel({
   desc: string;
 }) {
   return (
-    <div className="rounded-md border bg-card p-4">
+    <div className="rounded-md border bg-card p-4 shadow-sm shadow-black/[0.02]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-xs font-medium text-muted-foreground">{label}</div>
           <div className="mt-1 text-2xl font-semibold tracking-tight">{value}</div>
         </div>
-        <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary">
+        <div className="flex h-9 w-9 items-center justify-center rounded-md border border-primary/15 bg-primary/10 text-primary">
           <Icon className="h-4 w-4" />
         </div>
       </div>
@@ -405,8 +433,8 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-md border bg-card">
-      <div className="flex items-start justify-between gap-3 border-b px-4 py-3">
+    <section className="rounded-md border bg-card shadow-sm shadow-black/[0.02]">
+      <div className="flex items-start justify-between gap-3 border-b bg-muted/15 px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold">{title}</h2>
           {desc && <p className="mt-0.5 text-xs text-muted-foreground">{desc}</p>}

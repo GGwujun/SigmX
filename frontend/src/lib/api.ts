@@ -1,4 +1,4 @@
-import { authHeaders, withAuthQuery } from "@/lib/apiAuth";
+import { authHeaders, withAuthQuery, type AuthUser } from "@/lib/apiAuth";
 
 const BASE = "";
 
@@ -13,7 +13,7 @@ export class ApiError extends Error {
 }
 
 export const AUTH_REQUIRED_MESSAGE =
-  "Remote API access requires an API key. Add it in Settings, or run the backend on localhost for local-only use.";
+  "远程 API 访问需要 API Key。请在设置页配置，或在本机 localhost 启动后端进行本地访问。";
 
 export function isAuthRequiredError(error: unknown): boolean {
   return error instanceof ApiError && (error.status === 401 || error.status === 403);
@@ -44,6 +44,16 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     headers: mergedHeaders,
   });
   if (!res.ok) {
+    // 401/403 → token invalid/missing → clear auth and force re-login.
+    // Skip if already on a public page (login/register) to avoid a loop.
+    if (res.status === 401 || res.status === 403) {
+      const pub = window.location.pathname.startsWith("/login") || window.location.pathname.startsWith("/register");
+      if (!pub) {
+        try { window.localStorage.removeItem("sigmx_auth_token"); } catch { /* ignore */ }
+        try { window.localStorage.removeItem("sigmx_user"); } catch { /* ignore */ }
+        window.location.assign("/login");
+      }
+    }
     throw await errorFromResponse(res);
   }
   const text = await res.text();
@@ -73,6 +83,37 @@ function appendQueryParam(url: string, key: string, value: string): string {
 
 export const api = {
   uploadFile,
+
+  // Auth
+  register: (email: string, password: string, agree: boolean) =>
+    request<AuthResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, agree }),
+    }),
+  login: (email: string, password: string) =>
+    request<AuthResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  getMe: () => request<AuthUser>("/auth/me"),
+  acceptDisclaimer: () => request<AuthUser>("/auth/disclaimer/accept", { method: "POST" }),
+
+  // Credits + account
+  getBalance: () => request<{ balance: number }>("/credits/balance"),
+  getTransactions: (limit = 50) => request<{ items: CreditTransaction[]; count: number }>(`/credits/transactions?limit=${limit}`),
+  redeemCode: (code: string) => request<{ ok: boolean; credits: number; balance: number; message: string }>("/credits/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+  getAccount: () => request<AccountInfo>("/account/me"),
+  changePassword: (old_password: string, new_password: string) =>
+    request<{ status: string }>("/account/password", { method: "POST", body: JSON.stringify({ old_password, new_password }) }),
+
+  // Notify (Feishu/DingTalk/WeChat)
+  getNotifyConfig: () => request<NotifyConfig>("/notify/config"),
+  saveNotifyConfig: (cfg: NotifyConfig) => request<NotifyConfig>("/notify/config", { method: "PUT", body: JSON.stringify(cfg) }),
+  testNotify: (platform: string) =>
+    request<{ ok: boolean; message: string }>("/notify/test", { method: "POST", body: JSON.stringify({ platform }) }),
+
+
+
   listRuns: () => request<RunListItem[]>("/runs"),
   getRun: (id: string) => request<RunData>(`/runs/${id}`),
   getRunCode: (id: string) => request<Record<string, string>>(`/runs/${id}/code`),
@@ -266,6 +307,22 @@ export const api = {
   cancelAlphaForgeRun: (runId: string) =>
     request<{ status: string; run_id: string }>(`/alpha-forge/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
   alphaForgeEventsUrl: (runId: string) => withAuthQuery(`${BASE}/alpha-forge/runs/${encodeURIComponent(runId)}/events`),
+
+  // Fund arbitrage
+  scanFunds: (type = "ETF", minPremium = 0.5, limit = 50) =>
+    request<FundScanResponse>(`/fund/scan?type=${encodeURIComponent(type)}&min_premium=${minPremium}&limit=${limit}`),
+  getFundDetail: (code: string) => request<FundDetail>(`/fund/${encodeURIComponent(code)}`),
+  getFundSourceStatus: () => request<FundSourceStatus>("/fund/source-status"),
+  analyzeFund: (fund_code: string, fund_type = "ETF") =>
+    request<FundAnalyzeInfo>("/fund/analyze", { method: "POST", body: JSON.stringify({ fund_code, fund_type }) }),
+  listFundReports: () => request<FundReportItem[]>("/fund/reports"),
+  getFundReport: (reportId: string) => request<FundReportDetail>(`/fund/reports/${encodeURIComponent(reportId)}`),
+  getFundReportDownloadUrl: (reportId: string, format: "md" | "pdf") =>
+    withAuthQuery(`${BASE}/fund/reports/${encodeURIComponent(reportId)}/download?format=${format}`),
+  listFundRuns: () => request<FundRunListItem[]>("/fund/runs"),
+  getFundRun: (runId: string) => request<FundRunDetail>(`/fund/runs/${encodeURIComponent(runId)}`),
+  cancelFundRun: (runId: string) =>
+    request<{ status: string; run_id: string }>(`/fund/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
 };
 
 // --- Swarm types ---
@@ -1225,6 +1282,54 @@ export interface AlphaForgeRunListItem {
   completed_count: number;
 }
 
+// Re-export the auth user type so callers can `import { AuthUser } from "@/lib/api"`.
+export type { AuthUser } from "@/lib/apiAuth";
+
+export interface AuthResponse {
+  token: string;
+  user: AuthUser;
+}
+
+// --- Credits + account ---
+
+export interface AccountInfo {
+  id: string;
+  email: string;
+  created_at: string;
+  disclaimer_accepted_at: string | null;
+  balance: number;
+}
+
+export interface CreditTransaction {
+  id: string;
+  delta: number;
+  type: string;
+  ref: string;
+  balance_after: number;
+  note: string;
+  created_at: string;
+}
+
+// --- Notify ---
+
+export interface PlatformConfig {
+  enabled: boolean;
+  webhook_url: string;
+  secret: string;
+  pre_market_enabled: boolean;
+  pre_market_time: string;
+  after_close_enabled: boolean;
+  after_close_time: string;
+  custom_enabled: boolean;
+  custom_time: string;
+}
+
+export interface NotifyConfig {
+  feishu: PlatformConfig;
+  dingtalk: PlatformConfig;
+  wechat: PlatformConfig;
+}
+
 export interface AlphaForgeRunDetail {
   run_id: string;
   status: string;
@@ -1234,5 +1339,83 @@ export interface AlphaForgeRunDetail {
   final_report: string | null;
   total_input_tokens: number;
   total_output_tokens: number;
+  tasks: { id: string; agent_id: string; status: string }[];
+}
+
+// --- Fund arbitrage types ---
+
+export interface FundScanItem {
+  code: string;
+  name: string;
+  type: string;
+  price: number;
+  nav: number;
+  premium_rate: number;
+  amount: number;
+  change_pct: number;
+  redeem_status: string;
+  subscribe_status: string;
+  trade_date: string;
+  signal: string;
+}
+
+export interface FundScanResponse {
+  status: string;
+  count: number;
+  items: FundScanItem[];
+}
+
+export interface FundDetail extends FundScanItem {
+  pre_close: number;
+  note?: string;
+}
+
+export interface FundSourceStatus {
+  em: boolean;
+  ths: boolean;
+  mootdx: boolean;
+}
+
+export interface FundAnalyzeInfo {
+  run_id: string;
+  status: string;
+  fund_code: string;
+  fund_type: string;
+  created_at: string;
+}
+
+export interface FundReportItem {
+  report_id: string;
+  fund_code: string;
+  fund_name: string;
+  fund_type: string;
+  analysis_date: string;
+  created_at: string;
+  premium_rate: string;
+  rating: string;
+}
+
+export interface FundReportDetail extends FundReportItem {
+  content_md: string;
+}
+
+export interface FundRunListItem {
+  run_id: string;
+  status: string;
+  fund_code: string;
+  fund_type: string;
+  created_at: string;
+  completed_at: string | null;
+  task_count: number;
+  completed_count: number;
+}
+
+export interface FundRunDetail {
+  run_id: string;
+  status: string;
+  preset_name: string;
+  created_at: string;
+  completed_at: string | null;
+  final_report: string | null;
   tasks: { id: string; agent_id: string; status: string }[];
 }

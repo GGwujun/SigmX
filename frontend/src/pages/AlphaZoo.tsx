@@ -60,7 +60,7 @@ const ZOO_CARDS: ZooCard[] = [
     description:
       "微软 Qlib 的完整 158 因子库，涵盖动量、波动率、成交量和滚动统计信号。",
     approxCount: 154,
-    accent: "from-sky-500/20 to-sky-500/5",
+    accent: "bg-primary/[0.03]",
   },
   {
     id: "alpha101",
@@ -68,7 +68,7 @@ const ZOO_CARDS: ZooCard[] = [
     description:
       "Kakushadze (2015) 的 101 个公式化 Alpha，短周期横截面信号。",
     approxCount: 101,
-    accent: "from-emerald-500/20 to-emerald-500/5",
+    accent: "bg-primary/[0.03]",
   },
   {
     id: "gtja191",
@@ -76,7 +76,7 @@ const ZOO_CARDS: ZooCard[] = [
     description:
       "国泰君安证券 191 个 Alpha 因子，面向 A 股市场的技术与微观结构信号。",
     approxCount: 191,
-    accent: "from-amber-500/20 to-amber-500/5",
+    accent: "bg-primary/[0.03]",
   },
   {
     id: "academic",
@@ -84,7 +84,7 @@ const ZOO_CARDS: ZooCard[] = [
     description:
       "精选学术文献中的长周期异象（价值、动量、质量、低波动等）。",
     approxCount: 6,
-    accent: "from-violet-500/20 to-violet-500/5",
+    accent: "bg-primary/[0.03]",
   },
 ];
 
@@ -232,7 +232,7 @@ function BrowseView() {
               type="button"
               onClick={() => setZooFilter(active ? "" : z.id)}
               className={cn(
-                "text-left border rounded-xl p-4 space-y-2 transition bg-gradient-to-br",
+                "text-left border rounded-md p-4 space-y-2 transition",
                 z.accent,
                 "hover:border-primary/50",
                 active && "border-primary ring-1 ring-primary/30",
@@ -849,7 +849,7 @@ function BenchView() {
         </div>
         {formError && (
           <p
-            className="sm:col-span-2 lg:col-span-5 text-xs text-red-600 dark:text-red-400"
+            className="sm:col-span-2 lg:col-span-5 text-xs text-danger"
             role="alert"
           >
             {formError}
@@ -956,9 +956,9 @@ function ResultPanel({ result }: { result: AlphaBenchResult }) {
   }, [result, dark]);
 
   const totals = [
-    { label: "有效", value: result.alive, icon: CheckCircle2, tone: "text-green-600 dark:text-green-400" },
-    { label: "反转", value: result.reversed, icon: AlertTriangle, tone: "text-amber-600 dark:text-amber-400" },
-    { label: "失效", value: result.dead, icon: XCircle, tone: "text-red-600 dark:text-red-400" },
+    { label: "有效", value: result.alive, icon: CheckCircle2, tone: "text-success" },
+    { label: "反转", value: result.reversed, icon: AlertTriangle, tone: "text-warning" },
+    { label: "失效", value: result.dead, icon: XCircle, tone: "text-danger" },
     { label: "跳过", value: result.skipped ?? 0, icon: Loader2, tone: "text-muted-foreground" },
   ];
 
@@ -1051,10 +1051,10 @@ function TopTable({ title, rows }: { title: string; rows: AlphaBenchTopRow[] }) 
 function CategoryBadge({ category }: { category: AlphaBenchTopRow["category"] }) {
   const tone =
     category === "alive"
-      ? "bg-green-500/10 text-green-700 dark:text-green-300"
+      ? "bg-success/10 text-success"
       : category === "reversed"
-        ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
-        : "bg-red-500/10 text-red-700 dark:text-red-300";
+        ? "bg-warning/10 text-warning"
+        : "bg-danger/10 text-danger";
   return (
     <span className={cn("inline-block px-2 py-0.5 rounded-full text-[10px] font-medium", tone)}>
       {category}
@@ -1308,7 +1308,7 @@ function CompareView() {
         </div>
 
         {formError && (
-          <p className="text-xs text-red-600 dark:text-red-400" role="alert">
+          <p className="text-xs text-danger" role="alert">
             {formError}
           </p>
         )}
@@ -1328,7 +1328,7 @@ function CompareResultPanel({ result }: { result: AlphaCompareResult }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-        <span className="inline-flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400">
+        <span className="inline-flex items-center gap-1.5 font-medium text-success">
           <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> 最优:{" "}
           <span className="font-mono">{result.winner}</span>
         </span>
@@ -1336,7 +1336,7 @@ function CompareResultPanel({ result }: { result: AlphaCompareResult }) {
           {result.n_compared} 个已对比 · 按 {result.sort} 排序 · {result.universe} · {result.period}
         </span>
         {result.n_skipped > 0 && (
-          <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+          <span className="inline-flex items-center gap-1 text-warning">
             <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" /> {result.n_skipped} 个跳过
           </span>
         )}
@@ -1364,7 +1364,7 @@ function CompareResultPanel({ result }: { result: AlphaCompareResult }) {
                   key={`${r.zoo}:${r.id}`}
                   className={cn(
                     "border-b last:border-0 hover:bg-muted/20",
-                    r.rank === 1 && "bg-emerald-500/5",
+                    r.rank === 1 && "bg-success/5",
                   )}
                 >
                   <td className="px-3 py-2 text-right font-mono tabular-nums">{r.rank}</td>

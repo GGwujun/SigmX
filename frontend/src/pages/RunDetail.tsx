@@ -99,7 +99,7 @@ export function RunDetail() {
   }
   if (!run) return (
     <div className="p-8 space-y-2">
-      <p className="text-red-500 font-medium">未找到运行记录</p>
+      <p className="text-danger font-medium">未找到运行记录</p>
       <p className="text-sm text-muted-foreground">
         运行目录可能已被删除，或 API 访问配置有误。如需远程访问，请在设置中配置 API 密钥。
       </p>
@@ -107,7 +107,7 @@ export function RunDetail() {
         onClick={() => navigate(-1)}
         className="text-sm text-primary hover:underline inline-flex items-center gap-1.5"
       >
-        <ArrowLeft className="h-3.5 w-3.5" /> Go back
+        <ArrowLeft className="h-3.5 w-3.5" /> 返回
       </button>
     </div>
   );
@@ -122,7 +122,7 @@ export function RunDetail() {
           <button
             onClick={() => navigate(-1)}
             className="p-1 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
-            title="Go back"
+            title="返回"
           >
             <ArrowLeft className="h-4 w-4" />
           </button>
@@ -152,18 +152,18 @@ export function RunDetail() {
               <button
                 onClick={() => downloadCsv(`trades_${runId}.csv`, buildTradesCsv(run.trade_log!))}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted transition-colors"
-                title="Download Trades CSV"
+                title="下载交易 CSV"
               >
-                <Download className="h-3.5 w-3.5" /> Download Trades CSV
+                <Download className="h-3.5 w-3.5" /> 下载交易 CSV
               </button>
             )}
             {run.metrics && (
               <button
                 onClick={() => downloadCsv(`metrics_${runId}.csv`, buildMetricsCsv(run.metrics!))}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:bg-muted transition-colors"
-                title="Download Metrics CSV"
+                title="下载指标 CSV"
               >
-                <Download className="h-3.5 w-3.5" /> Download Metrics CSV
+                <Download className="h-3.5 w-3.5" /> 下载指标 CSV
               </button>
             )}
           </div>
@@ -201,8 +201,8 @@ function RunCardTab({ card }: { card: RunCard }) {
       </div>
 
       {warnings.length > 0 && (
-        <section className="rounded-md border border-amber-500/25 bg-amber-500/5 p-3">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
+        <section className="rounded-md border border-warning/25 bg-warning/5 p-3">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-warning">
             <AlertTriangle className="h-4 w-4" />
             警告
           </div>
@@ -236,14 +236,14 @@ function RunCardTab({ card }: { card: RunCard }) {
         </RunCardPanel>
       </div>
 
-      <RunCardPanel title="Artifact Checksums" icon={FileCheck2}>
+      <RunCardPanel title="产物校验" icon={FileCheck2}>
         {artifacts.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b text-left text-muted-foreground">
-                  <th className="py-2 pr-4">Path</th>
-                  <th className="py-2 pr-4">Size</th>
+                  <th className="py-2 pr-4">路径</th>
+                  <th className="py-2 pr-4">大小</th>
                   <th className="py-2">SHA-256</th>
                 </tr>
               </thead>
@@ -259,7 +259,7 @@ function RunCardTab({ card }: { card: RunCard }) {
             </table>
           </div>
         ) : (
-          <p className="text-sm text-muted-foreground">No artifact checksums recorded.</p>
+          <p className="text-sm text-muted-foreground">暂无产物校验记录。</p>
         )}
       </RunCardPanel>
     </div>
@@ -270,7 +270,7 @@ function RunCardStat({ label, value, tone = "normal" }: { label: string; value: 
   return (
     <div className="rounded-md border bg-card p-3">
       <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={cn("mt-1 truncate text-sm font-medium", tone === "warning" ? "text-amber-700 dark:text-amber-300" : "")}>{value}</div>
+      <div className={cn("mt-1 truncate text-sm font-medium", tone === "warning" ? "text-warning" : "")}>{value}</div>
     </div>
   );
 }
@@ -347,7 +347,7 @@ function ChartTab({ run }: { run: RunData }) {
       ))}
       {hasEquity && (
         <div>
-          <h3 className="text-sm font-medium mb-1">Equity & Drawdown</h3>
+          <h3 className="text-sm font-medium mb-1">净值与回撤</h3>
           <EquityChart data={run.equity_curve!} height={280} />
         </div>
       )}
@@ -363,12 +363,12 @@ function TradesTab({ run }: { run: RunData }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b text-left text-muted-foreground">
-            <th className="py-2 pr-4">Time</th>
-            <th className="py-2 pr-4">Code</th>
-            <th className="py-2 pr-4">Side</th>
-            <th className="py-2 pr-4">Price</th>
-            <th className="py-2 pr-4">Qty</th>
-            <th className="py-2">Reason</th>
+            <th className="py-2 pr-4">时间</th>
+            <th className="py-2 pr-4">代码</th>
+            <th className="py-2 pr-4">方向</th>
+            <th className="py-2 pr-4">价格</th>
+            <th className="py-2 pr-4">数量</th>
+            <th className="py-2">原因</th>
           </tr>
         </thead>
         <tbody>
@@ -391,7 +391,7 @@ function TradesTab({ run }: { run: RunData }) {
 function CodeTab({ code }: { code: Record<string, string> }) {
   const files = Object.entries(code);
   const [active, setActive] = useState(files[0]?.[0] || "");
-  if (files.length === 0) return <div className="p-8 text-muted-foreground text-sm">No code files.</div>;
+  if (files.length === 0) return <div className="p-8 text-muted-foreground text-sm">暂无代码文件。</div>;
   return (
     <div className="flex flex-col h-full">
       <div className="flex gap-1 p-2 border-b">

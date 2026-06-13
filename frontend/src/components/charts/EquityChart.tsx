@@ -93,7 +93,7 @@ export function EquityChart({ data, height = 300 }: Props) {
           areaStyle: { color: t.downColor + "25" },
           markLine: {
             silent: true, symbol: "none",
-            data: [{ yAxis: minDD, label: { formatter: `Max DD: ${minDD}%`, position: "insideEndTop", fontSize: 10, color: t.downColor } }],
+            data: [{ yAxis: minDD, label: { formatter: `最大回撤: ${minDD}%`, position: "insideEndTop", fontSize: 10, color: t.downColor } }],
             lineStyle: { color: t.downColor, type: "dashed", width: 1 },
           },
         },

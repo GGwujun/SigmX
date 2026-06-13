@@ -10,9 +10,9 @@ function Badge({ value, good }: { value: string; good: boolean | null }) {
     <span
       className={cn(
         "inline-block px-2 py-0.5 rounded-full text-xs font-semibold",
-        good === true && "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-        good === false && "bg-red-500/15 text-red-600 dark:text-red-400",
-        good === null && "bg-zinc-500/10 text-zinc-500",
+        good === true && "bg-success/15 text-success",
+        good === false && "bg-danger/15 text-danger",
+        good === null && "bg-muted text-muted-foreground",
       )}
     >
       {value}
@@ -44,11 +44,11 @@ function MonteCarloSection({ mc }: { mc: NonNullable<ValidationData["monte_carlo
         <Badge value={sig ? "Significant" : "Not Significant"} good={sig} />
       </div>
       <p className="text-xs text-muted-foreground">
-        Shuffled trade order {mc.n_simulations.toLocaleString()} times to test if Sharpe is better than random.
+        已随机打乱交易顺序 {mc.n_simulations.toLocaleString()} 次，用于检验夏普是否优于随机结果。
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-xl border border-border/60 bg-muted/20 p-3">
-        <Stat label="Actual Sharpe" value={mc.actual_sharpe.toFixed(2)} />
-        <Stat label="p-value (Sharpe)" value={mc.p_value_sharpe.toFixed(4)} sub={sig ? "< 0.05" : ">= 0.05"} />
+        <Stat label="实际夏普" value={mc.actual_sharpe.toFixed(2)} />
+        <Stat label="p 值（夏普）" value={mc.p_value_sharpe.toFixed(4)} sub={sig ? "< 0.05" : ">= 0.05"} />
         <Stat label="Simulated Mean" value={mc.simulated_sharpe_mean.toFixed(2)} sub={`std ${mc.simulated_sharpe_std.toFixed(2)}`} />
         <Stat label="Simulated 90% Range" value={`[${mc.simulated_sharpe_p5.toFixed(2)}, ${mc.simulated_sharpe_p95.toFixed(2)}]`} />
       </div>
@@ -60,8 +60,8 @@ function MonteCarloSection({ mc }: { mc: NonNullable<ValidationData["monte_carlo
           <span>P95: {mc.simulated_sharpe_p95.toFixed(2)}</span>
         </div>
         <div className="relative h-3 rounded-full bg-muted overflow-hidden">
-          <div className="absolute inset-y-0 bg-zinc-300 dark:bg-zinc-600 rounded-full" style={barStyle(mc.simulated_sharpe_p5, mc.simulated_sharpe_p95, mc.simulated_sharpe_p5, mc.simulated_sharpe_p95)} />
-          <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-500" style={markerStyle(mc.actual_sharpe, mc.simulated_sharpe_p5, mc.simulated_sharpe_p95)} />
+          <div className="absolute inset-y-0 bg-muted rounded-full" style={barStyle(mc.simulated_sharpe_p5, mc.simulated_sharpe_p95, mc.simulated_sharpe_p5, mc.simulated_sharpe_p95)} />
+          <div className="absolute top-0 bottom-0 w-0.5 bg-success" style={markerStyle(mc.actual_sharpe, mc.simulated_sharpe_p5, mc.simulated_sharpe_p95)} />
         </div>
       </div>
     </div>
@@ -74,17 +74,17 @@ function BootstrapSection({ bs }: { bs: NonNullable<ValidationData["bootstrap"]>
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
-        <h4 className="text-sm font-semibold">Bootstrap Sharpe CI</h4>
+        <h4 className="text-sm font-semibold">Bootstrap 夏普置信区间</h4>
         <Badge value={reliable ? "CI > 0" : "CI includes 0"} good={reliable} />
       </div>
       <p className="text-xs text-muted-foreground">
         Resampled daily returns {bs.n_bootstrap.toLocaleString()} times to estimate {(bs.confidence * 100).toFixed(0)}% confidence interval.
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-xl border border-border/60 bg-muted/20 p-3">
-        <Stat label="Observed Sharpe" value={bs.observed_sharpe.toFixed(2)} />
+        <Stat label="观测夏普" value={bs.observed_sharpe.toFixed(2)} />
         <Stat label={`${(bs.confidence * 100).toFixed(0)}% CI`} value={`[${bs.ci_lower.toFixed(2)}, ${bs.ci_upper.toFixed(2)}]`} />
-        <Stat label="Median Sharpe" value={bs.median_sharpe.toFixed(2)} />
-        <Stat label="P(Sharpe > 0)" value={pctFmt(bs.prob_positive)} />
+        <Stat label="夏普中位数" value={bs.median_sharpe.toFixed(2)} />
+        <Stat label="P(夏普 > 0)" value={pctFmt(bs.prob_positive)} />
       </div>
       {/* CI bar */}
       <div className="space-y-1">
@@ -93,7 +93,7 @@ function BootstrapSection({ bs }: { bs: NonNullable<ValidationData["bootstrap"]>
           <span>{bs.ci_upper.toFixed(2)}</span>
         </div>
         <div className="relative h-3 rounded-full bg-muted overflow-hidden">
-          <div className={cn("absolute inset-y-0 rounded-full", reliable ? "bg-emerald-500/30" : "bg-amber-500/30")} style={barStyle(bs.ci_lower, bs.ci_upper, Math.min(bs.ci_lower, 0), Math.max(bs.ci_upper, 1))} />
+          <div className={cn("absolute inset-y-0 rounded-full", reliable ? "bg-success/30" : "bg-warning/30")} style={barStyle(bs.ci_lower, bs.ci_upper, Math.min(bs.ci_lower, 0), Math.max(bs.ci_upper, 1))} />
           <div className="absolute top-0 bottom-0 w-0.5 bg-foreground" style={markerStyle(bs.observed_sharpe, Math.min(bs.ci_lower, 0), Math.max(bs.ci_upper, 1))} />
         </div>
       </div>
@@ -115,8 +115,8 @@ function WalkForwardSection({ wf }: { wf: NonNullable<ValidationData["walk_forwa
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-1 rounded-xl border border-border/60 bg-muted/20 p-3">
         <Stat label="Consistency" value={pctFmt(wf.consistency_rate)} />
-        <Stat label="Avg Return" value={pctFmt(wf.return_mean)} sub={`std ${pctFmt(wf.return_std)}`} />
-        <Stat label="Avg Sharpe" value={wf.sharpe_mean.toFixed(2)} sub={`std ${wf.sharpe_std.toFixed(2)}`} />
+        <Stat label="平均收益" value={pctFmt(wf.return_mean)} sub={`标准差 ${pctFmt(wf.return_std)}`} />
+        <Stat label="平均夏普" value={wf.sharpe_mean.toFixed(2)} sub={`标准差 ${wf.sharpe_std.toFixed(2)}`} />
         <Stat label="Windows" value={String(wf.n_windows)} />
       </div>
       {/* Per-window table */}
@@ -124,12 +124,12 @@ function WalkForwardSection({ wf }: { wf: NonNullable<ValidationData["walk_forwa
         <thead>
           <tr className="border-b text-left text-muted-foreground">
             <th className="py-1.5 pr-3">#</th>
-            <th className="py-1.5 pr-3">Period</th>
-            <th className="py-1.5 pr-3 text-right">Return</th>
-            <th className="py-1.5 pr-3 text-right">Sharpe</th>
-            <th className="py-1.5 pr-3 text-right">Max DD</th>
-            <th className="py-1.5 pr-3 text-right">Trades</th>
-            <th className="py-1.5 text-right">Win Rate</th>
+            <th className="py-1.5 pr-3">区间</th>
+            <th className="py-1.5 pr-3 text-right">收益</th>
+            <th className="py-1.5 pr-3 text-right">夏普</th>
+            <th className="py-1.5 pr-3 text-right">最大回撤</th>
+            <th className="py-1.5 pr-3 text-right">交易次数</th>
+            <th className="py-1.5 text-right">胜率</th>
           </tr>
         </thead>
         <tbody>
@@ -137,7 +137,7 @@ function WalkForwardSection({ wf }: { wf: NonNullable<ValidationData["walk_forwa
             <tr key={w.window} className="border-b last:border-0">
               <td className="py-1.5 pr-3 font-mono">{w.window}</td>
               <td className="py-1.5 pr-3 font-mono text-muted-foreground">{w.start} ~ {w.end}</td>
-              <td className={cn("py-1.5 pr-3 text-right font-mono tabular-nums", w.return > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>{pctFmt(w.return)}</td>
+              <td className={cn("py-1.5 pr-3 text-right font-mono tabular-nums", w.return > 0 ? "text-success" : "text-danger")}>{pctFmt(w.return)}</td>
               <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{w.sharpe.toFixed(2)}</td>
               <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{pctFmt(w.max_dd)}</td>
               <td className="py-1.5 pr-3 text-right font-mono tabular-nums">{w.trades}</td>

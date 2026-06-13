@@ -38,45 +38,45 @@ function formatUsd(value: number | undefined): string {
 }
 
 function formatRelative(value: string | number | null | undefined): string {
-  if (value == null || value === "") return "never";
+  if (value == null || value === "") return "从未";
   const then = typeof value === "number"
     ? (value < 1_000_000_000_000 ? value * 1000 : value)
     : new Date(value).getTime();
-  if (!Number.isFinite(then)) return "unknown";
+  if (!Number.isFinite(then)) return "未知";
   const deltaSec = Math.round((Date.now() - then) / 1000);
-  if (deltaSec < 0) return "just now";
-  if (deltaSec < 60) return `${deltaSec}s ago`;
-  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)}m ago`;
-  if (deltaSec < 86_400) return `${Math.floor(deltaSec / 3600)}h ago`;
-  return `${Math.floor(deltaSec / 86_400)}d ago`;
+  if (deltaSec < 0) return "刚刚";
+  if (deltaSec < 60) return `${deltaSec} 秒前`;
+  if (deltaSec < 3600) return `${Math.floor(deltaSec / 60)} 分钟前`;
+  if (deltaSec < 86_400) return `${Math.floor(deltaSec / 3600)} 小时前`;
+  return `${Math.floor(deltaSec / 86_400)} 天前`;
 }
 
 function formatCountdown(iso: string | undefined): { label: string; expired: boolean; soon: boolean } {
   if (!iso) return { label: "—", expired: false, soon: false };
   const target = new Date(iso).getTime();
-  if (!Number.isFinite(target)) return { label: "unknown", expired: false, soon: false };
+  if (!Number.isFinite(target)) return { label: "未知", expired: false, soon: false };
   const deltaSec = Math.round((target - Date.now()) / 1000);
-  if (deltaSec <= 0) return { label: "expired", expired: true, soon: false };
+  if (deltaSec <= 0) return { label: "已过期", expired: true, soon: false };
   const days = Math.floor(deltaSec / 86_400);
   const hours = Math.floor((deltaSec % 86_400) / 3600);
   const minutes = Math.floor((deltaSec % 3600) / 60);
   const soon = deltaSec < 86_400;
-  if (days > 0) return { label: `${days}d ${hours}h`, expired: false, soon };
-  if (hours > 0) return { label: `${hours}h ${minutes}m`, expired: false, soon };
-  return { label: `${minutes}m`, expired: false, soon };
+  if (days > 0) return { label: `${days} 天 ${hours} 小时`, expired: false, soon };
+  if (hours > 0) return { label: `${hours} 小时 ${minutes} 分钟`, expired: false, soon };
+  return { label: `${minutes} 分钟`, expired: false, soon };
 }
 
 function summarizeLimits(limits: LiveMandateLimits | undefined): string {
   if (!limits) return "";
   const parts: string[] = [];
-  if (limits.max_order_notional_usd != null) parts.push(`≤${formatUsd(limits.max_order_notional_usd)}/order`);
-  if (limits.max_trades_per_day != null) parts.push(`${limits.max_trades_per_day}/day`);
-  if (limits.max_leverage != null) parts.push(limits.max_leverage <= 1 ? "no leverage" : `${limits.max_leverage}×`);
-  return parts.join(" · ");
+  if (limits.max_order_notional_usd != null) parts.push(`单笔 ≤${formatUsd(limits.max_order_notional_usd)}`);
+  if (limits.max_trades_per_day != null) parts.push(`每日 ${limits.max_trades_per_day} 笔`);
+  if (limits.max_leverage != null) parts.push(limits.max_leverage <= 1 ? "无杠杆" : `${limits.max_leverage} 倍杠杆`);
+  return parts.join(" / ");
 }
 
 function fallbackAuthorizeInstruction(): string {
-  return "Run `vibe-trading connector list`, choose the broker profile, then run `vibe-trading connector authorize <profile>` from the desktop session that will hold the broker connection.";
+  return "运行 `vibe-trading connector list` 选择券商配置，然后在承载连接的桌面会话里执行 `vibe-trading connector authorize <profile>`。";
 }
 
 function BrokerRow({
@@ -97,8 +97,8 @@ function BrokerRow({
   const mandate = broker.mandate ?? null;
   const countdown = formatCountdown(mandate?.expires_at);
   const authorizeInstruction = authorizeHint?.instruction
-    ?? (authorizeFailed ? fallbackAuthorizeInstruction() : "Loading connector authorization instructions...");
-  const authorizeNote = "The connector channel stays read-only until OAuth succeeds and a mandate is committed.";
+    ?? (authorizeFailed ? fallbackAuthorizeInstruction() : "正在加载连接器授权指引…");
+  const authorizeNote = "OAuth 授权成功并提交授权委托前，连接器通道保持只读。";
 
   useEffect(() => {
     let cancelled = false;
@@ -123,14 +123,14 @@ function BrokerRow({
     try {
       if (runnerAlive) {
         await api.stopLiveRunner(brokerKey);
-        toast.success(`Runner stopped for ${brokerKey}`);
+        toast.success(`${brokerKey} 运行器已停止`);
       } else {
         await api.startLiveRunner(brokerKey);
-        toast.success(`Runner started for ${brokerKey}`);
+        toast.success(`${brokerKey} 运行器已启动`);
       }
       onRefresh();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Runner control failed.");
+      toast.error(error instanceof Error ? error.message : "运行器控制失败");
     } finally {
       setBusy(false);
     }
@@ -142,14 +142,14 @@ function BrokerRow({
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="truncate text-xs font-semibold capitalize text-foreground">{brokerKey}</span>
           {authorized ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+            <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success">
               <ShieldCheck className="h-2.5 w-2.5" />
-              Authorized
+              已授权
             </span>
           ) : (
             <span className="inline-flex items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
               <CircleSlash className="h-2.5 w-2.5" />
-              Not connected
+              未连接
             </span>
           )}
         </div>
@@ -162,7 +162,7 @@ function BrokerRow({
         <div className="grid gap-1.5 rounded-md border border-dashed border-primary/30 bg-primary/5 p-2">
           <div className="flex items-center gap-1.5 text-[11px] font-medium text-primary">
             <PlugZap className="h-3 w-3 shrink-0" />
-            Connect this profile to enable connector runtime
+            连接此配置以启用连接器运行时
           </div>
           <p className="text-[10px] leading-relaxed text-muted-foreground">
             {authorizeInstruction}
@@ -178,17 +178,17 @@ function BrokerRow({
           <div className="grid grid-cols-2 gap-2">
             <div className="rounded-md border bg-background/60 p-2">
               <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <CircleDot className={["h-2.5 w-2.5", runnerAlive ? "text-emerald-500" : "text-muted-foreground"].join(" ")} />
-                Runner
+                <CircleDot className={["h-2.5 w-2.5", runnerAlive ? "text-success" : "text-muted-foreground"].join(" ")} />
+                运行器
               </div>
-              <div className={["mt-0.5 text-xs font-semibold", runnerAlive ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground"].join(" ")}>
-                {runnerAlive ? "Running" : "Stopped"}
+              <div className={["mt-0.5 text-xs font-semibold", runnerAlive ? "text-success" : "text-muted-foreground"].join(" ")}>
+                {runnerAlive ? "运行中" : "已停止"}
               </div>
             </div>
             <div className="rounded-md border bg-background/60 p-2">
               <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                 <Activity className="h-2.5 w-2.5" />
-                Last tick
+                最近心跳
               </div>
               <div className="mt-0.5 text-xs font-medium text-foreground">
                 {formatRelative(broker.runner?.last_tick)}
@@ -201,7 +201,7 @@ function BrokerRow({
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                   <ShieldCheck className="h-2.5 w-2.5" />
-                  Active mandate
+                  有效授权
                 </div>
                 {mandate.expires_at && (
                   <span
@@ -210,23 +210,23 @@ function BrokerRow({
                       countdown.expired
                         ? "bg-destructive/10 text-destructive"
                         : countdown.soon
-                          ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                          ? "bg-warning/10 text-warning"
                           : "bg-muted text-muted-foreground",
                     ].join(" ")}
-                    title={`Expires ${new Date(mandate.expires_at).toLocaleString()}`}
+                    title={`到期时间 ${new Date(mandate.expires_at).toLocaleString()}`}
                   >
                     <Clock className="h-2.5 w-2.5" />
-                    {countdown.expired ? "expired" : `expires in ${countdown.label}`}
+                    {countdown.expired ? "已过期" : `${countdown.label} 后到期`}
                   </span>
                 )}
               </div>
               <div className="mt-0.5 font-mono text-[11px] text-foreground">
-                {summarizeLimits(mandate.limits) || "limits unavailable"}
+                {summarizeLimits(mandate.limits) || "限制信息不可用"}
               </div>
             </div>
           ) : (
             <div className="rounded-md border border-dashed bg-background/40 p-2 text-[10px] text-muted-foreground">
-              No active mandate. Ask the agent to propose one, then commit it before starting the connector runtime.
+              暂无有效授权。请先让智能体提出授权方案，提交后再启动连接器运行时。
             </div>
           )}
 
@@ -234,11 +234,11 @@ function BrokerRow({
             {halted ? (
               <span className="inline-flex items-center gap-1 text-[10px] font-medium text-destructive">
                 <OctagonX className="h-3 w-3" />
-                Halted — runner controls disabled
+                已停机，运行器控制不可用
               </span>
             ) : (
               <span className="text-[10px] text-muted-foreground">
-                {runnerAlive ? "Runtime active inside mandate" : "Idle"}
+                {runnerAlive ? "授权范围内运行中" : "空闲"}
               </span>
             )}
             <button
@@ -251,10 +251,10 @@ function BrokerRow({
                   ? "border-destructive/40 text-destructive hover:bg-destructive/10"
                   : "border-primary/40 text-primary hover:bg-primary/10",
               ].join(" ")}
-              title={runnerAlive ? "Stop the persistent runner" : "Start the persistent runner"}
+              title={runnerAlive ? "停止常驻运行器" : "启动常驻运行器"}
             >
               {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Power className="h-3 w-3" />}
-              {runnerAlive ? "Stop runner" : "Start runner"}
+              {runnerAlive ? "停止运行器" : "启动运行器"}
             </button>
           </div>
         </>
@@ -290,24 +290,24 @@ export const RunnerStatus = memo(function RunnerStatus({ status, unavailable, ha
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex max-w-full items-center gap-1.5 justify-self-start rounded-lg bg-primary/10 px-2.5 py-1 text-left text-xs font-medium text-primary transition-colors hover:bg-primary/15"
-        aria-label="Connector runtime status"
+        aria-label="连接器运行状态"
         aria-expanded={open}
       >
         <Activity className="h-3 w-3 shrink-0" />
-        <span className="shrink-0">Connector runtime</span>
+        <span className="shrink-0">连接器运行时</span>
         <span className="truncate text-muted-foreground">
-          {authorizedCount > 0 ? `${authorizedCount} connected` : "no connector connected"}
+          {authorizedCount > 0 ? `${authorizedCount} 个已连接` : "暂无连接器连接"}
         </span>
         {anyRunning && !isHalted && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+          <span className="inline-flex items-center gap-1 rounded-full bg-success/10 px-1.5 py-0.5 text-[10px] font-medium text-success">
             <CircleDot className="h-2.5 w-2.5" />
-            running
+            运行中
           </span>
         )}
         {isHalted && (
           <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-1.5 py-0.5 text-[10px] font-medium text-destructive">
             <OctagonX className="h-2.5 w-2.5" />
-            halted
+            已停机
           </span>
         )}
         <ChevronDown className={["h-3 w-3 shrink-0 transition-transform", open ? "rotate-180" : ""].join(" ")} aria-hidden="true" />

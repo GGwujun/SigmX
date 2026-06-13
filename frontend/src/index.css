@@ -4,65 +4,65 @@
 
 @layer base {
   :root {
-    /* Light mode surfaces */
-    --background: 220 20% 98%;
-    --foreground: 220 20% 10%;
+    /* Signal Black light surfaces */
+    --background: 220 23% 97%;
+    --foreground: 225 14% 8%;
     --card: 0 0% 100%;
-    --card-foreground: 220 20% 10%;
+    --card-foreground: 225 14% 8%;
 
     /* Brand accent */
-    --primary: 27 90% 52%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 172 100% 38%;
+    --primary-foreground: 225 18% 7%;
 
-    --muted: 220 14% 92%;
-    --muted-foreground: 220 14% 46%;
-    --destructive: 0 84% 60%;
+    --muted: 220 18% 93%;
+    --muted-foreground: 220 9% 45%;
+    --destructive: 346 82% 52%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 14% 87%;
+    --border: 216 18% 88%;
     --radius: 0.5rem;
 
     /* Semantic colors */
-    --success: 142 71% 45%;
-    --danger: 0 84% 60%;
+    --success: 151 80% 43%;
+    --danger: 346 82% 52%;
     --warning: 38 92% 50%;
-    --info: 217 91% 60%;
+    --info: 214 88% 57%;
 
     /* Chart tokens */
-    --chart-grid: 220 14% 90%;
-    --chart-text: 220 14% 46%;
-    --chart-axis: 220 14% 80%;
-    --chart-compare-a: #3b82f6;
-    --chart-compare-b: #f59e0b;
+    --chart-grid: 216 18% 90%;
+    --chart-text: 220 9% 45%;
+    --chart-axis: 216 16% 78%;
+    --chart-compare-a: #00c2a8;
+    --chart-compare-b: #1e90ff;
   }
 
   .dark {
-    /* Dark mode: 4-level surface system */
-    --background: 220 20% 5%;       /* bg-base */
-    --foreground: 220 10% 92%;
-    --card: 220 20% 8%;             /* surface-1 */
-    --card-foreground: 220 10% 92%;
+    /* Signal Black dark surfaces */
+    --background: 225 18% 5%;
+    --foreground: 220 14% 94%;
+    --card: 225 18% 8%;
+    --card-foreground: 220 14% 94%;
 
-    --primary: 27 90% 52%;
-    --primary-foreground: 0 0% 100%;
+    --primary: 172 100% 42%;
+    --primary-foreground: 225 18% 7%;
 
-    --muted: 220 20% 13%;           /* surface-2 */
-    --muted-foreground: 220 10% 55%;
-    --destructive: 0 62% 50%;
+    --muted: 225 16% 13%;
+    --muted-foreground: 220 9% 62%;
+    --destructive: 346 76% 56%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 20% 18%;          /* surface-3 */
+    --border: 225 14% 18%;
 
     /* Semantic colors */
-    --success: 142 71% 45%;
-    --danger: 0 62% 50%;
-    --warning: 38 92% 50%;
-    --info: 217 91% 60%;
+    --success: 151 72% 48%;
+    --danger: 346 76% 56%;
+    --warning: 42 94% 57%;
+    --info: 214 92% 65%;
 
     /* Chart tokens */
-    --chart-grid: 220 20% 12%;
-    --chart-text: 220 10% 42%;
-    --chart-axis: 220 20% 22%;
-    --chart-compare-a: #60a5fa;
-    --chart-compare-b: #fbbf24;
+    --chart-grid: 225 16% 13%;
+    --chart-text: 220 9% 62%;
+    --chart-axis: 225 14% 25%;
+    --chart-compare-a: #00d6ba;
+    --chart-compare-b: #60a5fa;
   }
 
   * { @apply border-border; }
@@ -78,6 +78,30 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground)); }
+
+  [data-sidebar] ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+  }
+
+  [data-sidebar] ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.62);
+  }
+
+  [data-sidebar] {
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .dark [data-sidebar] ::-webkit-scrollbar-thumb {
+    background: rgb(51 65 85 / 0.72);
+  }
+
+  .dark [data-sidebar] ::-webkit-scrollbar-thumb:hover {
+    background: rgb(100 116 139 / 0.86);
+  }
+
+  .dark [data-sidebar] {
+    scrollbar-color: rgb(51 65 85 / 0.72) transparent;
+  }
 }
 
 /* Streaming pulse-slide animation for the "running" bar */

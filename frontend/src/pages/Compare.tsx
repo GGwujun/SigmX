@@ -28,7 +28,7 @@ function diffClass(a: unknown, b: unknown, higherIsBetter: boolean): string {
   if (!Number.isFinite(na) || !Number.isFinite(nb)) return "";
   const better = higherIsBetter ? nb > na : nb < na;
   const worse = higherIsBetter ? nb < na : nb > na;
-  return better ? "text-green-600 dark:text-green-400" : worse ? "text-red-600 dark:text-red-400" : "";
+  return better ? "text-success" : worse ? "text-danger" : "";
 }
 
 function diffStr(a: unknown, b: unknown, type: "pct" | "num" | "int" | "days"): string {
@@ -51,21 +51,21 @@ function runLabel(r: RunListItem): string {
 }
 
 const METRICS: MetricDef[] = [
-  { key: "total_return",           label: "Total Return",         type: "pct", higherIsBetter: true },
-  { key: "annualized_return",      label: "Annualized Return",    type: "pct", higherIsBetter: true },
-  { key: "sharpe",                 label: "Sharpe Ratio",         type: "num", higherIsBetter: true },
-  { key: "calmar_ratio",           label: "Calmar Ratio",         type: "num", higherIsBetter: true },
-  { key: "sortino_ratio",          label: "Sortino Ratio",        type: "num", higherIsBetter: true },
-  { key: "max_drawdown",           label: "Max Drawdown",         type: "pct", higherIsBetter: false },
-  { key: "volatility",             label: "Volatility",           type: "pct", higherIsBetter: false },
-  { key: "win_rate",               label: "Win Rate",             type: "pct", higherIsBetter: true },
-  { key: "profit_factor",          label: "Profit Factor",        type: "num", higherIsBetter: true },
-  { key: "avg_win",                label: "Avg Win",              type: "pct", higherIsBetter: true },
-  { key: "avg_loss",               label: "Avg Loss",             type: "pct", higherIsBetter: false },
-  { key: "trade_count",            label: "Trades",               type: "int", higherIsBetter: true },
-  { key: "max_consecutive_losses", label: "Max Consec. Losses",   type: "int", higherIsBetter: false },
-  { key: "exposure_time",          label: "Exposure Time",        type: "pct", higherIsBetter: true },
-  { key: "avg_holding_period",     label: "Avg Holding Period",   type: "days", higherIsBetter: false },
+  { key: "total_return",           label: "总收益",         type: "pct", higherIsBetter: true },
+  { key: "annualized_return",      label: "年化收益",       type: "pct", higherIsBetter: true },
+  { key: "sharpe",                 label: "夏普比率",       type: "num", higherIsBetter: true },
+  { key: "calmar_ratio",           label: "Calmar 比率",    type: "num", higherIsBetter: true },
+  { key: "sortino_ratio",          label: "Sortino 比率",   type: "num", higherIsBetter: true },
+  { key: "max_drawdown",           label: "最大回撤",       type: "pct", higherIsBetter: false },
+  { key: "volatility",             label: "波动率",         type: "pct", higherIsBetter: false },
+  { key: "win_rate",               label: "胜率",           type: "pct", higherIsBetter: true },
+  { key: "profit_factor",          label: "盈亏因子",       type: "num", higherIsBetter: true },
+  { key: "avg_win",                label: "平均盈利",       type: "pct", higherIsBetter: true },
+  { key: "avg_loss",               label: "平均亏损",       type: "pct", higherIsBetter: false },
+  { key: "trade_count",            label: "交易次数",       type: "int", higherIsBetter: true },
+  { key: "max_consecutive_losses", label: "最大连续亏损",   type: "int", higherIsBetter: false },
+  { key: "exposure_time",          label: "持仓暴露时间",   type: "pct", higherIsBetter: true },
+  { key: "avg_holding_period",     label: "平均持仓天数",   type: "days", higherIsBetter: false },
 ];
 
 // Also accept backend aliases
@@ -251,23 +251,23 @@ export function Compare() {
   return (
     <div className="p-8 max-w-4xl space-y-6">
       <h1 className="text-xl font-bold flex items-center gap-2">
-        <GitCompare className="h-5 w-5" /> Strategy Comparison
+        <GitCompare className="h-5 w-5" /> 策略对比
       </h1>
 
       {/* Selectors */}
       <div className="flex gap-4 items-end">
         <div className="flex-1">
-          <label className="text-xs text-muted-foreground block mb-1">Baseline</label>
+          <label className="text-xs text-muted-foreground block mb-1">基准</label>
           <select value={leftId} onChange={(e) => setLeftId(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" title={leftRun?.prompt || leftId}>
-            <option value="">-- Select --</option>
+            <option value="">请选择</option>
             {runs.map((r) => <option key={r.run_id} value={r.run_id}>{runLabel(r)} ({r.status})</option>)}
           </select>
         </div>
         <ArrowRight className="h-5 w-5 text-muted-foreground mb-2 shrink-0" />
         <div className="flex-1">
-          <label className="text-xs text-muted-foreground block mb-1">Compare</label>
+          <label className="text-xs text-muted-foreground block mb-1">对比</label>
           <select value={rightId} onChange={(e) => setRightId(e.target.value)} className="w-full px-3 py-2 rounded-lg border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/30" title={rightRun?.prompt || rightId}>
-            <option value="">-- Select --</option>
+            <option value="">请选择</option>
             {runs.map((r) => <option key={r.run_id} value={r.run_id}>{runLabel(r)} ({r.status})</option>)}
           </select>
         </div>
@@ -277,7 +277,7 @@ export function Compare() {
       {loading && !hasData && (
         <div className="space-y-6">
           <div className="border rounded-xl p-4">
-            <h2 className="text-sm font-medium text-muted-foreground mb-2">Equity & Drawdown</h2>
+            <h2 className="text-sm font-medium text-muted-foreground mb-2">净值与回撤</h2>
             <SkeletonChart height={320} />
           </div>
           <div className="border rounded-xl overflow-hidden">
@@ -289,12 +289,12 @@ export function Compare() {
       {/* Equity curve overlay */}
       {(leftCurve.length > 0 || rightCurve.length > 0) && (
         <div className="border rounded-xl p-4">
-          <h2 className="text-sm font-medium text-muted-foreground mb-2">Equity & Drawdown</h2>
+          <h2 className="text-sm font-medium text-muted-foreground mb-2">净值与回撤</h2>
           <EquityChartOverlay
             leftCurve={leftCurve}
             rightCurve={rightCurve}
-            leftLabel={leftRun ? truncatePrompt(leftRun.prompt, 20) || "Baseline" : "Baseline"}
-            rightLabel={rightRun ? truncatePrompt(rightRun.prompt, 20) || "Compare" : "Compare"}
+            leftLabel={leftRun ? truncatePrompt(leftRun.prompt, 20) || "基准" : "基准"}
+            rightLabel={rightRun ? truncatePrompt(rightRun.prompt, 20) || "对比" : "对比"}
           />
         </div>
       )}
@@ -305,10 +305,10 @@ export function Compare() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40">
-                <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">Metric</th>
-                <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">Baseline</th>
-                <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">Compare</th>
-                <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">Delta</th>
+                <th className="text-left px-4 py-2.5 text-muted-foreground font-medium">指标</th>
+                <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">基准</th>
+                <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">对比</th>
+                <th className="text-right px-4 py-2.5 text-muted-foreground font-medium">变化</th>
               </tr>
             </thead>
             <tbody>
@@ -332,7 +332,7 @@ export function Compare() {
       {!hasData && !loading && (
         <div className="text-center py-16 text-muted-foreground">
           <GitCompare className="h-12 w-12 mx-auto mb-3 opacity-20" />
-          <p className="text-sm">Select two runs to compare their metrics.</p>
+          <p className="text-sm">请选择两个运行记录进行指标对比。</p>
         </div>
       )}
     </div>

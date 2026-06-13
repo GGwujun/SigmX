@@ -76,7 +76,7 @@ describe("MessageBubble", () => {
           onRetry={vi.fn()}
         />,
       );
-      expect(screen.getByText(/Try simplifying the strategy/)).toBeInTheDocument();
+      expect(screen.getByText(/请尝试简化策略/)).toBeInTheDocument();
     });
   });
 

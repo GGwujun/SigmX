@@ -276,7 +276,7 @@ function ProbabilityBar({ value }: { value: number }) {
     <div className="flex items-center gap-2">
       <div className="h-2 min-w-[52px] flex-1 overflow-hidden rounded-full bg-muted/60">
         <div
-          className={cn("h-full rounded-full", value >= 0.5 ? "bg-green-500" : "bg-amber-500")}
+          className={cn("h-full rounded-full", value >= 0.5 ? "bg-success" : "bg-warning")}
           style={{ width: `${Math.round(value * 100)}%` }}
         />
       </div>
@@ -356,7 +356,7 @@ function EventsTable({
                 className={cn(
                   "cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50",
                   selected && "bg-primary/5 hover:bg-primary/10",
-                  big && "bg-amber-500/5",
+                  big && "bg-warning/5",
                 )}
               >
                 <td className="px-3 py-3">
@@ -364,14 +364,14 @@ function EventsTable({
                   <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
                     {event.categoryLabel && <span>{event.categoryLabel}</span>}
                     {event.threshold && event.threshold !== "-" && <span>{event.threshold}</span>}
-                    {big && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">大幅异动</span>}
+                    {big && <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">大幅异动</span>}
                   </div>
                 </td>
                 <td className="px-3 py-3">
                   <ProbabilityBar value={event.probability} />
                 </td>
                 <td className="px-3 py-3">
-                  <span className={cn("flex items-center gap-1 text-xs font-medium tabular-nums", event.prob_change_24h >= 0 ? "text-green-500" : "text-red-500")}>
+                  <span className={cn("flex items-center gap-1 text-xs font-medium tabular-nums", event.prob_change_24h >= 0 ? "text-success" : "text-danger")}>
                     {event.prob_change_24h >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
                     {fmtChange(event.prob_change_24h)}
                   </span>
@@ -512,7 +512,7 @@ function DetailMetric({
 }) {
   return (
     <div className="rounded-lg bg-muted/40 p-3 text-center">
-      <p className={cn("text-lg font-semibold tabular-nums", trend === "up" && "text-green-500", trend === "down" && "text-red-500")}>{value}</p>
+      <p className={cn("text-lg font-semibold tabular-nums", trend === "up" && "text-success", trend === "down" && "text-danger")}>{value}</p>
       <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
     </div>
   );

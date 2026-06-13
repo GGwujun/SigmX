@@ -37,11 +37,11 @@ const LS_KEY = "vibe-position-watchlist";
 const AI_CACHE_KEY = "vibe-position-ai-cache";
 
 const DECISION_COLORS: Record<string, string> = {
-  strong_buy: "text-emerald-600 bg-emerald-500/10 border-emerald-500/20",
-  buy: "text-green-600 bg-green-500/10 border-green-500/20",
-  hold: "text-amber-600 bg-amber-500/10 border-amber-500/20",
-  sell: "text-red-600 bg-red-500/10 border-red-500/20",
-  strong_sell: "text-rose-600 bg-rose-500/10 border-rose-500/20",
+  strong_buy: "text-success bg-success/10 border-success/20",
+  buy: "text-success bg-success/10 border-success/20",
+  hold: "text-warning bg-warning/10 border-warning/20",
+  sell: "text-danger bg-danger/10 border-danger/20",
+  strong_sell: "text-danger bg-danger/10 border-danger/20",
 };
 
 const DIMENSION_NAMES: Record<string, string> = {
@@ -113,15 +113,15 @@ function positionStats(signal?: PositionSignal | null, position?: Position) {
 }
 
 function scoreTone(score: number): string {
-  if (score >= 0.6) return "text-green-500";
-  if (score >= 0.4) return "text-amber-500";
-  return "text-red-500";
+  if (score >= 0.6) return "text-success";
+  if (score >= 0.4) return "text-warning";
+  return "text-danger";
 }
 
 function scoreBg(score: number): string {
-  if (score >= 0.6) return "bg-green-500";
-  if (score >= 0.4) return "bg-amber-500";
-  return "bg-red-500";
+  if (score >= 0.6) return "bg-success";
+  if (score >= 0.4) return "bg-warning";
+  return "bg-danger";
 }
 
 function isAiError(content: string | null): boolean {
@@ -201,8 +201,8 @@ function SLTPIndicator({ price, sl, tp, rr }: { price: number; sl?: number | nul
         <span className="text-xs text-muted-foreground">盈亏比 {rr ?? "-"}</span>
       </div>
       <div className="relative h-2 rounded-full bg-muted">
-        <div className="absolute left-0 top-0 h-full w-[35%] rounded-l-full bg-red-500/25" />
-        <div className="absolute right-0 top-0 h-full w-[35%] rounded-r-full bg-green-500/25" />
+        <div className="absolute left-0 top-0 h-full w-[35%] rounded-l-full bg-danger/25" />
+        <div className="absolute right-0 top-0 h-full w-[35%] rounded-r-full bg-success/25" />
         <div
           className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-primary bg-background shadow"
           style={{ left: `${Math.max(2, Math.min(96, pct))}%` }}
@@ -297,7 +297,7 @@ function MetricPill({ label, value, tone }: { label: string; value: string; tone
   return (
     <span className="inline-flex items-center gap-1.5 rounded-md border bg-card px-2.5 py-1.5">
       <span className="text-muted-foreground">{label}</span>
-      <span className={cn("font-semibold tabular-nums", tone === "up" && "text-green-500", tone === "down" && "text-red-500")}>{value}</span>
+      <span className={cn("font-semibold tabular-nums", tone === "up" && "text-success", tone === "down" && "text-danger")}>{value}</span>
     </span>
   );
 }
@@ -352,7 +352,7 @@ function PositionListPanel({
   });
 
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-muted/10 md:w-[280px]">
+    <aside className="flex min-h-0 w-full shrink-0 flex-col border-r bg-card/45 md:w-[280px]">
       <div className="space-y-3 border-b p-4">
         <div className="rounded-lg border bg-card p-3">
           <div className="mb-2 flex items-center gap-2 text-muted-foreground">
@@ -360,7 +360,7 @@ function PositionListPanel({
             <span className="text-xs font-medium">组合总览</span>
           </div>
           <p className="text-xl font-semibold tabular-nums">{fmtMoney(totalValue)}</p>
-          <p className={cn("mt-1 flex items-center gap-1 text-sm font-medium", totalPnL >= 0 ? "text-green-500" : "text-red-500")}>
+          <p className={cn("mt-1 flex items-center gap-1 text-sm font-medium", totalPnL >= 0 ? "text-success" : "text-danger")}>
             {totalPnL >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
             {fmtPnL(totalPnL)}
           </p>
@@ -457,8 +457,8 @@ function PositionListPanel({
                   tabIndex={0}
                   onClick={() => signal && onSelect(signal)}
                   className={cn(
-                    "group rounded-lg border px-3 py-2 text-xs transition-colors",
-                    signal ? "cursor-pointer hover:bg-muted/50" : "opacity-70",
+                    "group rounded-md border px-3 py-2 text-xs transition-colors",
+                    signal ? "cursor-pointer hover:border-primary/35 hover:bg-primary/[0.03]" : "opacity-70",
                     isSelected ? "border-primary/40 bg-primary/10" : "bg-card",
                   )}
                 >
@@ -473,7 +473,7 @@ function PositionListPanel({
                         event.stopPropagation();
                         onRemove(pos.symbol);
                       }}
-                      className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-red-500/10 hover:text-red-500 group-hover:opacity-100"
+                      className="rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-danger/10 hover:text-danger group-hover:opacity-100"
                       title="删除"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -483,11 +483,11 @@ function PositionListPanel({
                     <>
                       <div className="mt-2 flex items-center gap-2">
                         <span className="font-semibold tabular-nums">¥{fmtPrice(signal.price)}</span>
-                        <span className={cn("tabular-nums", signal.change_pct >= 0 ? "text-green-500" : "text-red-500")}>
+                        <span className={cn("tabular-nums", signal.change_pct >= 0 ? "text-success" : "text-danger")}>
                           {fmtPct(signal.change_pct)}
                         </span>
                         {pos.shares > 0 && (
-                          <span className={cn("ml-auto tabular-nums", stats.pnl >= 0 ? "text-green-500" : "text-red-500")}>
+                          <span className={cn("ml-auto tabular-nums", stats.pnl >= 0 ? "text-success" : "text-danger")}>
                             {fmtPnL(stats.pnl)}
                           </span>
                         )}
@@ -558,7 +558,7 @@ function SignalDetailPanel({
             </div>
             <div className="text-left md:text-right">
               <p className="text-2xl font-bold tabular-nums">¥{fmtPrice(signal.price)}</p>
-              <p className={cn("text-sm font-medium", signal.change_pct >= 0 ? "text-green-500" : "text-red-500")}>
+              <p className={cn("text-sm font-medium", signal.change_pct >= 0 ? "text-success" : "text-danger")}>
                 {signal.change_pct >= 0 ? <TrendingUp className="mr-0.5 inline h-3.5 w-3.5" /> : <TrendingDown className="mr-0.5 inline h-3.5 w-3.5" />}
                 {fmtPct(signal.change_pct)}
               </p>
@@ -613,7 +613,7 @@ function InfoCard({ label, value, tone }: { label: string; value: string; tone?:
   return (
     <div className="rounded-lg bg-muted/35 p-3">
       <p className="text-[10px] text-muted-foreground">{label}</p>
-      <p className={cn("mt-1 text-sm font-semibold tabular-nums", tone === "up" && "text-green-500", tone === "down" && "text-red-500")}>{value}</p>
+      <p className={cn("mt-1 text-sm font-semibold tabular-nums", tone === "up" && "text-success", tone === "down" && "text-danger")}>{value}</p>
     </div>
   );
 }
@@ -663,7 +663,7 @@ function AiDecisionPanel({
   const blocked = isAiError(aiContent);
 
   return (
-    <aside className="flex min-h-0 w-full shrink-0 flex-col border-l bg-muted/10 xl:w-[380px]">
+    <aside className="flex min-h-0 w-full shrink-0 flex-col border-l bg-card/45 xl:w-[380px]">
       <div className="flex items-center justify-between border-b p-4">
         <div>
           <p className="text-sm font-semibold">AI 决策 / 风控建议</p>
@@ -741,7 +741,7 @@ function AiDecisionPanel({
               )}
             </div>
           ) : aiContent ? (
-            <div className={cn("rounded-lg border p-3", blocked ? "border-red-500/20 bg-red-500/5" : "border-primary/15 bg-primary/5")}>
+            <div className={cn("rounded-md border p-3", blocked ? "border-danger/20 bg-danger/5" : "border-primary/15 bg-primary/5")}>
               <p className="whitespace-pre-wrap text-xs leading-relaxed">{aiContent}</p>
             </div>
           ) : (
@@ -776,19 +776,19 @@ function buildRiskItems(signal: PositionSignal, position: Position | undefined, 
       label: "浮动盈亏",
       desc: position?.shares ? "基于成本价和当前价估算" : "缺少成本或股数时不计算",
       value: position?.shares ? fmtPct(pnlPct) : "-",
-      tone: !position?.shares ? "bg-muted text-muted-foreground" : pnlPct >= 0 ? "bg-green-500/10 text-green-600" : "bg-red-500/10 text-red-600",
+      tone: !position?.shares ? "bg-muted text-muted-foreground" : pnlPct >= 0 ? "bg-success/10 text-success" : "bg-danger/10 text-danger",
     },
     {
       label: "止损约束",
       desc: signal.stop_loss ? `跌破 ¥${fmtPrice(signal.stop_loss)} 需要复核` : "后端暂未返回止损位",
       value: signal.stop_loss ? "已给出" : "缺失",
-      tone: signal.stop_loss ? "bg-amber-500/10 text-amber-600" : "bg-muted text-muted-foreground",
+      tone: signal.stop_loss ? "bg-warning/10 text-warning" : "bg-muted text-muted-foreground",
     },
     {
       label: "风险收益",
       desc: signal.risk_reward ? `当前盈亏比约 1:${signal.risk_reward}` : "后端暂未返回盈亏比",
       value: signal.risk_reward && signal.risk_reward >= 2 ? "较好" : "观察",
-      tone: signal.risk_reward && signal.risk_reward >= 2 ? "bg-green-500/10 text-green-600" : "bg-amber-500/10 text-amber-600",
+      tone: signal.risk_reward && signal.risk_reward >= 2 ? "bg-success/10 text-success" : "bg-warning/10 text-warning",
     },
   ];
   return items;
@@ -814,8 +814,8 @@ function PageState({
   if (error) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <div className="max-w-sm rounded-lg border border-red-500/20 bg-red-500/5 p-6 text-center">
-          <AlertTriangle className="mx-auto h-8 w-8 text-red-500/70" />
+        <div className="max-w-sm rounded-lg border border-danger/20 bg-danger/5 p-6 text-center">
+          <AlertTriangle className="mx-auto h-8 w-8 text-danger/70" />
           <p className="mt-3 text-sm font-medium">分析失败</p>
           <p className="mt-1 text-xs text-muted-foreground">{error}</p>
           <button type="button" onClick={onRetry} className="mt-4 rounded-md border px-3 py-1.5 text-xs hover:bg-muted">
