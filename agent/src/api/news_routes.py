@@ -49,60 +49,36 @@ _SINA_SEARCH_URL = (
 )
 
 
-def _fetch_sina_news(limit: int = 30, keyword: str = "") -> list[dict[str, Any]]:
-    """Fetch real-time financial news from Sina Finance."""
+def _fetch_wallstreetcn(limit: int = 30, keyword: str = "") -> list[dict[str, Any]]:
+    """Fetch financial news from RSSHub 华尔街见闻 (only working RSSHub route on Aliyun)."""
     try:
+        import os
         import requests as http
-        if keyword.strip():
-            url = _SINA_SEARCH_URL.format(keyword=keyword.strip(), limit=limit)
-        else:
-            url = _SINA_ROLL_URL.format(limit=limit)
-
-        resp = http.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-
-        # Financial keywords to filter non-relevant articles
-        _FINANCE_KW = ["股", "基金", "债", "市", "IPO", "上市", "板", "指",
-                        "银行", "保险", "券商", "利率", "央行", "美联储",
-                        "黄金", "原油", "商品", "期货", "外汇", "比特币",
-                        "经济", "GDP", "CPI", "PPI", "PMI", "通胀",
-                        "制造业", "消费", "贸易", "关税", "制裁",
-                        "房地产", "能源", "半导体", "芯片", "新能源",
-                        "汽车", "手机", "互联网", "AI", "人工智能",
-                        "财报", "营收", "利润", "分红", "回购",
-                        "ETF", "REIT", "QDII", "北向", "南向",
-                        "科创", "创业", "主板", "中小板", "北交所",
-                        "沪深", "上证", "深证", "恒生", "纳指",
-                        "收购", "合并", "重组", "融资", "估值",
-                        "A股", "港股", "美股", "日股", "台股",
-                        "建议", "评", "目标价", "评级", "看好", "看空", "减持",
-                        "监管", "合规", "罚", "立案", "退市",
-        ]
-
-        def _is_finance(title: str, intro: str) -> bool:
-            text = title + intro
-            return any(kw in text for kw in _FINANCE_KW)
-
+        import xml.etree.ElementTree as ET
+        base = os.getenv("RSSHUB_URL", "http://rsshub:1200").rstrip("/")
+        resp = http.get(f"{base}/wallstreetcn/news/global", timeout=10)
+        if resp.status_code != 200:
+            return []
+        root = ET.fromstring(resp.content)
         items: list[dict[str, Any]] = []
-        for row in data.get("result", {}).get("data", []):
-            title = row.get("title", "")
-            intro = row.get("intro", "") or row.get("summary", "")
-            if not _is_finance(title, intro):
+        for it in root.findall(".//item")[:limit]:
+            title = (it.findtext("title") or "").strip()
+            link = (it.findtext("link") or "").strip()
+            desc = (it.findtext("description") or "").strip()[:200]
+            pub = (it.findtext("pubDate") or "").strip()
+            if keyword and keyword not in title:
                 continue
-            ctime = int(row.get("ctime", 0))
-            published = datetime.fromtimestamp(ctime, tz=timezone.utc).isoformat() if ctime else ""
             items.append({
                 "title": title,
-                "url": row.get("url", "") or row.get("wapurl", ""),
-                "source": row.get("media_name", "新浪财经"),
-                "published": published,
-                "snippet": intro[:200],
-                "_provider": "sina",
+                "url": link,
+                "source": "华尔街见闻",
+                "published": pub,
+                "snippet": desc,
+                "_provider": "wscn",
             })
         return items
     except Exception as exc:
-        logger.warning("Sina news fetch failed: %s", exc)
+        logger.warning("Wallstreetcn fetch failed: %s", exc)
         return []
 
 
@@ -111,31 +87,36 @@ def _fetch_sina_news(limit: int = 30, keyword: str = "") -> list[dict[str, Any]]
 # ---------------------------------------------------------------------------
 
 
-def _fetch_ddg_news(query: str, max_results: int = 15) -> list[dict[str, Any]]:
-    """Fallback: broader news search via DuckDuckGo."""
+def _fetch_bing_news(query: str, max_results: int = 15) -> list[dict[str, Any]]:
+    """Fallback: broader news search via Bing (works on Aliyun, unlike DDG)."""
     try:
-        from ddgs import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.news(query, max_results=max_results, timelimit="d"))
-            if len(results) < 5:
-                results = list(ddgs.news(query, max_results=max_results, timelimit="w"))
+        import requests as http
+        from bs4 import BeautifulSoup
+        headers = {"User-Agent": "Mozilla/5.0 Chrome/120.0", "Accept-Language": "zh-CN,zh;q=0.9"}
+        resp = http.get("https://cn.bing.com/search", params={"q": query, "count": max_results, "setlang": "zh-CN"},
+                        headers=headers, timeout=15)
+        if resp.status_code != 200:
+            return []
+        soup = BeautifulSoup(resp.text, "html.parser")
         items: list[dict[str, Any]] = []
-        for r in results:
-            title = r.get("title", "")
-            # Keep only Chinese-language results (contains CJK characters)
-            if not any('一' <= c <= '鿿' for c in title):
+        for li in soup.select("li.b_algo"):
+            a = li.select_one("h2 a")
+            if not a or not a.get("href"):
                 continue
+            title = a.get_text(strip=True)
+            snippet = ""
+            snip = li.select_one(".b_caption p") or li.select_one("p")
+            if snip:
+                snippet = snip.get_text(strip=True)
             items.append({
-                "title": title,
-                "url": r.get("url", ""),
-                "source": r.get("source", "DuckDuckGo"),
-                "published": r.get("date", "") or r.get("published", ""),
-                "snippet": (r.get("body") or r.get("snippet") or "")[:200],
-                "_provider": "ddg",
+                "title": title, "url": a["href"], "source": "Bing",
+                "published": "", "snippet": snippet[:200], "_provider": "bing",
             })
+            if len(items) >= max_results:
+                break
         return items
     except Exception as exc:
-        logger.warning("DDG news fetch failed for %r: %s", query, exc)
+        logger.warning("Bing fetch failed: %s", exc)
         return []
 
 
@@ -145,25 +126,25 @@ def _fetch_ddg_news(query: str, max_results: int = 15) -> list[dict[str, Any]]:
 
 
 def _build_news_list(keyword: str = "") -> dict[str, Any]:
-    """Aggregate news from Sina + DDG, deduplicate by title."""
-    # Sina first (fresher, more relevant)
-    sina_articles = _fetch_sina_news(limit=25, keyword=keyword)
-    seen = {a["title"].strip().lower()[:60] for a in sina_articles}
+    """Aggregate news from RSSHub + Bing, deduplicate by title."""
+    # RSSHub wallstreetcn first (fresher, more relevant)
+    rss_articles = _fetch_wallstreetcn(limit=25, keyword=keyword)
+    seen = {a["title"].strip().lower()[:60] for a in rss_articles}
 
     # DDG as supplement
-    ddg_query = f"A股 {keyword}" if keyword else "A股"
-    ddg_articles = _fetch_ddg_news(ddg_query, max_results=15)
-    for a in ddg_articles:
+    bing_query = f"A股 {keyword}" if keyword else "A股"
+    bing_articles = _fetch_bing_news(bing_query, max_results=15)
+    for a in bing_articles:
         key = a["title"].strip().lower()[:60]
         if key not in seen:
             seen.add(key)
-            sina_articles.append(a)
+            rss_articles.append(a)
 
     # Sort by published date (newest first), unknown dates at bottom
-    sina_articles.sort(key=lambda a: a.get("published", ""), reverse=True)
+    rss_articles.sort(key=lambda a: a.get("published", ""), reverse=True)
 
     return {
-        "articles": sina_articles,
+        "articles": rss_articles,
         "query": keyword or "A股",
         "sources": ["新浪财经", "DuckDuckGo"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -261,8 +242,8 @@ def register_news_routes(
                 return {k: v for k, v in cached.items() if not k.startswith("_")}
 
         # Search both Sina and DDG for this stock
-        sina = _fetch_sina_news(limit=10, keyword=name)
-        ddg = _fetch_ddg_news(f"{name} 股票 A股", max_results=8)
+        sina = _fetch_wallstreetcn(limit=10, keyword=name)
+        ddg = _fetch_bing_news(f"{name} 股票 A股", max_results=8)
         seen = {a["title"].strip().lower()[:60] for a in sina}
         for a in ddg:
             if a["title"].strip().lower()[:60] not in seen:
