@@ -44,8 +44,8 @@ SigmX 是一套**面向 A 股为主的多智能体投研平台**，在 [Vibe-Tra
 ### 方式 A：Docker 部署（推荐生产环境）
 
 ```bash
-git clone https://github.com/GGwujun/Vibe-Trading-Buddy.git
-cd Vibe-Trading-Buddy
+git clone https://github.com/GGwujun/SigmX.git
+cd SigmX
 
 # 配置环境变量
 cp agent/.env.example agent/.env

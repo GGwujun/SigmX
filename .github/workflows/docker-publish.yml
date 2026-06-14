@@ -5,7 +5,7 @@
 #   - version tag (v*) → also tag :<version>
 #   - manual dispatch
 #
-# The image is published to ghcr.io/ggwujun/vibe-trading-buddy. On the server
+# The image is published to ghcr.io/ggwujun/sigmx. On the server
 # you then just `docker compose pull && docker compose up -d` — no git clone,
 # no local build.
 #
