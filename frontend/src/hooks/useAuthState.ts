@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
   clearAuth, disclaimerAccepted as disclaimerAcceptedFn,
-  getToken, isAuthenticated, setUser, type AuthUser,
+  isAuthenticated, setUser, type AuthUser,
 } from "@/lib/apiAuth";
 
 /**
