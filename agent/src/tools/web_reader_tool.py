@@ -24,6 +24,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import logging
+import os
 from urllib.parse import urlsplit
 
 import requests
@@ -233,11 +234,53 @@ def _jina_fetch(url: str, no_cache: bool = False) -> dict:
     return result
 
 
+# ---------------------------------------------------------------------------
+# Overseas proxy strategy (when the main service runs in CN, route foreign-site
+# reads through a lightweight proxy on an overseas server — it reaches
+# Yahoo/Reuters/Jina fast, avoiding CN->overseas slowness/blocks).
+# ---------------------------------------------------------------------------
+
+def _overseas_proxy_url() -> str:
+    return os.getenv("OVERSEAS_PROXY_URL", "").strip().rstrip("/")
+
+
+def _proxy_fetch(url: str, no_cache: bool = False) -> dict:
+    """Fetch via the overseas proxy (which uses Jina/raw from a fast vantage)."""
+    base = _overseas_proxy_url()
+    if not base:
+        return {"status": "error", "error": "OVERSEAS_PROXY_URL not configured"}
+    secret = os.getenv("PROXY_SECRET", "").strip()
+    headers = {"X-Proxy-Key": secret} if secret else {}
+    try:
+        resp = requests.get(
+            f"{base}/fetch",
+            params={"url": url, "strategy": "jina"},
+            headers=headers,
+            timeout=_TIMEOUT,
+        )
+    except requests.RequestException as exc:
+        return {"status": "error", "error": f"proxy request failed: {exc}"}
+    if resp.status_code != 200:
+        return {"status": "error", "error": f"proxy HTTP {resp.status_code}: {resp.text[:200]}"}
+    data = resp.json()
+    if data.get("status") != "ok":
+        return data
+    return {
+        "status": "ok",
+        "title": data.get("title", ""),
+        "url": url,
+        "content": data.get("content", ""),
+        "length": data.get("length", 0),
+        "strategy": "proxy",
+    }
+
+
 def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
     """Fetch web page content as Markdown text.
 
-    Two strategies with automatic fallback:
-      - ``auto`` (default): domestic sites → direct fetch first, Jina fallback;
+    Strategies with automatic fallback:
+      - ``auto`` (default): domestic sites → direct first (proxy/jina fallback);
+        foreign sites → overseas proxy first (jina/direct fallback).
         foreign sites → Jina first, direct fallback.
       - ``direct``: force direct fetch only.
       - ``jina``: force Jina Reader only.
@@ -261,13 +304,20 @@ def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
     if strategy not in {"auto", "direct", "jina"}:
         strategy = "auto"
 
-    # Resolve strategy order
+    # Resolve strategy order. If an overseas proxy is configured, foreign sites
+    # go through it first (it reaches Yahoo/Reuters/Jina fast from overseas).
+    has_proxy = bool(_overseas_proxy_url())
     if strategy == "direct":
         order = ["direct"]
     elif strategy == "jina":
         order = ["jina"]
     else:  # auto
-        order = ["direct", "jina"] if _is_domestic(target_url) else ["jina", "direct"]
+        if _is_domestic(target_url):
+            order = ["direct", "jina"]
+        elif has_proxy:
+            order = ["proxy", "jina", "direct"]
+        else:
+            order = ["jina", "direct"]
 
     emit_progress(
         "fetching",
@@ -280,6 +330,8 @@ def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
             emit_progress("parsing", message=f"extracting via {strat}")
             if strat == "direct":
                 result = _direct_fetch(target_url, no_cache)
+            elif strat == "proxy":
+                result = _proxy_fetch(target_url, no_cache)
             else:
                 result = _jina_fetch(target_url, no_cache)
             if result.get("status") == "ok":

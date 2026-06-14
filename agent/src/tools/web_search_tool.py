@@ -16,6 +16,7 @@ case Bing/Eastmoney are tried before DDG (which often returns nothing for Chines
 from __future__ import annotations
 
 import json
+import os
 import re
 from typing import Any
 
@@ -38,7 +39,30 @@ def _is_chinese(query: str) -> bool:
 
 
 def _search_ddg(query: str, max_results: int) -> list[dict]:
-    """DuckDuckGo via ddgs/duckduckgo_search."""
+    """DuckDuckGo via ddgs/duckduckgo_search.
+
+    If an overseas proxy is configured, route DDG through it — the proxy server
+    sits overseas and reaches DuckDuckGo freely, avoiding CN access instability.
+    """
+    # Overseas proxy path (preferred when configured).
+    base = os.getenv("OVERSEAS_PROXY_URL", "").strip().rstrip("/")
+    if base:
+        import requests as _requests
+        secret = os.getenv("PROXY_SECRET", "").strip()
+        headers = {"X-Proxy-Key": secret} if secret else {}
+        try:
+            resp = _requests.get(
+                f"{base}/search",
+                params={"q": query, "max": max_results},
+                headers=headers,
+                timeout=15,
+            )
+            if resp.status_code == 200:
+                return resp.json().get("results", [])
+        except Exception:
+            pass  # fall through to local DDGS
+
+    # Local DDGS (works when the host can reach DuckDuckGo directly).
     try:
         try:
             from ddgs import DDGS

@@ -1,0 +1,17 @@
+# Overseas info proxy — run on the overseas (non-CN) server.
+# Build & run: docker compose up -d --build
+# The CN main service calls this via OVERSEAS_PROXY_URL when read_url/web_search
+# need to reach foreign sites (Yahoo/Reuters/DuckDuckGo).
+#
+# MUST set PROXY_SECRET to a random string; share it with the CN main service's
+# .env (also PROXY_SECRET). Restrict port 12000 to the CN server's IP in the
+# firewall for defense in depth.
+
+services:
+  overseas-proxy:
+    build: .
+    ports:
+      - "12000:12000"
+    environment:
+      - PROXY_SECRET=${PROXY_SECRET:-change-me-to-a-random-secret}
+    restart: unless-stopped
