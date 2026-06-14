@@ -303,15 +303,53 @@ def _mootdx_quotes_serial(codes: list[str], limit_codes: int = 120) -> dict[str,
     return out
 
 
+def _akshare_sina_prices() -> dict[str, dict[str, Any]]:
+    """Akshare sina spot prices (works on Aliyun when mootdx port blocked).
+
+    Returns {code: {price, amount}} for exchange-traded assets (stocks + funds).
+    ~27s full scan, but covers the whole market.
+    """
+    try:
+        import akshare as ak
+        df = ak.stock_zh_a_spot()  # sina backend
+    except Exception as exc:
+        logger.info("fund_premium: akshare sina spot failed: %s", exc)
+        return {}
+    if df is None or df.empty:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        code = str(row.get("代码", "")).strip()
+        if not code or _fund_market(code) is None:
+            continue
+        try:
+            price = float(row.get("最新价", 0) or 0)
+            if price <= 0:
+                continue
+            out[code] = {
+                "price": price,
+                "pre_close": float(row.get("昨收", 0) or 0),
+                "amount": float(row.get("成交额", 0) or 0),
+            }
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
 def _fetch_via_ths_mootdx(fund_kind: str, limit: int) -> list[dict[str, Any]]:
-    """Fallback path: ths NAV list + mootdx serial quotes for top-N codes."""
+    """Fallback path: ths NAV list + mootdx serial quotes for top-N codes.
+
+    If mootdx is unavailable (firewall blocks TDX port 7709 on Aliyun), falls
+    back to akshare sina spot prices.
+    """
     nav_map = _fetch_ths_nav(fund_kind)
     if not nav_map:
         return []
-    # Rank codes by nav availability; we can only quote `limit` of them serially.
-    # Prefer codes present in both ths and a fresh mootdx stock list (name/pre_close).
-    codes = list(nav_map.keys())[:limit * 3]  # over-pull, mootdx caps to `limit`
+    codes = list(nav_map.keys())[:limit * 3]
     prices = _mootdx_quotes_serial(codes, limit_codes=limit * 2)
+    if not prices:
+        # mootdx unavailable → use akshare sina spot as fallback
+        prices = _akshare_sina_prices()
     rows: list[dict[str, Any]] = []
     for code, pinfo in prices.items():
         ninfo = nav_map.get(code)

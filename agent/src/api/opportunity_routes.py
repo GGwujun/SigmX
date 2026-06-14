@@ -41,8 +41,45 @@ _CACHE_TTL = 600  # 10 min — scanning 200 stocks is expensive
 # ---------------------------------------------------------------------------
 
 
+def _fetch_stocks_akshare(limit: int = 200) -> list[dict[str, Any]]:
+    """Top A-share stocks by volume via akshare (sina backend, ~27s)."""
+    try:
+        import akshare as ak
+        import re
+        df = ak.stock_zh_a_spot()  # sina backend, works on Aliyun
+    except Exception:
+        return []
+    if df is None or df.empty:
+        return []
+    out: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        code = str(row.get("代码", "")).strip()
+        if len(code) != 6:
+            continue
+        suffix = "SZ" if code.startswith(("0", "3")) else "SH" if code.startswith("6") else None
+        if suffix is None:
+            continue
+        out.append({
+            "symbol": f"{code}.{suffix}",
+            "name": str(row.get("名称", "")).strip(),
+            "price": float(row.get("最新价", 0) or 0),
+            "volume": float(row.get("成交量", 0) or 0),
+            "change_pct": float(row.get("涨跌幅", 0) or 0),
+        })
+    out.sort(key=lambda x: x.get("volume", 0), reverse=True)
+    return out[:limit]
+
+
 def _fetch_top_stocks(limit: int = 200) -> list[dict[str, Any]]:
-    """Get top active A-share stocks by recent volume from mootdx."""
+    """Get top active A-share stocks by recent volume.
+
+    Primary: akshare stock_zh_a_spot (sina backend — works from Aliyun/Docker).
+    Fallback: mootdx (native TDX TCP, may not work on all cloud hosts).
+    """
+    stocks = _fetch_stocks_akshare(limit)
+    if stocks:
+        return stocks
+    # Fallback to mootdx
     try:
         from mootdx.quotes import Quotes
         client = Quotes.factory(market="std", timeout=15)
