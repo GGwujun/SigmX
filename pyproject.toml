@@ -62,6 +62,8 @@ dependencies = [
     "bcrypt>=4.0.0",
     "markdown>=3.5.0",
     "email-validator>=2.0.0",
+    # Capital flow data (Tier 4)
+    "efinance>=0.5.0",
 ]
 
 [project.urls]

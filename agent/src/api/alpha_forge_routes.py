@@ -185,7 +185,7 @@ def _save_report(report_id: str, content_md: str, meta: dict[str, Any]) -> Path:
 # to (display section title, layer label). Ordered top-to-bottom = how the
 # final report reads.
 _AGENT_SECTIONS: list[tuple[str, str, str]] = [
-    # Layer 1 — parallel research (7 analysts)
+    # Layer 1 — parallel research (8 analysts)
     ("technical_analyst", "技术分析", "第一部分：多维度研究"),
     ("sentiment_analyst", "情绪分析", "第一部分：多维度研究"),
     ("news_analyst", "新闻舆情", "第一部分：多维度研究"),
@@ -193,6 +193,7 @@ _AGENT_SECTIONS: list[tuple[str, str, str]] = [
     ("policy_analyst", "政策分析", "第一部分：多维度研究"),
     ("capital_flow_analyst", "资金面分析", "第一部分：多维度研究"),
     ("lockup_analyst", "解禁 / 减持监控", "第一部分：多维度研究"),
+    ("global_market_analyst", "国际市场影响", "第一部分：多维度研究"),
     # Layer 2 — quality gate
     ("quality_gate", "质量门控结论", "第二部分：质量门控"),
     # Layer 3 — debate

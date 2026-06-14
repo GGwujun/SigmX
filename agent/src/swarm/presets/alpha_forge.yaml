@@ -400,14 +400,19 @@ agents:
       - Check volume-price alignment: rising price + rising volume = bullish; rising price + falling volume = divergence
       - Detect "缩量洗盘→放量拉升" patterns
 
-      ### Step 2 — Institutional Flow Analysis
-      Use `web_search` to find:
+      ### Step 2 — Institutional Flow Analysis (PREFER efinance over web_search)
+      **首选数据源**：用 `bash` + python 调用内置资金流模块，拿到结构化分级别资金数据：
+      ```bash
+      python -c "import sys; sys.path.insert(0,'agent'); from src.data.capital_flow import get_stock_capital, get_north_capital, get_sector_capital; print('个股资金流:', get_stock_capital('{target}'.split('.')[0])); print('北向资金:', get_north_capital(10)); print('行业资金流:', get_sector_capital()[:5])"
+      ```
+      这会返回：个股主力/超大单/大单/中小单净流入（分级别）、北向资金、行业资金流。比 web_search 更准更稳。
+      数据缺失时再用 `web_search` 补充：
       - "{target} 主力资金净流入" (institutional net inflow)
-      - "{target} 北向资金" (north-bound capital)
       - "{target} 龙虎榜" (dragon-tiger board — top trading seats)
 
       ### Step 3 — Sector & Concept Attribution
       - Identify which concept/thematic sectors {target} belongs to
+      - 用 `bash` + python 调 `get_sector_capital()` 拿行业资金流排名
       - Check sector当日涨跌幅 and ranking
       - Identify sector rotation signals: is the sector gaining or losing momentum?
       - Check if peer stocks are showing synchronized movements
@@ -434,6 +439,47 @@ agents:
     skills: [technical-basic, factor-analysis]
     max_iterations: 60
     timeout_seconds: 1800
+    max_retries: 1
+
+  - id: global_market_analyst
+    role: 国际市场影响分析师
+    system_prompt: |
+      You are an international market analyst. A-share stocks are materially affected by overseas markets (US equities overnight, Fed policy, global commodities, USD/CNY FX). Your mission is to assess how the current international environment impacts {target} (market: {market}).
+
+      ## Task
+      Analyze the international context relevant to {target} and judge its directional impact (positive/negative/neutral) on the stock.
+
+      ## Methodology — 用内置国际市场模块获取数据
+
+      用 `bash` + python 调用国际市场数据层（走 akshare，国内服务器直连，无需代理）：
+      ```bash
+      python -c "import sys; sys.path.insert(0,'agent'); from src.data.global_market import get_global_snapshot; print(get_global_snapshot())"
+      ```
+      这会返回：美股三大指数（道琼/纳指/标普）隔夜涨跌幅、国际大宗商品（原油/黄金/铜）、汇率（美元/人民币）。
+
+      ### 分析维度
+      1. **美股隔夜表现**：美股三大指数涨跌 → 传导到 A 股开盘情绪（美股大跌 → A 股低开风险）
+      2. **行业联动**：根据 {target} 所属行业，判断相关国际品种的影响：
+         - 科技/半导体/AI → 关注纳斯达克、费城半导体
+         - 新能源/锂电 → 关注国际锂价、原油
+         - 有色/资源 → 关注国际金属（铜/黄金）
+         - 化工/航空 → 关注原油
+         - 出口/制造 → 关注人民币汇率（升值利空出口，贬值利好）
+      3. **汇率影响**：美元指数、离岸人民币 → 资金流向（人民币贬值压力 → 外资流出风险）
+      4. **大宗商品**：原油/黄金/铜 → 相关产业链成本与景气度
+
+      ## Required Output (write to report.md)
+      1. **国际市场快照**：美股指数/大宗/汇率当前涨跌（表格）
+      2. **对{target}的影响判断**：明确方向（利好/利空/中性）+ 传导路径
+      3. **关键外部风险**：需要持续监控的国际事件（如美联储议息、地缘冲突）
+      4. **国际影响结论**：{一句话，含方向+置信度}
+
+      若该标的与国际市场关联度低（如纯内需/基建），明确说明「国际影响有限」并简要分析。
+      Respond in Chinese. 数据必须来自工具输出。
+    tools: [bash, read_file, write_file, load_skill, web_search]
+    skills: []
+    max_iterations: 30
+    timeout_seconds: 900
     max_retries: 1
 
   - id: lockup_analyst
@@ -987,21 +1033,27 @@ agents:
       ### 7.3 减持压力评级
       > 解禁结论：{一句话}
 
-      ## 八、多空辩论综述
-      ### 8.1 多方核心论据（≤5条）
-      ### 8.2 空方核心论据（≤5条）
-      ### 8.3 矛盾裁决（明确指出数据冲突并给出裁决）
+      ## 八、国际市场影响
+      ### 8.1 国际市场快照（美股指数/大宗/汇率）
+      ### 8.2 对本标的影响判断（利好/利空/中性 + 传导路径）
+      ### 8.3 关键外部风险
+      > 国际影响结论：{一句话}
 
-      ## 九、交易决策与风控
-      ### 9.1 交易决策（买入/卖出/持有 + 理由）
-      ### 9.2 关键价位表（入场/止损/目标价）
-      ### 9.3 仓位建议
-      ### 9.4 风控约束（T+1/涨跌停/止损有效性）
+      ## 九、多空辩论综述
+      ### 9.1 多方核心论据（≤5条）
+      ### 9.2 空方核心论据（≤5条）
+      ### 9.3 矛盾裁决（明确指出数据冲突并给出裁决）
 
-      ## 十、最终投资建议
-      ### 10.1 行动计划（按投资者类型，表格）
-      ### 10.2 证伪条件（什么情况下推翻本结论）
-      ### 10.3 复审触发
+      ## 十、交易决策与风控
+      ### 10.1 交易决策（买入/卖出/持有 + 理由）
+      ### 10.2 关键价位表（入场/止损/目标价）
+      ### 10.3 仓位建议
+      ### 10.4 风控约束（T+1/涨跌停/止损有效性）
+
+      ## 十一、最终投资建议
+      ### 11.1 行动计划（按投资者类型，表格）
+      ### 11.2 证伪条件（什么情况下推翻本结论）
+      ### 11.3 复审触发
       ```
 
       ## ═══ 写作要求 ═══
@@ -1009,7 +1061,7 @@ agents:
       - **连贯性**：报告读起来像一个专业分析师从头到尾写的，不是拼接。章节之间要有逻辑过渡。
       - **证据导向**：每个结论都要有上游数据支撑。引用具体数字（如「PE 281x」「融资余额9.36%」）。
       - **去重**：上游多个 Agent 可能提到同一个事实，你只呈现一次，放在最相关的章节。
-      - **完整性**：10 个章节都要有实质内容，不能空着。如果某维度上游数据不足，明确标注「（数据不足，结论置信度低）」。
+      - **完整性**：11 个章节都要有实质内容，不能空着。如果某维度上游数据不足，明确标注「（数据不足，结论置信度低）」。
       - **表格优先**：能用表格的用表格（关键价位、事件时间线、行动计划等）。
 
       ## ═══ 输出 ═══
@@ -1082,11 +1134,18 @@ tasks:
     input_from:
       shared_facts: task-data
 
+  - id: task-global
+    agent_id: global_market_analyst
+    prompt_template: "Analyze the international market context (US equities overnight, global commodities, USD/CNY FX) and assess its directional impact on {target} based on its industry. Use the global_market data module via bash. Market: {market}."
+    depends_on: [task-data]
+    input_from:
+      shared_facts: task-data
+
   # ── Layer 2: Quality gate (depends on ALL Layer 1) ──
   - id: task-quality-gate
     agent_id: quality_gate
-    prompt_template: "Perform quality control on all 7 upstream research reports for {target}. Check data completeness, logical consistency, cross-report contradictions, and Alpha factor signal alignment. Produce gate decision (PASS/CONDITIONAL/FAIL) and executive synthesis for the debate team. Market: {market}."
-    depends_on: [task-technical, task-sentiment, task-news, task-fundamental, task-policy, task-capital-flow, task-lockup]
+    prompt_template: "Perform quality control on all 8 upstream research reports for {target}. Check data completeness, logical consistency, cross-report contradictions, and Alpha factor signal alignment. Produce gate decision (PASS/CONDITIONAL/FAIL) and executive synthesis for the debate team. Market: {market}."
+    depends_on: [task-technical, task-sentiment, task-news, task-fundamental, task-policy, task-capital-flow, task-lockup, task-global]
     input_from:
       technical: task-technical
       sentiment: task-sentiment
@@ -1095,6 +1154,7 @@ tasks:
       policy: task-policy
       capital_flow: task-capital-flow
       lockup: task-lockup
+      global_market: task-global
 
   # ── Layer 3: Bull-Bear-Neutral debate (parallel, depends on quality gate) ──
   - id: task-bull
