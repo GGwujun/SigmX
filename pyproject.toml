@@ -57,6 +57,11 @@ dependencies = [
     "weasyprint>=60.0",
     "prompt_toolkit>=3.0.0",
     "mootdx>=0.9.11",
+    # Auth + credits + notify
+    "pyjwt>=2.8.0",
+    "bcrypt>=4.0.0",
+    "markdown>=3.5.0",
+    "email-validator>=2.0.0",
 ]
 
 [project.urls]
