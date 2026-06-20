@@ -1,15 +1,25 @@
-"""yfinance-backed loader for HK/US equity OHLCV data."""
+"""yfinance-backed loader for HK/US equity OHLCV data.
+
+Proxy support: If OVERSEAS_PROXY_URL is configured, requests go through the
+overseas proxy (CN → proxy → Yahoo Finance). Otherwise direct access.
+"""
 
 from __future__ import annotations
 
+import json
+import logging
+import os
 from collections import defaultdict
 from typing import Dict, List, Optional, Union
 
 import pandas as pd
+import requests
 import yfinance as yf
 
 from backtest.loaders.base import loader_cache_get, loader_cache_put, validate_date_range
 from backtest.loaders.registry import register
+
+logger = logging.getLogger(__name__)
 
 _OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 _COLUMN_RENAMES = {
@@ -29,6 +39,26 @@ _INTERVAL_MAP = {
     "1H": "1h",
     "4H": "1h",
 }
+
+
+def _get_proxy_session() -> Optional[requests.Session]:
+    """Create a requests session configured with overseas proxy if available.
+
+    Returns None if no proxy configured (yfinance will use direct access).
+    """
+    proxy_url = os.getenv("OVERSEAS_PROXY_URL", "").strip()
+    if not proxy_url:
+        return None
+    # yfinance uses requests internally; configure proxy for HTTPS
+    proxies = {"https": proxy_url, "http": proxy_url}
+    session = requests.Session()
+    session.proxies.update(proxies)
+    # Set auth header if secret configured
+    secret = os.getenv("PROXY_SECRET", "").strip()
+    if secret:
+        session.headers.update({"X-Proxy-Key": secret})
+    logger.debug("yfinance using proxy: %s", proxy_url)
+    return session
 
 
 def _to_yfinance_symbol(code: str) -> str:
@@ -76,6 +106,9 @@ def _download_history(
 ) -> pd.DataFrame:
     """Download raw historical data via yfinance.
 
+    If OVERSEAS_PROXY_URL is configured, sets proxy environment variables
+    before calling yfinance (CN → proxy → Yahoo Finance).
+
     Args:
         tickers: One or more yfinance symbols.
         start_date: Inclusive start date string.
@@ -85,6 +118,15 @@ def _download_history(
     Returns:
         Raw dataframe from ``yf.download``.
     """
+    proxy_url = os.getenv("OVERSEAS_PROXY_URL", "").strip()
+    if proxy_url:
+        # yfinance uses requests internally; configure via env vars
+        # Note: this affects the process globally, but is the simplest way
+        # to make yfinance go through proxy
+        os.environ.setdefault("HTTPS_PROXY", proxy_url)
+        os.environ.setdefault("HTTP_PROXY", proxy_url)
+        logger.debug("yfinance download via proxy: %s", proxy_url)
+
     return yf.download(
         tickers,
         start=start_date,

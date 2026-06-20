@@ -3,8 +3,13 @@
 Uses OKX V5 public REST API (no auth).
 Supports 1m/5m/15m/30m/1H/4H/1D.
 Up to 300 bars per request; paginates with ``after`` for longer history.
+
+Proxy support: If OVERSEAS_PROXY_URL is configured, requests go through the
+overseas proxy (CN → proxy → OKX). Otherwise direct access (local dev).
 """
 
+import json
+import logging
 import os
 import time
 from typing import Dict, List, Optional
@@ -20,6 +25,8 @@ from backtest.loaders.base import (
 )
 from backtest.loaders.registry import register
 
+logger = logging.getLogger(__name__)
+
 BASE_URL = "https://www.okx.com/api/v5"
 _MAX_PER_PAGE = 300
 # P12-b parity: OKX already sets a per-request timeout but had no retry
@@ -28,6 +35,58 @@ _MAX_PER_PAGE = 300
 # scheduling is delegated to :mod:`backtest.loaders.base`.
 _OKX_TIMEOUT = int(os.getenv("OKX_TIMEOUT_S", "15"))
 _OKX_FETCH_BUDGET_S = float(os.getenv("OKX_FETCH_BUDGET_S", "60"))
+
+
+def _proxy_get_json(url: str, params: dict, timeout: int = 15) -> dict | None:
+    """Fetch JSON from OKX API via overseas proxy if configured.
+
+    Uses POST to avoid URL keyword filtering by network devices.
+    """
+    proxy = os.getenv("OVERSEAS_PROXY_URL", "").strip()
+    if not proxy:
+        return None
+    secret = os.getenv("PROXY_SECRET", "").strip()
+    # Build full URL with query params
+    full_url = url
+    if params:
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        full_url = f"{url}?{query}"
+    try:
+        resp = requests.post(
+            f"{proxy.rstrip('/')}/fetch",
+            json={"url": full_url, "strategy": "json"},
+            headers={"X-Proxy-Key": secret} if secret else {},
+            timeout=timeout,
+        )
+        if resp.status_code == 200:
+            data = resp.json()
+            if data.get("status") == "ok" and data.get("content"):
+                return json.loads(data["content"])
+    except Exception as exc:
+        logger.warning("OKX proxy fetch failed for %s: %s", url[:60], exc)
+    return None
+
+
+def _direct_get_json(url: str, params: dict, timeout: int = 15) -> dict:
+    """Direct HTTP GET to OKX API (local dev or proxy unavailable)."""
+    resp = requests.get(url, params=params, timeout=timeout)
+    return resp.json()
+
+
+def _fetch_okx_api(endpoint: str, params: dict, timeout: int = 15) -> dict:
+    """Fetch from OKX API, preferring proxy if configured.
+
+    Tries proxy first, falls back to direct if proxy fails.
+    """
+    url = f"{BASE_URL}{endpoint}"
+    # Try proxy first
+    result = _proxy_get_json(url, params, timeout)
+    if result is not None:
+        logger.debug("OKX API via proxy: %s", endpoint)
+        return result
+    # Fallback to direct
+    logger.debug("OKX API direct (no proxy): %s", endpoint)
+    return _direct_get_json(url, params, timeout)
 
 
 @register
@@ -134,12 +193,7 @@ class DataLoader:
             }
 
             def _do_request() -> dict:
-                resp = requests.get(
-                    f"{BASE_URL}/market/candles",
-                    params=params,
-                    timeout=_OKX_TIMEOUT,
-                )
-                return resp.json()
+                return _fetch_okx_api("/market/candles", params, _OKX_TIMEOUT)
 
             data = retry_with_budget(
                 _do_request,
