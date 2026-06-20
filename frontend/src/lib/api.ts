@@ -361,6 +361,23 @@ export const api = {
   // Opportunities
   listOpportunities: () => request<OpportunityResponse>("/opportunity"),
 
+  // Daily recommendations
+  listDailyRecommendations: (params: { date?: string; slot?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.date) q.set("date", params.date);
+    if (params.slot) q.set("slot", params.slot);
+    if (params.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return request<DailyRecommendationListResponse>(`/daily-recommendations${qs ? `?${qs}` : ""}`);
+  },
+  generateDailyRecommendations: (slot: "morning" | "afternoon" | "manual", limit = 5) =>
+    request<DailyRecommendationGenerateResponse>("/daily-recommendations/generate", {
+      method: "POST",
+      body: JSON.stringify({ slot, limit }),
+    }),
+  getDailyRecommendationBacktest: (days = 30) =>
+    request<DailyRecommendationBacktestResponse>(`/daily-recommendations/backtest?days=${days}`),
+
   // Logic Chain
   getLogicChain: (code: string) => request<LogicChainResponse>(`/logic-chain/${encodeURIComponent(code)}`),
 
@@ -1361,6 +1378,75 @@ export interface OpportunityResponse {
   categories: OpportunityCategory[];
   updated_at: string;
   error?: string | null;
+}
+
+// --- Daily recommendations ---
+
+export interface RecommendationHorizon {
+  date: string;
+  close: number;
+  return_pct: number;
+}
+
+export interface RecommendationPerformance {
+  status: string;
+  latest_date?: string;
+  latest_return_pct?: number;
+  max_gain_pct?: number;
+  max_drawdown_pct?: number;
+  t0?: RecommendationHorizon | null;
+  t1?: RecommendationHorizon | null;
+  t3?: RecommendationHorizon | null;
+  t5?: RecommendationHorizon | null;
+}
+
+export interface DailyRecommendationItem {
+  id: string;
+  date: string;
+  slot: "morning" | "afternoon" | "manual";
+  slot_label: string;
+  rank: number;
+  symbol: string;
+  name: string;
+  price_at_pick: number;
+  change_pct_at_pick: number;
+  score: number;
+  strategy: string;
+  category: string;
+  reason: string;
+  risk_note: string;
+  created_at: string;
+  source: string;
+  performance: RecommendationPerformance;
+}
+
+export interface DailyRecommendationSummary {
+  count: number;
+  t1_count: number;
+  t1_win_rate: number | null;
+  t1_avg_return: number | null;
+}
+
+export interface DailyRecommendationListResponse {
+  items: DailyRecommendationItem[];
+  summary: DailyRecommendationSummary;
+  updated_at: string;
+}
+
+export interface DailyRecommendationGenerateResponse {
+  date: string;
+  slot: "morning" | "afternoon" | "manual";
+  slot_label: string;
+  items: DailyRecommendationItem[];
+  updated_at: string;
+}
+
+export interface DailyRecommendationBacktestResponse {
+  days: number;
+  summary: DailyRecommendationSummary;
+  by_slot: Array<DailyRecommendationSummary & { slot: string; slot_label: string }>;
+  items: DailyRecommendationItem[];
+  updated_at: string;
 }
 
 // --- Logic Chain types ---

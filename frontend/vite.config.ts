@@ -34,6 +34,7 @@ const API_ONLY_PATHS = [
 // SPA page paths that ALSO have API endpoints at the same URL.
 // 使用 HTML 兜底：浏览器刷新返回 index.html，JS fetch 返回 JSON。
 const SPA_WITH_API_PATHS = [
+  "/daily-recommendations",
   "/events",
   "/news",
   "/opportunity",

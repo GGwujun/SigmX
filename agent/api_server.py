@@ -540,6 +540,7 @@ app.add_middleware(
 _FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 _SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset({
     "/correlation",
+    "/daily-recommendations",
     "/events",
     "/news",
     "/opportunity",
@@ -3169,6 +3170,14 @@ register_opportunity_routes(app, require_auth, require_event_stream_auth)
 
 from src.api.logic_chain_routes import register_logic_chain_routes  # noqa: E402
 register_logic_chain_routes(app, require_auth, require_event_stream_auth)
+
+
+# ============================================================================
+# Daily recommendations routes (Web UI) - defined in src/api/daily_recommendation_routes.py
+# ============================================================================
+
+from src.api.daily_recommendation_routes import register_daily_recommendation_routes  # noqa: E402
+register_daily_recommendation_routes(app, require_auth, require_event_stream_auth)
 
 
 # ============================================================================

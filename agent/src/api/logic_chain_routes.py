@@ -511,6 +511,7 @@ def _layer_sentiment(code: str, name: str) -> dict[str, Any]:
     """Sentiment analysis: news + analyst ratings + events."""
     items: list[dict[str, Any]] = []
     score = 0.50
+    raw_code = code.replace(".SZ", "").replace(".SH", "")
 
     # 6a. Analyst rating from F10 研究评级 section
     rating_text = _f10_section_text(raw_code, "研究") or _f10_section_text(raw_code, "评级")

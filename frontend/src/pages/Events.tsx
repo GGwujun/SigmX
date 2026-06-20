@@ -1,24 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import {
-  Building2,
-  ChevronDown,
-  ChevronUp,
-  Coins,
-  Cpu,
-  Globe,
-  Landmark,
-  TrendingDown,
-  TrendingUp,
-  X,
-} from "lucide-react";
-import { api, type EventItem, type EventsCategory, type HistoryPoint } from "@/lib/api";
+import { ArrowRight, Building2, Coins, Cpu, Globe, Landmark, TrendingDown, TrendingUp } from "lucide-react";
+import { api, type EventItem, type EventsCategory } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { echarts } from "@/lib/echarts";
-import { getChartTheme } from "@/lib/chart-theme";
-import { useDarkMode } from "@/hooks/useDarkMode";
 import {
-  buildIntelPath,
   MarketEmptyState,
   MarketErrorState,
   MarketIntelHeader,
@@ -26,7 +11,6 @@ import {
   normalizeChinaSymbol,
   plainSymbol,
 } from "@/components/market/MarketIntelShell";
-import { toast } from "sonner";
 
 const REFRESH_INTERVAL_MS = 120_000;
 const BIG_MOVE_THRESHOLD = 0.1;
@@ -38,8 +22,6 @@ const CATEGORY_ICONS: Record<string, typeof Globe> = {
   tech: Cpu,
   world: Building2,
 };
-
-type SortKey = "probability" | "prob_change_24h" | "volume_raw" | "resolve_time";
 
 function fmtProbability(value: number): string {
   return `${(value * 100).toFixed(1)}%`;
@@ -53,15 +35,27 @@ function isBigMove(value: number): boolean {
   return Math.abs(value) >= BIG_MOVE_THRESHOLD;
 }
 
-function parseVolume(value: string): number {
-  const cleaned = value.replace(/[$,]/g, "");
-  if (cleaned.endsWith("M")) return parseFloat(cleaned) * 1_000_000;
-  if (cleaned.endsWith("K")) return parseFloat(cleaned) * 1_000;
-  return parseFloat(cleaned) || 0;
+function inferTheme(event: EventItem): { theme: string; symbols: string[]; direction: string } {
+  const text = `${event.title} ${event.threshold}`.toLowerCase();
+  if (/ai|chip|semiconductor|nvidia|tech|compute|data center/.test(text)) {
+    return { theme: "AI / 半导体", symbols: ["688981.SH", "002371.SZ", "601138.SH"], direction: "风险偏好与算力链" };
+  }
+  if (/bitcoin|crypto|ethereum|stablecoin/.test(text)) {
+    return { theme: "数字资产 / 金融科技", symbols: ["300059.SZ", "600570.SH"], direction: "情绪映射为风险偏好" };
+  }
+  if (/oil|gas|energy|iran|israel|war|russia|ukraine/.test(text)) {
+    return { theme: "能源 / 军工 / 避险", symbols: ["601857.SH", "600760.SH", "601899.SH"], direction: "避险或资源价格扰动" };
+  }
+  if (/tariff|trade|china|export|sanction/.test(text)) {
+    return { theme: "出口链 / 贸易摩擦", symbols: ["300750.SZ", "002475.SZ", "600104.SH"], direction: "外需与关税预期" };
+  }
+  if (/fed|rate|inflation|cpi|treasury|recession|unemployment/.test(text)) {
+    return { theme: "宏观流动性", symbols: ["510300.SH", "512100.SH"], direction: "估值与风险偏好" };
+  }
+  return { theme: "全球事件", symbols: [], direction: "需要人工确认映射" };
 }
 
 export function Events() {
-  const { dark } = useDarkMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const [categories, setCategories] = useState<EventsCategory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -69,7 +63,6 @@ export function Events() {
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
   const [symbol, setSymbol] = useState(plainSymbol(searchParams.get("symbol") ?? ""));
   const [activeCat, setActiveCat] = useState(searchParams.get("category") ?? "all");
-  const [selectedEvent, setSelectedEvent] = useState<EventItem | null>(null);
   const [updatedAt, setUpdatedAt] = useState("");
   const [refreshing, setRefreshing] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -81,20 +74,15 @@ export function Events() {
         setCategories(res.categories);
         setUpdatedAt(res.updated_at);
         setError(null);
-        if (activeCat !== "all" && !res.categories.some((cat) => cat.id === activeCat)) {
-          setActiveCat("all");
-        }
       })
       .catch((err) => {
-        const msg = err instanceof Error ? err.message : "加载事件雷达失败";
-        if (!categories.length) setError(msg);
-        else toast.error(msg);
+        setError(err instanceof Error ? err.message : "加载事件雷达失败");
       })
       .finally(() => {
         setLoading(false);
         setRefreshing(false);
       });
-  }, [activeCat, categories.length]);
+  }, []);
 
   useEffect(() => {
     setQuery(searchParams.get("q") ?? "");
@@ -123,18 +111,21 @@ export function Events() {
   }, [activeCat, query, setSearchParams, symbol]);
 
   const allEvents = useMemo(() => {
-    return categories.flatMap((cat) => cat.events.map((event) => ({ ...event, categoryId: cat.id, categoryLabel: cat.label, categorySource: cat.source })));
+    return categories.flatMap((cat) => cat.events.map((event) => ({ ...event, categoryId: cat.id, categoryLabel: cat.label })));
   }, [categories]);
 
   const visibleEvents = useMemo(() => {
     const q = query.trim().toLowerCase();
     return allEvents
       .filter((event) => activeCat === "all" || event.categoryId === activeCat)
-      .filter((event) => !q || `${event.title} ${event.threshold} ${event.categoryLabel} ${event.source}`.toLowerCase().includes(q));
+      .filter((event) => {
+        const inferred = inferTheme(event);
+        return !q || `${event.title} ${event.threshold} ${event.categoryLabel} ${event.source} ${inferred.theme} ${inferred.symbols.join(" ")}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => Math.abs(b.prob_change_24h) - Math.abs(a.prob_change_24h));
   }, [activeCat, allEvents, query]);
 
   const bigMoveCount = visibleEvents.filter((event) => isBigMove(event.prob_change_24h)).length;
-  const maxMove = visibleEvents.reduce((max, event) => Math.max(max, Math.abs(event.prob_change_24h)), 0);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
@@ -171,64 +162,47 @@ export function Events() {
               </button>
             );
           })}
+          <span className="ml-auto text-xs text-muted-foreground">大幅异动 {bigMoveCount} 个</span>
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 lg:grid-cols-[1fr_380px]">
-        <main className={cn("min-w-0 overflow-y-auto", selectedEvent && "hidden lg:block")}>
-          <div className="grid gap-3 border-b p-4 md:grid-cols-3 md:px-6">
-            <StatCard label="当前事件" value={`${visibleEvents.length}`} />
-            <StatCard label="大幅异动" value={`${bigMoveCount}`} />
-            <StatCard label="最大变化" value={fmtChange(maxMove)} />
+      <div className="flex-1 overflow-y-auto p-4 md:p-6">
+        {loading ? (
+          <MarketLoadingState label="正在加载事件影响映射" />
+        ) : error ? (
+          <MarketErrorState message={error} onRetry={() => fetchData()} />
+        ) : visibleEvents.length === 0 ? (
+          <MarketEmptyState
+            icon={Globe}
+            title="当前筛选下暂无事件"
+            description="切换事件分类或减少关键词限制后再试。"
+          />
+        ) : (
+          <div className="overflow-hidden rounded-md border bg-card">
+            <table className="w-full text-sm">
+              <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">事件</th>
+                  <th className="px-3 py-2 text-left font-medium">概率变化</th>
+                  <th className="px-3 py-2 text-left font-medium">影响主题</th>
+                  <th className="px-3 py-2 text-left font-medium">相关标的</th>
+                  <th className="px-3 py-2 text-left font-medium">下一步</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visibleEvents.map((event) => (
+                  <EventRow key={event.id} event={event} />
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          <div className="p-4 md:p-6">
-            {loading ? (
-              <MarketLoadingState label="正在加载事件雷达" />
-            ) : error ? (
-              <MarketErrorState message={error} onRetry={() => fetchData()} />
-            ) : visibleEvents.length === 0 ? (
-              <MarketEmptyState
-                icon={Globe}
-                title="当前筛选下暂无事件"
-                description="可以切换事件分类，或减少关键词限制后再试。"
-              />
-            ) : (
-              <EventsTable
-                events={visibleEvents}
-                selectedId={selectedEvent?.id ?? null}
-                onSelect={setSelectedEvent}
-              />
-            )}
-          </div>
-        </main>
-
-        <aside className={cn("border-l bg-muted/10", !selectedEvent && "hidden lg:block")}>
-          {selectedEvent ? (
-            <DetailPanel
-              event={selectedEvent}
-              dark={dark}
-              params={searchParams}
-              symbol={symbol}
-              onClose={() => setSelectedEvent(null)}
-            />
-          ) : (
-            <div className="p-4">
-              <MarketEmptyState
-                icon={Globe}
-                title="选择一个事件查看详情"
-                description="详情里会展示概率历史，并提供进入机会清单和逻辑链的下一步动作。"
-              />
-            </div>
-          )}
-        </aside>
+        )}
       </div>
     </div>
   );
 
   function updateCategory(nextCategory: string) {
     setActiveCat(nextCategory);
-    setSelectedEvent(null);
     const next = new URLSearchParams(searchParams);
     if (nextCategory === "all") next.delete("category");
     else next.set("category", nextCategory);
@@ -262,325 +236,61 @@ function CategoryButton({
   );
 }
 
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border bg-card p-3">
-      <p className="text-[10px] text-muted-foreground">{label}</p>
-      <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
-    </div>
-  );
-}
-
-function ProbabilityBar({ value }: { value: number }) {
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 min-w-[52px] flex-1 overflow-hidden rounded-full bg-muted/60">
-        <div
-          className={cn("h-full rounded-full", value >= 0.5 ? "bg-success" : "bg-warning")}
-          style={{ width: `${Math.round(value * 100)}%` }}
-        />
-      </div>
-      <span className="w-12 text-right text-xs font-medium tabular-nums">{fmtProbability(value)}</span>
-    </div>
-  );
-}
-
-function EventsTable({
-  events,
-  selectedId,
-  onSelect,
-}: {
-  events: Array<EventItem & { categoryLabel?: string; categoryId?: string; categorySource?: string }>;
-  selectedId: string | null;
-  onSelect: (event: EventItem) => void;
-}) {
-  const [sortKey, setSortKey] = useState<SortKey>("prob_change_24h");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
-
-  const sorted = useMemo(() => {
-    return [...events].sort((a, b) => {
-      let cmp = 0;
-      if (sortKey === "probability") cmp = a.probability - b.probability;
-      if (sortKey === "prob_change_24h") cmp = a.prob_change_24h - b.prob_change_24h;
-      if (sortKey === "volume_raw") cmp = parseVolume(a.volume) - parseVolume(b.volume);
-      if (sortKey === "resolve_time") cmp = a.resolve_time.localeCompare(b.resolve_time);
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-  }, [events, sortDir, sortKey]);
-
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir((prev) => (prev === "desc" ? "asc" : "desc"));
-    else {
-      setSortKey(key);
-      setSortDir("desc");
-    }
-  };
-
-  const SortIcon = ({ col }: { col: SortKey }) => {
-    if (sortKey !== col) return null;
-    return sortDir === "asc" ? <ChevronUp className="ml-0.5 inline h-3 w-3" /> : <ChevronDown className="ml-0.5 inline h-3 w-3" />;
-  };
-
-  const thClass = "px-3 py-2 text-left text-[11px] font-medium text-muted-foreground cursor-pointer hover:text-foreground select-none whitespace-nowrap";
+function EventRow({ event }: { event: EventItem & { categoryLabel?: string; categoryId?: string } }) {
+  const inferred = inferTheme(event);
+  const big = isBigMove(event.prob_change_24h);
 
   return (
-    <div className="overflow-x-auto rounded-lg border bg-card">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b bg-muted/25">
-            <th className={`${thClass} w-full`} onClick={() => toggleSort("prob_change_24h")}>
-              事件 <SortIcon col="prob_change_24h" />
-            </th>
-            <th className={thClass} onClick={() => toggleSort("probability")}>
-              概率 <SortIcon col="probability" />
-            </th>
-            <th className={thClass} onClick={() => toggleSort("prob_change_24h")}>
-              24h 变化 <SortIcon col="prob_change_24h" />
-            </th>
-            <th className={thClass} onClick={() => toggleSort("volume_raw")}>
-              成交量 <SortIcon col="volume_raw" />
-            </th>
-            <th className={thClass} onClick={() => toggleSort("resolve_time")}>
-              揭晓 <SortIcon col="resolve_time" />
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {sorted.map((event) => {
-            const selected = event.id === selectedId;
-            const big = isBigMove(event.prob_change_24h);
-            return (
-              <tr
-                key={event.id}
-                onClick={() => onSelect(event)}
-                className={cn(
-                  "cursor-pointer border-b transition-colors last:border-0 hover:bg-muted/50",
-                  selected && "bg-primary/5 hover:bg-primary/10",
-                  big && "bg-warning/5",
-                )}
-              >
-                <td className="px-3 py-3">
-                  <p className="text-xs font-medium leading-snug">{event.title}</p>
-                  <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
-                    {event.categoryLabel && <span>{event.categoryLabel}</span>}
-                    {event.threshold && event.threshold !== "-" && <span>{event.threshold}</span>}
-                    {big && <span className="rounded bg-warning/15 px-1.5 py-0.5 text-warning">大幅异动</span>}
-                  </div>
-                </td>
-                <td className="px-3 py-3">
-                  <ProbabilityBar value={event.probability} />
-                </td>
-                <td className="px-3 py-3">
-                  <span className={cn("flex items-center gap-1 text-xs font-medium tabular-nums", event.prob_change_24h >= 0 ? "text-success" : "text-danger")}>
-                    {event.prob_change_24h >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-                    {fmtChange(event.prob_change_24h)}
-                  </span>
-                </td>
-                <td className="px-3 py-3 text-xs tabular-nums text-muted-foreground">{event.volume}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-xs tabular-nums text-muted-foreground">{event.resolve_time}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function DetailPanel({
-  event,
-  dark,
-  params,
-  symbol,
-  onClose,
-}: {
-  event: EventItem;
-  dark: boolean;
-  params: URLSearchParams;
-  symbol: string;
-  onClose: () => void;
-}) {
-  const [history, setHistory] = useState<HistoryPoint[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [range, setRange] = useState<30 | 90>(30);
-
-  useEffect(() => {
-    let alive = true;
-    setLoading(true);
-    setError(null);
-    api.getEventHistory(event.source, event.id, range)
-      .then((res) => {
-        if (alive) setHistory(res.history);
-      })
-      .catch((err) => {
-        if (alive) setError(err instanceof Error ? err.message : "加载历史数据失败");
-      })
-      .finally(() => {
-        if (alive) setLoading(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [event.id, event.source, range]);
-
-  const next = new URLSearchParams(params);
-  next.set("q", event.title);
-  if (symbol.trim()) next.set("symbol", normalizeChinaSymbol(symbol));
-
-  return (
-    <div className="h-full overflow-y-auto p-4">
-      <div className="rounded-lg border bg-card p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className="text-sm font-semibold leading-snug">{event.title}</h3>
-            <p className="mt-1 text-xs text-muted-foreground">
-              {event.source}
-              {event.threshold && event.threshold !== "-" ? ` · ${event.threshold}` : ""}
-            </p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
+    <tr className={cn("border-b last:border-0 hover:bg-muted/25", big && "bg-warning/5")}>
+      <td className="max-w-[460px] px-3 py-3">
+        <p className="line-clamp-2 text-sm font-medium leading-snug">{event.title}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+          {event.categoryLabel && <span>{event.categoryLabel}</span>}
+          {event.threshold && event.threshold !== "-" && <span>{event.threshold}</span>}
+          {event.source && <span>{event.source}</span>}
+          {event.resolve_time && <span>截止 {event.resolve_time}</span>}
         </div>
-
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <DetailMetric label="当前概率" value={fmtProbability(event.probability)} />
-          <DetailMetric label="24h 变化" value={fmtChange(event.prob_change_24h)} trend={event.prob_change_24h >= 0 ? "up" : "down"} />
-          <DetailMetric label="成交量" value={event.volume} />
-        </div>
-
-        {event.resolve_time && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            揭晓时间：<span className="text-foreground">{event.resolve_time}</span>
+      </td>
+      <td className="px-3 py-3">
+        <div className="min-w-[120px]">
+          <p className="text-xs text-muted-foreground">当前 {fmtProbability(event.probability)}</p>
+          <p className={cn("mt-1 flex items-center gap-1 text-sm font-semibold tabular-nums", event.prob_change_24h >= 0 ? "text-success" : "text-danger")}>
+            {event.prob_change_24h >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+            {fmtChange(event.prob_change_24h)}
           </p>
-        )}
-
-        <div className="mt-4 flex items-center gap-1">
-          {([30, 90] as const).map((item) => (
-            <button
-              key={item}
-              type="button"
-              onClick={() => setRange(item)}
-              className={cn(
-                "rounded-md border px-2.5 py-1 text-xs transition-colors",
-                range === item ? "border-primary bg-primary text-primary-foreground" : "border-transparent bg-muted/50 text-muted-foreground hover:bg-muted",
-              )}
+          {big && <span className="mt-1 inline-block rounded bg-warning/15 px-1.5 py-0.5 text-[10px] text-warning">大幅异动</span>}
+        </div>
+      </td>
+      <td className="px-3 py-3">
+        <p className="text-xs font-medium">{inferred.theme}</p>
+        <p className="mt-1 max-w-[180px] text-[10px] leading-relaxed text-muted-foreground">{inferred.direction}</p>
+      </td>
+      <td className="px-3 py-3">
+        <div className="flex max-w-[220px] flex-wrap gap-1.5">
+          {inferred.symbols.length ? inferred.symbols.map((symbol) => (
+            <Link
+              key={symbol}
+              to={`/logic-chain?symbol=${encodeURIComponent(symbol)}&q=${encodeURIComponent(event.title)}`}
+              className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[10px] text-primary hover:bg-primary/15"
             >
-              {item} 天
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 h-[260px] rounded-lg border bg-background/60 p-2">
-          {loading ? (
-            <MarketLoadingState label="正在加载概率历史" />
-          ) : error ? (
-            <MarketErrorState message={error} />
-          ) : (
-            <ProbabilityChart history={history} dark={dark} />
-          )}
-        </div>
-
-        <div className="mt-4 space-y-2">
-          <Link to={buildIntelPath("/opportunity", next)} className="block rounded-md bg-primary px-3 py-2 text-center text-xs font-medium text-primary-foreground hover:opacity-90">
-            查看机会候选
-          </Link>
-          {symbol.trim() ? (
-            <Link to={buildIntelPath("/logic-chain", next)} className="block rounded-md border px-3 py-2 text-center text-xs hover:bg-muted">
-              进入标的逻辑链
+              {symbol.replace(/\.(SZ|SH)$/, "")}
             </Link>
-          ) : (
-            <p className="rounded-md bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-              输入标的代码后，可直接从事件进入逻辑链。
-            </p>
+          )) : <span className="text-xs text-muted-foreground">待映射</span>}
+        </div>
+      </td>
+      <td className="px-3 py-3">
+        <div className="flex min-w-[170px] gap-2">
+          <Link to={`/opportunity?q=${encodeURIComponent(event.title)}`} className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90">
+            进候选池
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+          {inferred.symbols[0] && (
+            <Link to={`/logic-chain?symbol=${encodeURIComponent(inferred.symbols[0])}&q=${encodeURIComponent(event.title)}`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted">
+              看逻辑
+            </Link>
           )}
         </div>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
-}
-
-function DetailMetric({
-  label,
-  value,
-  trend,
-}: {
-  label: string;
-  value: string;
-  trend?: "up" | "down";
-}) {
-  return (
-    <div className="rounded-lg bg-muted/40 p-3 text-center">
-      <p className={cn("text-lg font-semibold tabular-nums", trend === "up" && "text-success", trend === "down" && "text-danger")}>{value}</p>
-      <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-function ProbabilityChart({ history, dark }: { history: HistoryPoint[]; dark: boolean }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!containerRef.current || !history.length) return;
-    const theme = getChartTheme();
-    const chart = echarts.init(containerRef.current);
-    const times = history.map((point) => point.time.slice(0, 10));
-    const probs = history.map((point) => Math.round(point.probability * 1000) / 10);
-
-    chart.setOption({
-      tooltip: {
-        trigger: "axis",
-        backgroundColor: theme.tooltipBg,
-        borderColor: theme.tooltipBorder,
-        textStyle: { color: theme.tooltipText, fontSize: 12 },
-        formatter: (params: { data: number; axisValue: string }[]) => {
-          if (!params?.length) return "";
-          const point = params[0];
-          return `${point.axisValue}<br/><b>${point.data}%</b>`;
-        },
-      },
-      grid: { left: 42, right: 12, top: 12, bottom: 28 },
-      xAxis: {
-        type: "category",
-        data: times,
-        axisLine: { lineStyle: { color: theme.axisColor } },
-        axisLabel: { color: theme.textColor, fontSize: 10, rotate: times.length > 30 ? 45 : 0 },
-        axisTick: { show: false },
-      },
-      yAxis: {
-        type: "value",
-        min: 0,
-        max: 100,
-        axisLabel: { color: theme.textColor, fontSize: 11, formatter: "{value}%" },
-        splitLine: { lineStyle: { color: theme.gridColor } },
-      },
-      series: [{
-        type: "line",
-        data: probs,
-        smooth: true,
-        symbol: "none",
-        lineStyle: { color: theme.infoColor, width: 2 },
-        areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: `${theme.infoColor}44` },
-            { offset: 1, color: `${theme.infoColor}04` },
-          ]),
-        },
-      }],
-    });
-
-    const ro = new ResizeObserver(() => chart.resize());
-    ro.observe(containerRef.current);
-    return () => {
-      ro.disconnect();
-      chart.dispose();
-    };
-  }, [dark, history]);
-
-  if (!history.length) {
-    return <div className="flex h-full items-center justify-center text-sm text-muted-foreground">暂无历史数据</div>;
-  }
-
-  return <div ref={containerRef} className="h-full w-full" />;
 }

@@ -40,6 +40,12 @@ const Opportunity = lazy(() =>
 const LogicChain = lazy(() =>
   import("@/pages/LogicChain").then((m) => ({ default: m.LogicChain })),
 );
+const DailyRecommendations = lazy(() =>
+  import("@/pages/DailyRecommendations").then((m) => ({ default: m.DailyRecommendations })),
+);
+const RecommendationHistory = lazy(() =>
+  import("@/pages/RecommendationHistory").then((m) => ({ default: m.RecommendationHistory })),
+);
 const AlphaForge = lazy(() =>
   import("@/pages/AlphaForge").then((m) => ({ default: m.AlphaForge })),
 );
@@ -130,6 +136,8 @@ export const router = createBrowserRouter([
           { path: "/tracking-dashboard", element: wrap(TrackingDashboard) },
           { path: "/watchlist-schedule", element: wrap(WatchlistSchedule) },
           { path: "/news", element: wrap(News) },
+          { path: "/daily-recommendations", element: wrap(DailyRecommendations) },
+          { path: "/recommendation-history", element: wrap(RecommendationHistory) },
           { path: "/opportunity", element: wrap(Opportunity) },
           { path: "/logic-chain", element: wrap(LogicChain) },
           { path: "/alpha-forge", element: wrap(AlphaForge) },

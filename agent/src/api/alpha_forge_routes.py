@@ -132,17 +132,24 @@ def _extract_metadata_from_md(content: str) -> dict[str, str]:
     for line in lines[:20]:
         line = line.strip()
         if line.startswith("- **股票代码**") or line.startswith("- **股票代码**："):
-            m = re.search(r"[-：:]\s*(\S+)", line)
+            m = re.search(r"[：:]\s*(\S+)", line)  # 只匹配冒号后的值
             if m: meta["target"] = m.group(1)
         elif "**分析日期**" in line:
-            m = re.search(r"[-：:]\s*(\S+)", line)
+            m = re.search(r"[：:]\s*(\S+)", line)  # 只匹配冒号后的值
             if m: meta["analysis_date"] = m.group(1)
         elif "**生成时间**" in line:
             m = re.search(r"[-：:]\s*(\S+)", line)
             if m: meta["created_at"] = m.group(1)
         elif "**交易信号**" in line:
-            m = re.search(r"\*\*(卖出|买入|持有|BUY|SELL|HOLD)\*\*", line)
-            if m: meta.setdefault("signal", m.group(1))
+            # Match both pure keywords (卖出) and compound forms (卖出（减仓规避）)
+            m = re.search(r"\*\*(卖出|买入|持有|BUY|SELL|HOLD|减持|减仓)[^\*]*\*\*", line)
+            if m:
+                # Extract the core signal (first matched keyword)
+                core = m.group(1)
+                # Normalize: 减仓/减持 → 卖出
+                if core in ("减仓", "减持"):
+                    core = "卖出"
+                meta.setdefault("signal", core)
         elif "FINAL TRANSACTION PROPOSAL" in line:
             m = re.search(r"\*\*(SELL|BUY|HOLD)\*\*", line)
             if m: meta.setdefault("signal", m.group(1))
@@ -155,7 +162,15 @@ def _extract_metadata_from_md(content: str) -> dict[str, str]:
     src = {**(decision or {}), **(verdict or {})}
     if src:
         action = src.get("action", "").upper()
-        action_cn = {"BUY": "买入", "SELL": "卖出", "HOLD": "持有"}.get(action, action)
+        # Map action variants to standard Chinese signals
+        action_map = {
+            "BUY": "买入",
+            "SELL": "卖出",
+            "HOLD": "持有",
+            "REDUCE": "卖出",  # 减仓/减持 → 卖出
+            "ACCUMULATE": "买入",  # 加仓 → 买入
+        }
+        action_cn = action_map.get(action, action)
         if action_cn:
             meta["signal"] = action_cn
         rating = src.get("rating")

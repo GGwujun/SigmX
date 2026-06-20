@@ -10,11 +10,12 @@ import {
   Newspaper,
   RefreshCw,
   Search,
+  Sparkles,
   TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-export type MarketStageId = "news" | "events" | "opportunity" | "logic-chain";
+export type MarketStageId = "daily" | "news" | "events" | "opportunity" | "logic-chain";
 
 const STAGES: Array<{
   id: MarketStageId;
@@ -23,10 +24,11 @@ const STAGES: Array<{
   path: string;
   icon: LucideIcon;
 }> = [
-  { id: "news", label: "新闻线索", desc: "发现发生了什么", path: "/news", icon: Newspaper },
-  { id: "events", label: "事件雷达", desc: "验证影响强度", path: "/events", icon: TrendingUp },
-  { id: "opportunity", label: "机会清单", desc: "沉淀候选标的", path: "/opportunity", icon: Lightbulb },
-  { id: "logic-chain", label: "逻辑链", desc: "解释标的逻辑", path: "/logic-chain", icon: GitBranch },
+  { id: "daily", label: "每日推荐", desc: "今天看什么", path: "/daily-recommendations", icon: Sparkles },
+  { id: "news", label: "新闻线索", desc: "可交易催化", path: "/news", icon: Newspaper },
+  { id: "events", label: "事件雷达", desc: "事件到主题", path: "/events", icon: TrendingUp },
+  { id: "opportunity", label: "候选池", desc: "筛选与入选", path: "/opportunity", icon: Lightbulb },
+  { id: "logic-chain", label: "逻辑链", desc: "推荐解释", path: "/logic-chain", icon: GitBranch },
 ];
 
 export function buildIntelPath(path: string, params: URLSearchParams): string {
@@ -82,12 +84,12 @@ export function MarketIntelHeader({
 
   return (
     <div className="border-b bg-card/80">
-      <div className="px-4 md:px-6 py-4 space-y-4">
+      <div className="space-y-4 px-4 py-4 md:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h1 className="text-xl font-semibold tracking-tight">市场情报</h1>
             <p className="mt-1 text-xs text-muted-foreground">
-              新闻线索到逻辑链的连续研究入口，围绕同一个关键词或标的推进。
+              围绕每日推荐组织证据：新闻发现催化，事件映射主题，候选池筛选标的，逻辑链解释推荐。
             </p>
           </div>
           <div className="flex items-center gap-3 text-xs text-muted-foreground">
@@ -115,7 +117,7 @@ export function MarketIntelHeader({
               onKeyDown={(event) => {
                 if (event.key === "Enter") onSearch();
               }}
-              placeholder="搜索关键词、行业主题、事件线索"
+              placeholder="搜索主题、新闻、事件或推荐理由"
               className="h-10 w-full rounded-md border bg-background pl-9 pr-3 text-sm outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
             />
           </div>
@@ -133,7 +135,7 @@ export function MarketIntelHeader({
             onClick={onSearch}
             className="h-10 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground transition hover:opacity-90"
           >
-            进入研究
+            查找线索
           </button>
         </div>
 
@@ -146,7 +148,7 @@ export function MarketIntelHeader({
                 key={stage.id}
                 to={buildIntelPath(stage.path, params)}
                 className={cn(
-                  "group flex min-w-[152px] items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors",
+                  "group flex min-w-[148px] items-center gap-2 rounded-md border px-3 py-2 text-left transition-colors",
                   current
                     ? "border-primary/45 bg-primary/10 text-primary shadow-[inset_0_-2px_0_hsl(var(--primary))]"
                     : "border-border bg-background text-muted-foreground hover:border-primary/25 hover:bg-primary/[0.03] hover:text-foreground",
@@ -243,17 +245,20 @@ export function SymbolActionBar({
   return (
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       <span className="text-xs text-muted-foreground">{label ?? "下一步"}</span>
+      <Link to={buildIntelPath("/daily-recommendations", next)} className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90">
+        看推荐
+      </Link>
       <Link to={buildIntelPath("/news", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
-        看新闻
+        查新闻
       </Link>
       <Link to={buildIntelPath("/events", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
-        验事件
+        查事件
       </Link>
       <Link to={buildIntelPath("/opportunity", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
-        查机会
+        入候选
       </Link>
-      <Link to={buildIntelPath("/logic-chain", next)} className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90">
-        进逻辑链
+      <Link to={buildIntelPath("/logic-chain", next)} className="rounded-md border bg-card px-2.5 py-1 text-xs hover:border-primary/35 hover:bg-primary/5">
+        看逻辑
       </Link>
     </div>
   );
