@@ -51,9 +51,9 @@ def _proxy_get_json(url: str, timeout: int = 15) -> dict[str, Any] | None:
     from urllib.parse import quote
     try:
         # URL-encode the target URL so query params go to the target, not the proxy
+        encoded_url = quote(url, safe="")
         resp = _http.get(
-            f"{proxy.rstrip('/')}/fetch",
-            params={"url": url, "strategy": "json"},
+            f"{proxy.rstrip('/')}/fetch?url={encoded_url}&strategy=json",
             headers={"X-Proxy-Key": secret} if secret else {},
             timeout=timeout,
         )
