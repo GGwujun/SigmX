@@ -41,19 +41,21 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 def _proxy_get_json(url: str, timeout: int = 15) -> dict[str, Any] | None:
-    """Fetch JSON from a URL via the overseas proxy if configured."""
+    """Fetch JSON from a URL via the overseas proxy if configured.
+
+    Uses POST to avoid URL keyword filtering by network devices.
+    """
     import os as _os
     proxy = _os.getenv("OVERSEAS_PROXY_URL", "").strip()
     if not proxy:
         return None
     secret = _os.getenv("PROXY_SECRET", "").strip()
     import requests as _http
-    from urllib.parse import quote
     try:
-        # URL-encode the target URL so query params go to the target, not the proxy
-        encoded_url = quote(url, safe="")
-        resp = _http.get(
-            f"{proxy.rstrip('/')}/fetch?url={encoded_url}&strategy=json",
+        # Use POST to avoid URL keyword filtering - URL is in body, not in query params
+        resp = _http.post(
+            f"{proxy.rstrip('/')}/fetch",
+            json={"url": url, "strategy": "json"},
             headers={"X-Proxy-Key": secret} if secret else {},
             timeout=timeout,
         )

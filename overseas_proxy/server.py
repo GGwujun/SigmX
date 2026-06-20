@@ -11,6 +11,7 @@ only allows the CN server's IP.
 
 Endpoints:
   GET /fetch?url=&strategy=raw|jina   — fetch a foreign page → text/markdown
+  POST /fetch (body: url, strategy)   — POST variant to avoid URL keyword filtering
   GET /search?q=&max=                 — DuckDuckGo search → structured results
   GET /health                         — liveness (no auth)
 """
@@ -26,6 +27,7 @@ import requests
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 import uvicorn
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -60,6 +62,37 @@ async def fetch(
 ) -> JSONResponse:
     """Fetch a foreign page and return extracted text/markdown."""
     _check_auth(x_proxy_key)
+    if not re.match(r"^https?://", url, re.I):
+        raise HTTPException(status_code=400, detail="url must start with http(s)://")
+
+    if strategy == "json":
+        text, title = _fetch_json(url)
+    elif strategy == "jina":
+        text, title = _fetch_jina(url)
+    else:
+        text, title = _fetch_raw(url)
+
+    if len(text) > _MAX_LENGTH:
+        text = text[:_MAX_LENGTH] + f"\n\n... (truncated, total {len(text)} chars)"
+
+    return JSONResponse({"status": "ok", "url": url, "title": title, "content": text, "length": len(text), "strategy": strategy})
+
+
+class FetchRequest(BaseModel):
+    """POST request body for /fetch endpoint."""
+    url: str
+    strategy: str = "raw"
+
+
+@app.post("/fetch")
+async def fetch_post(
+    body: FetchRequest,
+    x_proxy_key: str | None = Header(None, alias="X-Proxy-Key"),
+) -> JSONResponse:
+    """Fetch a foreign page via POST (URL in body, avoids URL keyword filtering)."""
+    _check_auth(x_proxy_key)
+    url = body.url
+    strategy = body.strategy
     if not re.match(r"^https?://", url, re.I):
         raise HTTPException(status_code=400, detail="url must start with http(s)://")
 
