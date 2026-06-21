@@ -398,6 +398,16 @@ export const api = {
   getStockNews: (code: string) =>
     request<StockNewsResponse>(`/news/stock/${encodeURIComponent(code)}`),
 
+  // RSSHub feeds (Folo-style dashboard)
+  listRsshubSources: () => request<RssSourcesResponse>("/rsshub/sources"),
+  listRsshubFeeds: (source?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (source) params.set("source", source);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return request<RssFeedResponse>(`/rsshub/feeds${qs ? `?${qs}` : ""}`);
+  },
+
   // Opportunities
   listOpportunities: () => request<OpportunityResponse>("/opportunity"),
 
@@ -1396,6 +1406,42 @@ export interface StockNewsResponse {
   code: string;
   name: string;
   articles: NewsArticle[];
+  updated_at: string;
+}
+
+// --- RSSHub feed types (Folo-style dashboard) ---
+
+export interface RssSource {
+  name: string;
+  route: string;
+  count: number;
+  healthy: boolean;
+  color: string;
+  priority: number;
+  desc: string;
+}
+
+export interface RssArticle {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  source_color: string;
+  published: string;
+  published_ago: string;
+  snippet: string;    // 纯文本摘要，用于列表预览
+  content: string;    // 原始 HTML，用于详情页富文本渲染
+}
+
+export interface RssFeedResponse {
+  sources: RssSource[];
+  articles: RssArticle[];
+  selected_source: string | null;
+  updated_at: string;
+}
+
+export interface RssSourcesResponse {
+  sources: RssSource[];
   updated_at: string;
 }
 

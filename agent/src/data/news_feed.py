@@ -70,14 +70,19 @@ def _fetch_feed(route: str, timeout: int = 10) -> list[dict[str, Any]]:
     # RSS 2.0: channel/item ; Atom: feed/entry
     items = root.findall(".//item") or root.findall(".//{http://www.w3.org/2005/Atom}entry")
     out: list[dict[str, Any]] = []
+    from bs4 import BeautifulSoup
     for it in items[:20]:
         def _txt(tag: str) -> str:
             node = it.find(tag) or it.find(f"{{http://www.w3.org/2005/Atom}}{tag}")
             return (node.text or "").strip() if node is not None and node.text else ""
+        # Parse HTML in description to make it readable
+        desc_raw = _txt("description")
+        soup = BeautifulSoup(desc_raw, "html.parser")
+        desc = soup.get_text(separator=" ", strip=True)[:500]
         out.append({
             "title": _txt("title"),
             "link": _txt("link"),
-            "description": _txt("description")[:200],
+            "description": desc,
             "pub_date": _txt("pubDate"),
         })
     return out

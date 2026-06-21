@@ -23,6 +23,7 @@ const API_ONLY_PATHS = [
   "/market-sync",
   "/tracking",
   "/admin",
+  "/rsshub",
   // Fund API uses specific sub-paths (NOT bare "/fund" — that prefix would
   // swallow the /fund-opportunity and /fund-arbitrage SPA pages on refresh).
   "/fund/scan",

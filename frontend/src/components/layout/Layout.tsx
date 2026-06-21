@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket } from "lucide-react";
+import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { api, type SessionItem } from "@/lib/api";
@@ -42,6 +42,12 @@ const NAV_GROUPS = [
     items: [
       { to: "/daily-recommendations", icon: Target, label: "今日推荐" },
       { to: "/recommendation-history", icon: BarChart3, label: "推荐历史" },
+    ],
+  },
+  {
+    title: "信息台",
+    items: [
+      { to: "/rss-feed", icon: Rss, label: "RSSHub 资讯" },
     ],
   },
   {

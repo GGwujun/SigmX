@@ -34,6 +34,9 @@ const WatchlistSchedule = lazy(() =>
 const News = lazy(() =>
   import("@/pages/News").then((m) => ({ default: m.News })),
 );
+const RssFeed = lazy(() =>
+  import("@/pages/RssFeed").then((m) => ({ default: m.RssFeed })),
+);
 const Opportunity = lazy(() =>
   import("@/pages/Opportunity").then((m) => ({ default: m.Opportunity })),
 );
@@ -139,6 +142,7 @@ export const router = createBrowserRouter([
           { path: "/tracking-dashboard", element: wrap(TrackingDashboard) },
           { path: "/watchlist-schedule", element: wrap(WatchlistSchedule) },
           { path: "/news", element: wrap(News) },
+          { path: "/rss-feed", element: wrap(RssFeed) },
           { path: "/daily-recommendations", element: wrap(DailyRecommendations) },
           { path: "/recommendation-history", element: wrap(RecommendationHistory) },
           { path: "/opportunity", element: wrap(Opportunity) },

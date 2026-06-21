@@ -3157,6 +3157,14 @@ register_news_routes(app, require_auth, require_event_stream_auth)
 
 
 # ============================================================================
+# RSSHub routes (Web UI) — Folo-style multi-source feed dashboard
+# ============================================================================
+
+from src.api.rsshub_routes import register_rsshub_routes  # noqa: E402
+register_rsshub_routes(app, require_auth, require_event_stream_auth)
+
+
+# ============================================================================
 # Opportunity routes (Web UI) — defined in src/api/opportunity_routes.py
 # ============================================================================
 

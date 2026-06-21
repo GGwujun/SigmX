@@ -55,6 +55,7 @@ def _fetch_wallstreetcn(limit: int = 30, keyword: str = "") -> list[dict[str, An
         import os
         import requests as http
         import xml.etree.ElementTree as ET
+        from bs4 import BeautifulSoup
         base = os.getenv("RSSHUB_URL", "http://rsshub:1200").rstrip("/")
         resp = http.get(f"{base}/wallstreetcn/news/global", timeout=10)
         if resp.status_code != 200:
@@ -64,7 +65,10 @@ def _fetch_wallstreetcn(limit: int = 30, keyword: str = "") -> list[dict[str, An
         for it in root.findall(".//item")[:limit]:
             title = (it.findtext("title") or "").strip()
             link = (it.findtext("link") or "").strip()
-            desc = (it.findtext("description") or "").strip()[:200]
+            # Parse HTML in description to make it readable
+            desc_raw = (it.findtext("description") or "").strip()
+            soup = BeautifulSoup(desc_raw, "html.parser")
+            desc = soup.get_text(separator=" ", strip=True)[:500]  # 更长内容 + 解析HTML
             pub = (it.findtext("pubDate") or "").strip()
             if keyword and keyword not in title:
                 continue
