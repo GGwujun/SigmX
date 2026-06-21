@@ -60,7 +60,10 @@ const AGENT_LABELS: Record<string, string> = {
   bear_rebuttal: "空方反驳",
   neutral_synthesis: "中立综合",
   trader: "交易决策",
-  risk_officer: "风控评估",
+  aggressive_risk_analyst: "激进风险",
+  neutral_risk_analyst: "中性风险",
+  conservative_risk_analyst: "保守风险",
+  risk_officer: "风控裁决",
   portfolio_manager: "最终裁决",
   report_writer: "报告生成",
 };
@@ -683,9 +686,12 @@ const FLOW_LAYOUT: Array<{ id: string; x: number; y: number; stage: string }> = 
   { id: "bear_rebuttal", x: 1240, y: 500, stage: "第二轮反驳" },
   { id: "neutral_synthesis", x: 1520, y: 360, stage: "中立综合" },
   { id: "trader", x: 1840, y: 360, stage: "交易决策" },
-  { id: "risk_officer", x: 2130, y: 360, stage: "风控评估" },
-  { id: "portfolio_manager", x: 2420, y: 360, stage: "最终裁决" },
-  { id: "report_writer", x: 2710, y: 360, stage: "报告生成" },
+  { id: "aggressive_risk_analyst", x: 2130, y: 220, stage: "风险辩论" },
+  { id: "neutral_risk_analyst", x: 2130, y: 360, stage: "风险辩论" },
+  { id: "conservative_risk_analyst", x: 2130, y: 500, stage: "风险辩论" },
+  { id: "risk_officer", x: 2440, y: 360, stage: "风控裁决" },
+  { id: "portfolio_manager", x: 2730, y: 360, stage: "最终裁决" },
+  { id: "report_writer", x: 3020, y: 360, stage: "报告生成" },
 ];
 
 const FLOW_EDGES: Array<[string, string]> = [
@@ -712,7 +718,12 @@ const FLOW_EDGES: Array<[string, string]> = [
   ["bull_rebuttal", "neutral_synthesis"],
   ["bear_rebuttal", "neutral_synthesis"],
   ["neutral_synthesis", "trader"],
-  ["trader", "risk_officer"],
+  ["trader", "aggressive_risk_analyst"],
+  ["trader", "neutral_risk_analyst"],
+  ["trader", "conservative_risk_analyst"],
+  ["aggressive_risk_analyst", "risk_officer"],
+  ["neutral_risk_analyst", "risk_officer"],
+  ["conservative_risk_analyst", "risk_officer"],
   ["risk_officer", "portfolio_manager"],
   ["portfolio_manager", "report_writer"],
 ];
@@ -1089,6 +1100,7 @@ function ReportViewer({
         </article>
 
         <aside className="space-y-3">
+          {false && (
           <div className="rounded-md border bg-card p-3">
             <h3 className="text-sm font-semibold">报告目录</h3>
             <div className="mt-2 space-y-1 text-xs text-muted-foreground">
@@ -1097,6 +1109,7 @@ function ReportViewer({
               ))}
             </div>
           </div>
+          )}
           <div className="rounded-md border border-warning/30 bg-warning/5 p-3">
             <div className="flex items-start gap-2">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />

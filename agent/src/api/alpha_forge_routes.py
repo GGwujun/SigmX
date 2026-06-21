@@ -254,6 +254,15 @@ def _assess_report_quality(content: str) -> dict[str, Any]:
         ("数据一致性说明", "报告包含数据一致性说明"),
         ("可信度存疑", "报告自行标注可信度存疑"),
         ("数据冲突", "报告存在数据冲突"),
+        ("FINAL TRANSACTION PROPOSAL", "报告泄露上游交易员过程文本"),
+        ("让我计算", "报告泄露 Agent 计算过程文本"),
+        ("现在我来", "报告泄露 Agent 写作过程文本"),
+        ("我将整理", "报告泄露 Agent 写作过程文本"),
+        ("从数据中提取", "报告泄露 Agent 数据处理过程文本"),
+        ("必涨", "报告包含夸张荐股式表达"),
+        ("稳赚", "报告包含夸张荐股式表达"),
+        ("无脑买", "报告包含夸张荐股式表达"),
+        ("满仓", "报告包含高风险荐股式表达"),
     ]
     warnings: list[str] = []
     for needle, warning in checks:
@@ -262,8 +271,18 @@ def _assess_report_quality(content: str) -> dict[str, Any]:
     quality = "ok"
     if warnings:
         quality = "degraded"
+    process_warnings = {
+        "报告泄露上游交易员过程文本",
+        "报告泄露 Agent 计算过程文本",
+        "报告泄露 Agent 写作过程文本",
+        "报告泄露 Agent 数据处理过程文本",
+        "报告包含夸张荐股式表达",
+        "报告包含高风险荐股式表达",
+    }
     if any(w in warnings for w in ("数据管道未执行", "存在完全缺失的数据模块")) and len(warnings) >= 3:
         quality = "unreliable"
+    elif any(w in process_warnings for w in warnings):
+        quality = "degraded"
     return {"report_quality": quality, "quality_warnings": warnings[:6]}
 
 
@@ -297,6 +316,15 @@ def _read_agent_report(run_dir: Path, agent_id: str) -> str:
 def _extract_gate_decision(text: str) -> str:
     if not text:
         return ""
+    machine = re.search(r"<!--\s*QUALITY_GATE:\s*(\{.*?\})\s*-->", text, re.IGNORECASE | re.DOTALL)
+    if machine:
+        try:
+            payload = json.loads(machine.group(1))
+            decision = str(payload.get("decision") or "").strip().upper().replace("_", " ")
+            if decision in {"PASS", "CONDITIONAL PASS", "FAIL"}:
+                return decision
+        except Exception:
+            logger.debug("Failed to parse AlphaForge QUALITY_GATE block", exc_info=True)
     patterns = [
         r"Gate\s*Decision\s*[:：\-]?\s*(CONDITIONAL\s+PASS|FAIL|PASS)",
         r"门控(?:结论|决定)?\s*[:：\-]?\s*(CONDITIONAL\s+PASS|FAIL|PASS|有条件通过|失败|通过)",
@@ -312,6 +340,116 @@ def _extract_gate_decision(text: str) -> str:
             if "PASS" in value or "通过" in value:
                 return "PASS"
     return ""
+
+
+def _parse_quality_gate_block(text: str) -> dict[str, Any]:
+    if not text:
+        return {}
+    machine = re.search(r"<!--\s*QUALITY_GATE:\s*(\{.*?\})\s*-->", text, re.IGNORECASE | re.DOTALL)
+    if not machine:
+        return {}
+    try:
+        payload = json.loads(machine.group(1))
+    except Exception:
+        logger.debug("Failed to parse AlphaForge QUALITY_GATE payload", exc_info=True)
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+_AGENT_DATA_CHECKLISTS: dict[str, list[tuple[str, str]]] = {
+    "technical_analyst": [
+        ("最新收盘价/权威价格", r"最新收盘价|latest\s+close|收盘价"),
+        ("近30日涨跌幅", r"近\s*30\s*日|30-day"),
+        ("5日/20日均量或量比", r"近\s*5\s*日.*近\s*20\s*日|量比|5d/20d"),
+        ("MACD", r"MACD|DIF|DEA"),
+        ("RSI", r"RSI"),
+        ("支撑/阻力位", r"支撑|阻力"),
+    ],
+    "sentiment_analyst": [
+        ("新闻/讨论样本数量", r"新闻.*条|样本|来源数量|source"),
+        ("时间范围", r"时间范围|近\s*\d+\s*(天|日|周)|start|end"),
+        ("正负中性分类", r"正面|负面|中性"),
+        ("Top舆情主题", r"Top\s*3|舆情主题|主题"),
+        ("情绪评分/趋势", r"情绪评分|极度乐观|乐观|悲观|升温|降温|平稳"),
+    ],
+    "news_analyst": [
+        ("新闻数量/时间范围", r"新闻.*条|时间范围|近一个月|近\s*\d+\s*(天|日|周)"),
+        ("事件时间线", r"时间线|日期.*事件|关键事件"),
+        ("利好/利空/中性统计", r"利好|利空|中性"),
+        ("风险事件清单", r"风险事件|风险清单"),
+        ("新闻来源", r"来源|http|证券|公告|财联社|东方财富|同花顺"),
+    ],
+    "fundamental_analyst": [
+        ("PE/PB/市值", r"PE|PB|市值"),
+        ("营收/收入", r"营收|收入|revenue"),
+        ("归母净利润", r"归母|净利润|net profit"),
+        ("ROE/盈利能力", r"ROE|净资产收益率|盈利能力"),
+        ("资产负债率/杠杆", r"资产负债率|负债|杠杆"),
+        ("经营现金流", r"经营.*现金流|operating\s+CF|OCF"),
+    ],
+    "policy_analyst": [
+        ("政策事件清单", r"政策事件|政策.*清单|发布"),
+        ("发布机构/来源", r"国务院|证监会|发改委|央行|财政部|工信部|医保局|发布机构|来源"),
+        ("政策方向", r"扶持|限制|压制|中性|利好|利空"),
+        ("影响力度", r"强|中|弱|影响力度"),
+        ("时间窗口", r"短期|中期|长期|时间窗口"),
+    ],
+    "capital_flow_analyst": [
+        ("5日成交量趋势", r"近\s*5\s*日|5日.*成交量"),
+        ("主力资金", r"主力|超大单|大单"),
+        ("北向资金", r"北向|沪股通|深股通"),
+        ("龙虎榜", r"龙虎榜|席位"),
+        ("概念/行业板块", r"概念|板块|行业"),
+        ("资金面总体判断", r"资金面总体|资金.*判断|主力流入|主力流出"),
+    ],
+    "global_market_analyst": [
+        ("美股指数", r"道琼|纳指|标普|美股|S&P|NASDAQ|Dow"),
+        ("大宗商品", r"原油|黄金|铜|大宗"),
+        ("汇率/人民币", r"美元|人民币|USD|CNY|汇率"),
+        ("传导路径", r"传导|影响判断|利好|利空|中性"),
+    ],
+    "lockup_analyst": [
+        ("股本结构", r"股本|流通股|总股本"),
+        ("未来90天解禁", r"未来\s*90\s*天|90天|解禁计划"),
+        ("内部人/大股东交易", r"内部人|高管|大股东|减持|增持"),
+        ("前十大股东", r"前十大股东|十大股东"),
+        ("减持压力评级", r"减持压力|无压力|轻微压力|中等压力|严重压力"),
+    ],
+}
+
+
+def _agent_data_coverage_check(run_dir: Path) -> dict[str, Any]:
+    warnings: list[str] = []
+    quality = "ok"
+    total_missing = 0
+    critical_agents = {"technical_analyst", "fundamental_analyst", "capital_flow_analyst", "lockup_analyst"}
+
+    for agent_id, checklist in _AGENT_DATA_CHECKLISTS.items():
+        report = _read_agent_report(run_dir, agent_id)
+        if not report:
+            continue
+        missing = [
+            label
+            for label, pattern in checklist
+            if not re.search(pattern, report, re.IGNORECASE)
+        ]
+        explicit_missing = re.findall(r"\[数据缺失[:：]\s*([^\]\n]+)\]", report)
+        if missing:
+            total_missing += len(missing)
+            shown = "、".join(missing[:4])
+            suffix = "等" if len(missing) > 4 else ""
+            warnings.append(f"{agent_id} 缺少关键数据项：{shown}{suffix}")
+            if agent_id in critical_agents and len(missing) >= 2:
+                quality = "unreliable"
+            elif quality != "unreliable":
+                quality = "degraded"
+        if len(explicit_missing) >= 3 and quality != "unreliable":
+            warnings.append(f"{agent_id} 显式标注 {len(explicit_missing)} 个数据缺失项")
+            quality = "degraded"
+
+    if total_missing >= 10:
+        quality = "unreliable"
+    return {"report_quality": quality, "quality_warnings": warnings[:10]}
 
 
 def _artifact_quality_check(run_dir: Path, *, content_source: str) -> dict[str, Any]:
@@ -333,9 +471,29 @@ def _artifact_quality_check(run_dir: Path, *, content_source: str) -> dict[str, 
         if not re.search(r"(最新收盘价|latest\s+close)[^\n\r]{0,40}\d+(?:\.\d+)?", data_report, re.IGNORECASE):
             warnings.append("共享事实表缺少可识别的权威最新收盘价")
             quality = "unreliable"
+        evidence_sections = [
+            ("技术原始数据摘要", r"技术原始数据|OHLCV|最近5日"),
+            ("财务与估值基线", r"财务与估值|营收|归母|ROE|经营现金流"),
+            ("新闻与政策证据", r"新闻与政策|新闻检索|政策事件|Top事件"),
+            ("资金与板块证据", r"资金与板块|主力资金|北向|龙虎榜|概念板块"),
+            ("解禁与内部人证据", r"解禁与内部人|未来90天|内部人|回购"),
+            ("国际市场快照", r"国际市场|美股|原油|黄金|汇率|人民币"),
+            ("数据缺口清单", r"数据缺口清单|缺失字段"),
+        ]
+        missing_sections = [
+            label for label, pattern in evidence_sections
+            if not re.search(pattern, data_report, re.IGNORECASE)
+        ]
+        if missing_sections:
+            warnings.append("共享证据包缺少章节：" + "、".join(missing_sections[:5]))
+            if len(missing_sections) >= 3:
+                quality = "unreliable"
+            elif quality != "unreliable":
+                quality = "degraded"
 
     gate_report = _read_agent_report(run_dir, "quality_gate")
     gate_decision = _extract_gate_decision(gate_report)
+    gate_payload = _parse_quality_gate_block(gate_report)
     if not gate_report:
         warnings.append("质量门控报告缺失")
         quality = "unreliable"
@@ -350,6 +508,29 @@ def _artifact_quality_check(run_dir: Path, *, content_source: str) -> dict[str, 
         warnings.append("质量门控未给出可解析的 PASS/FAIL 结论")
         if quality != "unreliable":
             quality = "degraded"
+    if gate_payload:
+        critical_missing = int(gate_payload.get("critical_missing_count") or 0)
+        moderate_missing = int(gate_payload.get("moderate_missing_count") or 0)
+        low_confidence_agents = gate_payload.get("low_confidence_agents") or []
+        process_leakage_agents = gate_payload.get("process_leakage_agents") or []
+        blocking_issues = gate_payload.get("blocking_issues") or []
+        if critical_missing > 0:
+            warnings.append(f"质量门控识别 {critical_missing} 个关键缺失项")
+            quality = "unreliable"
+        elif moderate_missing > 0 and quality != "unreliable":
+            warnings.append(f"质量门控识别 {moderate_missing} 个中等缺失项")
+            quality = "degraded"
+        if low_confidence_agents:
+            warnings.append("低可信 Agent：" + "、".join(map(str, low_confidence_agents[:5])))
+            if quality != "unreliable":
+                quality = "degraded"
+        if process_leakage_agents:
+            warnings.append("存在过程文本泄露 Agent：" + "、".join(map(str, process_leakage_agents[:5])))
+            if quality != "unreliable":
+                quality = "degraded"
+        if blocking_issues:
+            warnings.append("质量门控阻塞问题：" + "；".join(map(str, blocking_issues[:3])))
+            quality = "unreliable"
 
     expected_agents = [agent_id for agent_id, _, _ in _AGENT_SECTIONS] + ["report_writer"]
     missing_agents = [agent_id for agent_id in expected_agents if not _read_agent_report(run_dir, agent_id)]
@@ -506,8 +687,11 @@ _AGENT_SECTIONS: list[tuple[str, str, str]] = [
     ("neutral_synthesis", "中性综合", "第三部分：多空辩论"),
     # Layer 4-6 — decision chain
     ("trader", "交易决策", "第四部分：交易决策"),
-    ("risk_officer", "风控评估", "第五部分：风控评估"),
-    ("portfolio_manager", "最终决策", "第六部分：最终决策"),
+    ("aggressive_risk_analyst", "激进风险分析", "第五部分：三方风险辩论"),
+    ("neutral_risk_analyst", "中性风险分析", "第五部分：三方风险辩论"),
+    ("conservative_risk_analyst", "保守风险分析", "第五部分：三方风险辩论"),
+    ("risk_officer", "风控裁决", "第六部分：风控裁决"),
+    ("portfolio_manager", "最终决策", "第七部分：最终决策"),
 ]
 
 
@@ -843,6 +1027,7 @@ def register_alpha_forge_routes(
                 meta.update(_merge_quality_checks(
                     _assess_report_quality(content),
                     _artifact_quality_check(run_dir, content_source=content_source),
+                    _agent_data_coverage_check(run_dir),
                     _decision_quality_check(decision_warnings),
                 ))
 
