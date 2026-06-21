@@ -60,6 +60,39 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   return text ? JSON.parse(text) : ({} as T);
 }
 
+function filenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    } catch {
+      return utf8Match[1].replace(/"/g, "");
+    }
+  }
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
+}
+
+async function requestBlob(path: string, fallbackFilename: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      const pub = window.location.pathname.startsWith("/login") || window.location.pathname.startsWith("/register");
+      if (!pub) {
+        try { window.localStorage.removeItem("sigmx_auth_token"); } catch { /* ignore */ }
+        try { window.localStorage.removeItem("sigmx_user"); } catch { /* ignore */ }
+        window.location.assign("/login");
+      }
+    }
+    throw await errorFromResponse(res);
+  }
+  return {
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res.headers.get("Content-Disposition"), fallbackFilename),
+  };
+}
+
 export interface UploadResult {
   status: string;
   file_path: string;
@@ -393,6 +426,11 @@ export const api = {
   getAlphaForgeReport: (reportId: string) => request<AlphaForgeReportDetail>(`/alpha-forge/reports/${encodeURIComponent(reportId)}`),
   getAlphaForgeReportDownloadUrl: (reportId: string, format: "md" | "pdf") =>
     withAuthQuery(`${BASE}/alpha-forge/reports/${encodeURIComponent(reportId)}/download?format=${format}`),
+  downloadAlphaForgeReport: (reportId: string, format: "md" | "pdf") =>
+    requestBlob(
+      `/alpha-forge/reports/${encodeURIComponent(reportId)}/download?format=${format}`,
+      `AlphaForge_${reportId}.${format}`,
+    ),
   createAlphaForgeRun: (target: string, market?: string) =>
     request<AlphaForgeRunInfo>("/alpha-forge/runs", {
       method: "POST",
@@ -1521,6 +1559,9 @@ export interface AlphaForgeReportItem {
   created_at: string;
   signal: string;
   rating: string;
+  report_quality?: "ok" | "degraded" | "unreliable" | "unknown" | string;
+  quality_warnings?: string[];
+  decision_warnings?: string[];
 }
 
 export interface AlphaForgeReportDetail extends AlphaForgeReportItem {
@@ -1606,7 +1647,15 @@ export interface AlphaForgeRunDetail {
   final_report: string | null;
   total_input_tokens: number;
   total_output_tokens: number;
-  tasks: { id: string; agent_id: string; status: string }[];
+  tasks: {
+    id: string;
+    agent_id: string;
+    status: string;
+    display_status?: string;
+    display_status_label?: string;
+    blocked_by?: string[];
+    error?: string | null;
+  }[];
 }
 
 // --- Fund arbitrage types ---

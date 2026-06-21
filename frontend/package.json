@@ -1,7 +1,7 @@
 {
   "name": "sigmx-frontend",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.0",
     "clsx": "^2.1.0",
     "echarts": "^6.0.0",
     "highlight.js": "^11.11.1",

@@ -81,6 +81,9 @@ class ReportMeta(BaseModel):
     created_at: str
     signal: str = ""  # BUY / SELL / HOLD
     rating: str = ""  # Overweight / Equal-weight / Underweight
+    report_quality: str = "unknown"
+    quality_warnings: list[str] = Field(default_factory=list)
+    decision_warnings: list[str] = Field(default_factory=list)
 
 class ReportListItem(BaseModel):
     report_id: str
@@ -91,6 +94,9 @@ class ReportListItem(BaseModel):
     created_at: str
     signal: str
     rating: str
+    report_quality: str = "unknown"
+    quality_warnings: list[str] = Field(default_factory=list)
+    decision_warnings: list[str] = Field(default_factory=list)
 
 class ReportDetail(BaseModel):
     report_id: str
@@ -102,6 +108,9 @@ class ReportDetail(BaseModel):
     signal: str
     rating: str
     content_md: str
+    report_quality: str = "unknown"
+    quality_warnings: list[str] = Field(default_factory=list)
+    decision_warnings: list[str] = Field(default_factory=list)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -134,6 +143,9 @@ def _extract_metadata_from_md(content: str) -> dict[str, str]:
         if line.startswith("- **股票代码**") or line.startswith("- **股票代码**："):
             m = re.search(r"[：:]\s*(\S+)", line)  # 只匹配冒号后的值
             if m: meta["target"] = m.group(1)
+        elif line.startswith("- **股票名称**") or line.startswith("- **股票名称**："):
+            m = re.search(r"[：:]\s*([^*\s]+)", line)
+            if m: meta["stock_name"] = m.group(1).strip()
         elif "**分析日期**" in line:
             m = re.search(r"[：:]\s*(\S+)", line)  # 只匹配冒号后的值
             if m: meta["analysis_date"] = m.group(1)
@@ -183,6 +195,215 @@ def _extract_metadata_from_md(content: str) -> dict[str, str]:
     return meta
 
 
+def _normalize_a_share_code(raw: str) -> str:
+    value = (raw or "").strip().upper()
+    m = re.fullmatch(r"(\d{6})(?:\.(SZ|SH|BJ))?", value)
+    if not m:
+        return value
+    code, suffix = m.group(1), m.group(2)
+    if suffix:
+        return f"{code}.{suffix}"
+    if code.startswith(("60", "68", "90")):
+        return f"{code}.SH"
+    if code.startswith(("00", "30", "20")):
+        return f"{code}.SZ"
+    if code.startswith(("43", "83", "87", "92")):
+        return f"{code}.BJ"
+    return code
+
+
+def _resolve_stock_identity(raw: str, market: str) -> tuple[str, str]:
+    """Resolve stock code/name from structured stock-basic data, not report text."""
+    value = (raw or "").strip()
+    if not value:
+        return "", ""
+    if market != "A-shares":
+        return value, ""
+
+    try:
+        from src.api import position_routes as pr
+
+        # Ensure the stock-basic cache is loaded once, then use both directions.
+        if not getattr(pr, "_STOCK_NAMES_LOADED", False):
+            pr._load_stock_names_batch()
+        names: dict[str, str] = getattr(pr, "_STOCK_NAMES", {}) or {}
+
+        code = _normalize_a_share_code(value)
+        if re.fullmatch(r"\d{6}\.(SZ|SH|BJ)", code):
+            name = pr._get_stock_name(code)
+            return code, "" if name == code else name
+
+        for ts_code, name in names.items():
+            if name == value:
+                return ts_code, name
+    except Exception:
+        logger.debug("AlphaForge stock identity lookup failed for %s", raw, exc_info=True)
+
+    return _normalize_a_share_code(value), ""
+
+
+def _assess_report_quality(content: str) -> dict[str, Any]:
+    """Flag reports that are visibly data-incomplete or internally inconsistent."""
+    text = content or ""
+    checks = [
+        ("数据管道未执行", "数据管道未执行"),
+        ("数据状态：完全缺失", "存在完全缺失的数据模块"),
+        ("完全缺失", "存在完全缺失的数据模块"),
+        ("上游未提供", "部分关键字段由上游缺失"),
+        ("无法计算", "部分指标无法计算"),
+        ("数据一致性说明", "报告包含数据一致性说明"),
+        ("可信度存疑", "报告自行标注可信度存疑"),
+        ("数据冲突", "报告存在数据冲突"),
+    ]
+    warnings: list[str] = []
+    for needle, warning in checks:
+        if needle in text and warning not in warnings:
+            warnings.append(warning)
+    quality = "ok"
+    if warnings:
+        quality = "degraded"
+    if any(w in warnings for w in ("数据管道未执行", "存在完全缺失的数据模块")) and len(warnings) >= 3:
+        quality = "unreliable"
+    return {"report_quality": quality, "quality_warnings": warnings[:6]}
+
+
+def _merge_quality_checks(*checks: dict[str, Any]) -> dict[str, Any]:
+    rank = {"ok": 0, "unknown": 0, "degraded": 1, "unreliable": 2}
+    quality = "ok"
+    warnings: list[str] = []
+    for check in checks:
+        candidate = str(check.get("report_quality") or "ok")
+        if rank.get(candidate, 0) > rank.get(quality, 0):
+            quality = candidate
+        for warning in check.get("quality_warnings") or []:
+            text = str(warning).strip()
+            if text and text not in warnings:
+                warnings.append(text)
+    return {"report_quality": quality, "quality_warnings": warnings[:12]}
+
+
+def _read_agent_report(run_dir: Path, agent_id: str) -> str:
+    artifacts_dir = run_dir / "artifacts" / agent_id
+    for filename in ("report.md", "summary.md"):
+        path = artifacts_dir / filename
+        if path.is_file():
+            try:
+                return path.read_text(encoding="utf-8").strip()
+            except Exception:
+                logger.debug("Failed to read AlphaForge artifact %s", path, exc_info=True)
+    return ""
+
+
+def _extract_gate_decision(text: str) -> str:
+    if not text:
+        return ""
+    patterns = [
+        r"Gate\s*Decision\s*[:：\-]?\s*(CONDITIONAL\s+PASS|FAIL|PASS)",
+        r"门控(?:结论|决定)?\s*[:：\-]?\s*(CONDITIONAL\s+PASS|FAIL|PASS|有条件通过|失败|通过)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            value = match.group(1).strip().upper()
+            if "FAIL" in value or "失败" in value:
+                return "FAIL"
+            if "CONDITIONAL" in value or "有条件" in value:
+                return "CONDITIONAL PASS"
+            if "PASS" in value or "通过" in value:
+                return "PASS"
+    return ""
+
+
+def _artifact_quality_check(run_dir: Path, *, content_source: str) -> dict[str, Any]:
+    warnings: list[str] = []
+    quality = "ok"
+
+    data_report = _read_agent_report(run_dir, "data_collector")
+    if not data_report:
+        warnings.append("共享事实表缺失，无法确认权威价格/成交量/估值基线")
+        quality = "unreliable"
+    else:
+        missing_count = data_report.count("数据缺失") + data_report.lower().count("n/a")
+        if missing_count >= 5:
+            warnings.append("共享事实表存在大量数据缺失")
+            quality = "unreliable"
+        elif missing_count > 0:
+            warnings.append("共享事实表存在部分数据缺失")
+            quality = "degraded"
+        if not re.search(r"(最新收盘价|latest\s+close)[^\n\r]{0,40}\d+(?:\.\d+)?", data_report, re.IGNORECASE):
+            warnings.append("共享事实表缺少可识别的权威最新收盘价")
+            quality = "unreliable"
+
+    gate_report = _read_agent_report(run_dir, "quality_gate")
+    gate_decision = _extract_gate_decision(gate_report)
+    if not gate_report:
+        warnings.append("质量门控报告缺失")
+        quality = "unreliable"
+    elif gate_decision == "FAIL":
+        warnings.append("质量门控结论为 FAIL")
+        quality = "unreliable"
+    elif gate_decision == "CONDITIONAL PASS":
+        warnings.append("质量门控结论为 CONDITIONAL PASS")
+        if quality != "unreliable":
+            quality = "degraded"
+    elif not gate_decision:
+        warnings.append("质量门控未给出可解析的 PASS/FAIL 结论")
+        if quality != "unreliable":
+            quality = "degraded"
+
+    expected_agents = [agent_id for agent_id, _, _ in _AGENT_SECTIONS] + ["report_writer"]
+    missing_agents = [agent_id for agent_id in expected_agents if not _read_agent_report(run_dir, agent_id)]
+    if missing_agents:
+        sample = "、".join(missing_agents[:5])
+        suffix = "等" if len(missing_agents) > 5 else ""
+        warnings.append(f"{len(missing_agents)} 个 Agent 缺少可归档产物：{sample}{suffix}")
+        if len(missing_agents) >= 3:
+            quality = "unreliable"
+        elif quality != "unreliable":
+            quality = "degraded"
+
+    if content_source != "report_writer":
+        warnings.append("最终报告未使用 report_writer 统一报告，而是由上游片段拼接生成")
+        if quality != "unreliable":
+            quality = "degraded"
+
+    return {"report_quality": quality, "quality_warnings": warnings}
+
+
+def _decision_quality_check(decision_warnings: list[str]) -> dict[str, Any]:
+    if not decision_warnings:
+        return {"report_quality": "ok", "quality_warnings": []}
+    severe_markers = ("方向与价位", "超过 100%", "单位错误", "无保护")
+    quality = "unreliable" if any(any(marker in w for marker in severe_markers) for w in decision_warnings) else "degraded"
+    return {
+        "report_quality": quality,
+        "quality_warnings": [f"交易决策硬校验告警：{w}" for w in decision_warnings[:4]],
+    }
+
+
+def _content_with_quality_notice(content: str, meta: dict[str, Any]) -> str:
+    quality = str(meta.get("report_quality") or "unknown")
+    warnings = [str(w) for w in (meta.get("quality_warnings") or []) if str(w).strip()]
+    decision_warnings = [str(w) for w in (meta.get("decision_warnings") or []) if str(w).strip()]
+    if quality == "ok" and not decision_warnings:
+        return content
+
+    label = {
+        "unreliable": "数据质量不可信，不建议直接作为投研结论使用",
+        "degraded": "数据质量存疑，阅读时需核对关键数据",
+        "unknown": "数据质量未校验",
+    }.get(quality, "数据质量需复核")
+    lines = [
+        "> [!WARNING]",
+        f"> **报告质量提示**：{label}",
+    ]
+    for warning in warnings[:8]:
+        lines.append(f"> - {warning}")
+    for warning in decision_warnings[:4]:
+        lines.append(f"> - 交易决策校验：{warning}")
+    return "\n".join(lines) + "\n\n" + content
+
+
 def _parse_decision_block(content: str, tag: str) -> dict | None:
     """Parse a ``<!-- {tag}: {json} -->`` machine-readable block.
 
@@ -213,7 +434,7 @@ def _load_report_meta(report_id: str) -> dict[str, Any] | None:
     meta_path = REPORTS_ROOT / report_id / "meta.json"
     if not meta_path.exists():
         return None
-    return json.loads(meta_path.read_text(encoding="utf-8"))
+    return json.loads(meta_path.read_text(encoding="utf-8-sig"))
 
 
 def _load_report_md(report_id: str) -> str | None:
@@ -235,6 +456,31 @@ def _save_report(report_id: str, content_md: str, meta: dict[str, Any]) -> Path:
         json.dumps(meta, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+
+
+def _task_display_status(task: Any) -> dict[str, str]:
+    """Return user-facing task status while preserving scheduler status.
+
+    The swarm scheduler uses ``blocked`` for two different states:
+    1. waiting for upstream dependencies at run start;
+    2. truly blocked because an upstream task failed or is missing.
+
+    The UI should not show the first state as a failure.
+    """
+    status = task.status.value if hasattr(task.status, "value") else str(task.status)
+    blocked_by = list(getattr(task, "blocked_by", []) or [])
+    error = getattr(task, "error", None)
+    if status == "blocked" and blocked_by and not error:
+        return {"display_status": "waiting", "display_status_label": "等待上游"}
+    labels = {
+        "pending": "等待中",
+        "in_progress": "执行中",
+        "completed": "已完成",
+        "failed": "失败",
+        "blocked": "已阻塞",
+        "cancelled": "已取消",
+    }
+    return {"display_status": status, "display_status_label": labels.get(status, status or "暂无状态")}
 
 
 # Pipeline order for assembling the full report. Each entry maps an agent_id
@@ -367,6 +613,9 @@ def register_alpha_forge_routes(
                     "created_at": meta.get("created_at", ""),
                     "signal": meta.get("signal", ""),
                     "rating": meta.get("rating", ""),
+                    "report_quality": meta.get("report_quality", "unknown"),
+                    "quality_warnings": meta.get("quality_warnings", []),
+                    "decision_warnings": meta.get("decision_warnings", []),
                 })
         return reports
 
@@ -389,6 +638,9 @@ def register_alpha_forge_routes(
             "signal": meta.get("signal", ""),
             "rating": meta.get("rating", ""),
             "content_md": content,
+            "report_quality": meta.get("report_quality", "unknown"),
+            "quality_warnings": meta.get("quality_warnings", []),
+            "decision_warnings": meta.get("decision_warnings", []),
         }
 
     # ── Download Report ───────────────────────────────────────────
@@ -407,10 +659,11 @@ def register_alpha_forge_routes(
 
         target = meta.get("target", report_id)
         filename_base = f"AlphaForge_{target}_{meta.get('analysis_date', 'unknown')}"
+        downloadable_content = _content_with_quality_notice(content, meta)
 
         if format == "md":
             return Response(
-                content=content,
+                content=downloadable_content,
                 media_type="text/markdown; charset=utf-8",
                 headers={
                     "Content-Disposition": f'attachment; filename="{_sanitize_filename(filename_base)}.md"',
@@ -420,7 +673,7 @@ def register_alpha_forge_routes(
         if format == "pdf":
             # Check if PDF already exists (cached)
             pdf_path = REPORTS_ROOT / report_id / "report.pdf"
-            if pdf_path.exists():
+            if pdf_path.exists() and downloadable_content == content:
                 return FileResponse(
                     pdf_path,
                     media_type="application/pdf",
@@ -434,7 +687,7 @@ def register_alpha_forge_routes(
 
                 # Convert MD to HTML
                 md_html = md_lib.markdown(
-                    content,
+                    downloadable_content,
                     extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"],
                 )
 
@@ -533,46 +786,8 @@ def register_alpha_forge_routes(
                 run_dir = store.run_dir(run_id)
                 completed_run = store.load_run(run_id)
 
-                # Extract stock name from whatever agent reports are available.
-                # PM (portfolio_manager) is the richest source; fall back to any
-                # agent's report.md, then to the run's final_report.
-                code_part = body.target.split(".")[0]  # e.g. "300253"
-                code_re = re.compile(
-                    rf"(?:SZ|SH|BJ)?0*{re.escape(code_part)}"
-                    rf"(?:\.(?:SZ|SH|BJ))?\s*[（(]?\s*([一-鿿]{{2,8}})\s*[）)]?"
-                )
-                label_re = re.compile(
-                    r"(?:标的|股票名称|公司名称|公司|证券简称)\s*[:：]\s*"
-                    r"(?:[A-Za-z0-9.\s/]+\s)?([一-鿿]{2,8})"
-                )
-
-                def _extract_name(text: str) -> str:
-                    if not text:
-                        return ""
-                    for line in text.split("\n")[:40]:
-                        m = code_re.search(line)
-                        if m:
-                            return m.group(1)
-                    for line in text.split("\n")[:40]:
-                        m = label_re.search(line)
-                        if m:
-                            return m.group(1)
-                    return ""
-
-                stock_name = ""
-                # Try PM report first, then all agents, then final_report
-                candidates = [run_dir / "artifacts" / "portfolio_manager" / "report.md"]
-                candidates += [
-                    run_dir / "artifacts" / a[0] / "report.md"
-                    for a in _AGENT_SECTIONS
-                ]
-                for cand in candidates:
-                    if cand.is_file():
-                        stock_name = _extract_name(cand.read_text(encoding="utf-8"))
-                        if stock_name:
-                            break
-                if not stock_name and completed_run and completed_run.final_report:
-                    stock_name = _extract_name(completed_run.final_report)
+                resolved_target, stock_name = _resolve_stock_identity(body.target, body.market)
+                target_for_report = resolved_target or body.target
 
                 # Choose the final report content.
                 # Preferred: the report_writer agent's unified report (ONE coherent
@@ -585,10 +800,10 @@ def register_alpha_forge_routes(
                         content = writer_content
                         logger.info("Using report_writer unified report for %s", body.target)
                     else:
-                        content = _assemble_full_report(run_dir, body.target, stock_name)
+                        content = _assemble_full_report(run_dir, target_for_report, stock_name)
                         logger.info("report_writer output too short, falling back to assembly for %s", body.target)
                 else:
-                    content = _assemble_full_report(run_dir, body.target, stock_name)
+                    content = _assemble_full_report(run_dir, target_for_report, stock_name)
                     logger.info("No report_writer output, using assembly for %s", body.target)
 
                 # Generate report ID
@@ -597,7 +812,7 @@ def register_alpha_forge_routes(
                 report_id = f"af_{body.target.replace('.', '_')}_{ts}"
 
                 meta = {
-                    "target": body.target,
+                    "target": target_for_report,
                     "stock_name": stock_name,
                     "market": body.market,
                     "analysis_date": now.strftime("%Y-%m-%d"),
@@ -606,11 +821,15 @@ def register_alpha_forge_routes(
                 }
                 # Extract signal and rating from the PM section
                 extra = _extract_metadata_from_md(content)
+                extra.pop("stock_name", None)
                 meta.update(extra)
+                if body.market == "A-shares":
+                    meta["target"], meta["stock_name"] = _resolve_stock_identity(str(meta.get("target") or target_for_report), body.market)
 
                 # Validate the LLM decision against hard A-share rules (stop
                 # ordering, position bounds, daily-limit sanity). Warnings are
                 # surfaced in metadata; nothing is auto-corrected.
+                decision_warnings: list[str] = []
                 try:
                     from src.analysis.decision_validator import fetch_latest_price, validate_stock_decision
                     price = fetch_latest_price(body.target)
@@ -620,6 +839,12 @@ def register_alpha_forge_routes(
                         logger.warning("AlphaForge %s decision warnings: %s", body.target, decision_warnings)
                 except Exception as exc:  # noqa: BLE001 — validation must never block save
                     logger.debug("decision validation skipped: %s", exc)
+
+                meta.update(_merge_quality_checks(
+                    _assess_report_quality(content),
+                    _artifact_quality_check(run_dir, content_source=content_source),
+                    _decision_quality_check(decision_warnings),
+                ))
 
                 _save_report(report_id, content, meta)
                 logger.info("Saved AlphaForge report %s for %s", report_id, body.target)
@@ -739,6 +964,9 @@ def register_alpha_forge_routes(
                     "id": t.id,
                     "agent_id": t.agent_id,
                     "status": t.status.value,
+                    "blocked_by": list(getattr(t, "blocked_by", []) or []),
+                    "error": getattr(t, "error", None),
+                    **_task_display_status(t),
                 }
                 for t in tasks_source
             ],
