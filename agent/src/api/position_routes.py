@@ -1736,18 +1736,20 @@ def register_position_routes(
                 # AgentLoop may return failed status with empty content
                 if run_result.get("status") == "failed" and not full_content:
                     reason = run_result.get("reason", "")
+                    logger.error("AI analysis failed for %s - status: failed, reason: %s", code, reason)
                     if "1301" in reason or "contentFilter" in reason or "敏感" in reason:
-                        error_msg = "AI 分析被内容安全拦截。请稍后重试或更换股票。"
+                        error_msg = f"AI 分析被内容安全拦截。详细原因: {reason[:200]}。请稍后重试或更换股票。"
                     elif "BadRequestError" in reason or "400" in reason:
-                        error_msg = "AI 服务请求失败，请稍后重试。"
+                        error_msg = f"AI 服务请求失败。详细原因: {reason[:200]}。请稍后重试。"
                     else:
                         error_msg = f"AI 分析失败: {reason[:100]}" if reason else "AI 分析失败，请稍后重试。"
             except Exception as exc:
                 err_str = str(exc)
+                logger.error("AI analysis exception for %s: %s", code, exc, exc_info=True)
                 if "1301" in err_str or "contentFilter" in err_str or "敏感" in err_str:
-                    error_msg = "AI 分析被内容安全拦截。预测市场事件标题含政治敏感词（如 Taiwan/sanctions），请稍后重试或更换股票。"
+                    error_msg = f"AI 分析被内容安全拦截。详细原因: {err_str[:200]}。预测市场事件标题含政治敏感词（如 Taiwan/sanctions），请稍后重试或更换股票。"
                 elif "BadRequestError" in err_str or "400" in err_str:
-                    error_msg = "AI 服务请求失败（参数错误），请稍后重试。"
+                    error_msg = f"AI 服务请求失败（参数错误）。详细原因: {err_str[:200]}。请稍后重试。"
                 elif "timeout" in err_str.lower() or "timed out" in err_str.lower():
                     error_msg = "AI 分析超时，请稍后重试。"
                 else:
