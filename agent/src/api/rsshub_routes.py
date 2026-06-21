@@ -52,13 +52,16 @@ def _cache_set(key: str, val: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 _FEEDS = {
-    # RSSHub财经源 (测试有效)
+    # RSSHub财经源 (全部测试有效)
     "华尔街见闻-全球": "/wallstreetcn/news/global",
     "每经网-要闻": "/nbd",
     "每经网-重磅原创": "/nbd/daily",
+    "每经网-头条": "/nbd/2",
+    "每经网-金融": "/nbd/finance",
     "财联社-头条": "/cls/depth/1000",
     "财联社-A股": "/cls/depth/1003",
     "财联社-科创": "/cls/depth/1111",
+    "财联社-环球": "/cls/depth/1007",
 
     # RSSHub科技源
     "GitHub Trending": "/github/trending/daily",
@@ -72,17 +75,25 @@ _FEEDS = {
 
 # Source metadata for display
 _SOURCE_META = {
+    # 财经类 (优先级 1-9)
     "华尔街见闻-全球": {"color": "#9C27B0", "priority": 1, "desc": "全球宏观视角"},
     "每经网-要闻": {"color": "#FF6B35", "priority": 2, "desc": "财经要闻快报"},
     "每经网-重磅原创": {"color": "#E63946", "priority": 3, "desc": "深度原创分析"},
-    "财联社-头条": {"color": "#FF1744", "priority": 4, "desc": "财联社深度头条"},
-    "财联社-A股": {"color": "#F50057", "priority": 5, "desc": "A股市场动态"},
-    "财联社-科创": {"color": "#C51162", "priority": 6, "desc": "科创板资讯"},
-    "GitHub Trending": {"color": "#24292E", "priority": 7, "desc": "开发者热榜"},
-    "OpenAI Blog": {"color": "#10A37F", "priority": 8, "desc": "AI 前沿动态"},
-    "GitHub Blog": {"color": "#2B2D42", "priority": 9, "desc": "开发者生态"},
-    "Last Week in AI": {"color": "#FF6B6B", "priority": 10, "desc": "AI 周报精选"},
-    "Sebastian Raschka": {"color": "#4ECDC4", "priority": 11, "desc": "机器学习研究"},
+    "每经网-头条": {"color": "#FF9800", "priority": 4, "desc": "头条快讯"},
+    "每经网-金融": {"color": "#FFC107", "priority": 5, "desc": "金融行业动态"},
+    "财联社-头条": {"color": "#FF1744", "priority": 6, "desc": "财联社深度头条"},
+    "财联社-A股": {"color": "#F50057", "priority": 7, "desc": "A股市场动态"},
+    "财联社-科创": {"color": "#C51162", "priority": 8, "desc": "科创板资讯"},
+    "财联社-环球": {"color": "#D500F9", "priority": 9, "desc": "环球市场动态"},
+
+    # 科技类 (优先级 10)
+    "GitHub Trending": {"color": "#24292E", "priority": 10, "desc": "开发者热榜"},
+
+    # AI类 (优先级 11-14)
+    "OpenAI Blog": {"color": "#10A37F", "priority": 11, "desc": "AI 前沿动态"},
+    "GitHub Blog": {"color": "#2B2D42", "priority": 12, "desc": "开发者生态"},
+    "Last Week in AI": {"color": "#FF6B6B", "priority": 13, "desc": "AI 周报精选"},
+    "Sebastian Raschka": {"color": "#4ECDC4", "priority": 14, "desc": "机器学习研究"},
 }
 
 
