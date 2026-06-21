@@ -52,10 +52,18 @@ def _cache_set(key: str, val: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 _FEEDS = {
-    # RSSHub sources (only working ones)
+    # RSSHub财经源 (测试有效)
     "华尔街见闻-全球": "/wallstreetcn/news/global",
+    "每经网-要闻": "/nbd",
+    "每经网-重磅原创": "/nbd/daily",
+    "财联社-头条": "/cls/depth/1000",
+    "财联社-A股": "/cls/depth/1003",
+    "财联社-科创": "/cls/depth/1111",
 
-    # Direct RSS feeds (AI & Tech news)
+    # RSSHub科技源
+    "GitHub Trending": "/github/trending/daily",
+
+    # 直接RSS订阅 (AI & Tech)
     "OpenAI Blog": "https://openai.com/news/rss.xml",
     "GitHub Blog": "https://github.blog/feed/",
     "Last Week in AI": "https://lastweekin.ai/feed",
@@ -65,10 +73,16 @@ _FEEDS = {
 # Source metadata for display
 _SOURCE_META = {
     "华尔街见闻-全球": {"color": "#9C27B0", "priority": 1, "desc": "全球宏观视角"},
-    "OpenAI Blog": {"color": "#10A37F", "priority": 2, "desc": "AI 前沿动态"},
-    "GitHub Blog": {"color": "#24292E", "priority": 3, "desc": "开发者生态"},
-    "Last Week in AI": {"color": "#FF6B6B", "priority": 4, "desc": "AI 周报精选"},
-    "Sebastian Raschka": {"color": "#4ECDC4", "priority": 5, "desc": "机器学习研究"},
+    "每经网-要闻": {"color": "#FF6B35", "priority": 2, "desc": "财经要闻快报"},
+    "每经网-重磅原创": {"color": "#E63946", "priority": 3, "desc": "深度原创分析"},
+    "财联社-头条": {"color": "#FF1744", "priority": 4, "desc": "财联社深度头条"},
+    "财联社-A股": {"color": "#F50057", "priority": 5, "desc": "A股市场动态"},
+    "财联社-科创": {"color": "#C51162", "priority": 6, "desc": "科创板资讯"},
+    "GitHub Trending": {"color": "#24292E", "priority": 7, "desc": "开发者热榜"},
+    "OpenAI Blog": {"color": "#10A37F", "priority": 8, "desc": "AI 前沿动态"},
+    "GitHub Blog": {"color": "#2B2D42", "priority": 9, "desc": "开发者生态"},
+    "Last Week in AI": {"color": "#FF6B6B", "priority": 10, "desc": "AI 周报精选"},
+    "Sebastian Raschka": {"color": "#4ECDC4", "priority": 11, "desc": "机器学习研究"},
 }
 
 
