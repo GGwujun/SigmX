@@ -1,6 +1,6 @@
 [project]
 name = "vibe-trading-ai"
-version = "0.2.0"
+version = "0.2.1"
 description = "Natural-language finance research AI agent with backtesting"
 requires-python = ">=3.11"
 license = "MIT"
