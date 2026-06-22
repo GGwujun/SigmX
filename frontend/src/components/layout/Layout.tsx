@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss } from "lucide-react";
+import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss, Globe } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { api, type SessionItem } from "@/lib/api";
@@ -47,6 +47,7 @@ const NAV_GROUPS = [
   {
     title: "信息台",
     items: [
+      { to: "/global-events", icon: Globe, label: "全球事件" },
       { to: "/rss-feed", icon: Rss, label: "RSSHub 资讯" },
     ],
   },

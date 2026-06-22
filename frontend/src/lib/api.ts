@@ -1525,6 +1525,19 @@ export interface DailyRecommendationItem {
     top_bullish?: Array<{ label?: string; theme?: string; rank_pct?: number; direction?: string }>;
     top_bearish?: Array<{ label?: string; theme?: string; rank_pct?: number; direction?: string }>;
   };
+  evidence_snapshot?: {
+    as_of?: string;
+    slot?: string;
+    source?: string;
+    market?: string;
+    scanner?: string;
+    ai?: string;
+    factor?: string;
+    bullish_factors?: string[];
+    bearish_factors?: string[];
+    recommendation?: string;
+    risk?: string;
+  };
   performance: RecommendationPerformance;
 }
 

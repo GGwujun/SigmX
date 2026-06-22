@@ -531,18 +531,43 @@ function SignalDetailPanel({
   signal,
   position,
   dark,
+  loading,
+  error,
+  onRetry,
 }: {
   signal: PositionSignal | null;
   position?: Position;
   dark: boolean;
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
 }) {
   if (!signal) {
     return (
       <div className="flex h-full items-center justify-center p-6">
         <div className="max-w-sm rounded-lg border border-dashed p-8 text-center text-muted-foreground">
-          <Target className="mx-auto h-10 w-10 opacity-30" />
-          <p className="mt-3 text-sm font-medium text-foreground">选择一个标的查看信号详情</p>
-          <p className="mt-1 text-xs">左侧添加或选择持仓后，中间会展示结构化信号、雷达图和止盈止损区间。</p>
+          {loading ? (
+            <>
+              <Loader2 className="mx-auto h-10 w-10 animate-spin text-primary/70" />
+              <p className="mt-3 text-sm font-medium text-foreground">正在后台分析持仓信号</p>
+              <p className="mt-1 text-xs">左侧列表已可操作，分析完成后会自动展示结构化信号。</p>
+            </>
+          ) : error ? (
+            <>
+              <AlertTriangle className="mx-auto h-10 w-10 text-danger/70" />
+              <p className="mt-3 text-sm font-medium text-foreground">分析失败</p>
+              <p className="mt-1 text-xs">{error}</p>
+              <button type="button" onClick={onRetry} className="mt-4 rounded-md border px-3 py-1.5 text-xs text-foreground hover:bg-muted">
+                重试
+              </button>
+            </>
+          ) : (
+            <>
+              <Target className="mx-auto h-10 w-10 opacity-30" />
+              <p className="mt-3 text-sm font-medium text-foreground">选择一个标的查看信号详情</p>
+              <p className="mt-1 text-xs">左侧添加或选择持仓后，中间会展示结构化信号、雷达图和止盈止损区间。</p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -921,7 +946,7 @@ export function TrackingDashboard() {
   }, []);
 
   const analyze = useCallback((silent = false) => {
-    if (!silent) setRefreshing(true);
+    setRefreshing(true);
     const list = positionsRef.current;
     if (!list.length) {
       setSignals([]);
@@ -1117,8 +1142,6 @@ export function TrackingDashboard() {
     if (event.key === "Enter") addPosition();
   };
 
-  const pageState = <PageState loading={loading} error={error} onRetry={() => analyze()} />;
-
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col">
       <HeaderBar
@@ -1131,8 +1154,8 @@ export function TrackingDashboard() {
       />
 
       <div className="min-h-0 flex-1 overflow-hidden">
-        {loading || error ? (
-          pageState
+        {!watchlistReady ? (
+          <PageState loading error={null} onRetry={() => analyze()} />
         ) : (
           <div className="flex h-full flex-col md:flex-row">
             <PositionListPanel
@@ -1166,7 +1189,14 @@ export function TrackingDashboard() {
             />
 
             <div className="min-h-0 flex flex-1">
-              <SignalDetailPanel signal={selected} position={selectedPos} dark={dark} />
+              <SignalDetailPanel
+                signal={selected}
+                position={selectedPos}
+                dark={dark}
+                loading={loading}
+                error={error}
+                onRetry={() => analyze()}
+              />
               <div className="hidden xl:block">
                 <AiDecisionPanel
                   signal={selected}

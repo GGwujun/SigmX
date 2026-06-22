@@ -1,16 +1,10 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowUpRight,
-  BarChart3,
   CalendarDays,
   ChevronDown,
-  Clock3,
-  GitBranch,
   History,
   Loader2,
-  Newspaper,
   RefreshCw,
   Search,
   ShieldAlert,
@@ -24,6 +18,8 @@ import { toast } from "sonner";
 import { api, type DailyRecommendationBacktestResponse, type DailyRecommendationItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
+const HISTORY_DAYS = 30;
+
 function fmtPct(value?: number | null): string {
   if (value === undefined || value === null || Number.isNaN(value)) return "-";
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
@@ -36,8 +32,8 @@ function fmtPrice(value?: number | null): string {
 
 function retTone(value?: number | null): string {
   if (value === undefined || value === null) return "text-muted-foreground";
-  if (value > 0) return "text-success";
-  if (value < 0) return "text-danger";
+  if (value > 0) return "text-danger";
+  if (value < 0) return "text-success";
   return "text-muted-foreground";
 }
 
@@ -91,12 +87,10 @@ function recommendationStrength(item: DailyRecommendationItem): {
   return { label: "观察", score: normalized, stars: 2, tone: "neutral" };
 }
 
-function avg(values: number[]): number | null {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
-}
-
 export function RecommendationHistory() {
-  const [days, setDays] = useState(30);
+  const [selectedDate, setSelectedDate] = useState("latest");
+  const [query, setQuery] = useState("");
+  const [resultFilter, setResultFilter] = useState<"all" | "good" | "warn" | "bad">("all");
   const [data, setData] = useState<DailyRecommendationBacktestResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -104,20 +98,33 @@ export function RecommendationHistory() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setData(await api.getDailyRecommendationBacktest(days));
+      setData(await api.getDailyRecommendationBacktest(HISTORY_DAYS));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载推荐历史失败");
     } finally {
       setLoading(false);
     }
-  }, [days]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
+  const dateOptions = useMemo(() => {
+    return Array.from(new Set((data?.items ?? []).map((item) => item.date))).sort((a, b) => b.localeCompare(a));
+  }, [data]);
+
+  const effectiveDate = selectedDate === "latest" ? dateOptions[0] ?? "" : selectedDate;
+
   const groups = useMemo(() => {
-    const items = data?.items ?? [];
+    const keyword = query.trim().toLowerCase();
+    const items = (data?.items ?? []).filter((item) => {
+      const result = resultLabel(item);
+      const matchDate = item.date === effectiveDate;
+      const matchResult = resultFilter === "all" || result.tone === resultFilter;
+      const matchKeyword = !keyword || item.name.toLowerCase().includes(keyword) || item.symbol.toLowerCase().includes(keyword);
+      return matchDate && matchResult && matchKeyword;
+    });
     const byDate = new Map<string, DailyRecommendationItem[]>();
     for (const item of items) {
       const rows = byDate.get(item.date) ?? [];
@@ -133,7 +140,7 @@ export function RecommendationHistory() {
           return a.rank - b.rank;
         }),
       }));
-  }, [data]);
+  }, [data, effectiveDate, query, resultFilter]);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-muted/20">
@@ -142,24 +149,11 @@ export function RecommendationHistory() {
           <div>
             <div className="flex items-center gap-2">
               <History className="h-5 w-5 text-primary" />
-              <h1 className="text-xl font-semibold tracking-tight">推荐历史</h1>
+              <h1 className="text-xl font-semibold tracking-tight">推荐复盘</h1>
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">按交易日复盘推荐股票、推荐后涨跌和当时推荐理由。</p>
+            <p className="mt-1 text-xs text-muted-foreground">复盘历史推荐的后续表现，只展示推荐发生时固化的证据快照。</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {[7, 30, 90].map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setDays(item)}
-                className={cn(
-                  "h-9 rounded-md border px-3 text-xs transition-colors",
-                  days === item ? "border-primary/40 bg-primary/10 text-primary" : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-                )}
-              >
-                近 {item} 天
-              </button>
-            ))}
             <button
               type="button"
               onClick={load}
@@ -169,9 +163,6 @@ export function RecommendationHistory() {
               <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               刷新
             </button>
-            <Link to="/daily-recommendations" className="h-9 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground hover:opacity-90">
-              今日推荐
-            </Link>
           </div>
         </div>
       </header>
@@ -182,21 +173,33 @@ export function RecommendationHistory() {
             <Loader2 className="h-5 w-5 animate-spin" />
             正在加载历史表现
           </div>
-        ) : !data || groups.length === 0 ? (
+        ) : !data || data.items.length === 0 ? (
           <Empty />
         ) : (
           <div className="mx-auto max-w-7xl space-y-4">
             <Summary data={data} />
-            <StrategySummary items={data.items} />
-            {groups.map((group) => (
-              <HistoryDay
-                key={group.date}
-                date={group.date}
-                items={group.rows}
-                expandedId={expandedId}
-                onToggle={(id) => setExpandedId((current) => current === id ? null : id)}
-              />
-            ))}
+            <Filters
+              dateOptions={dateOptions}
+              selectedDate={selectedDate}
+              onDateChange={setSelectedDate}
+              query={query}
+              onQueryChange={setQuery}
+              resultFilter={resultFilter}
+              onResultFilterChange={setResultFilter}
+            />
+            {groups.length === 0 ? (
+              <FilteredEmpty effectiveDate={effectiveDate} />
+            ) : (
+              groups.map((group) => (
+                <HistoryDay
+                  key={group.date}
+                  date={group.date}
+                  items={group.rows}
+                  expandedId={expandedId}
+                  onToggle={(id) => setExpandedId((current) => current === id ? null : id)}
+                />
+              ))
+            )}
           </div>
         )}
       </main>
@@ -214,73 +217,81 @@ function Empty() {
   );
 }
 
+function FilteredEmpty({ effectiveDate }: { effectiveDate: string }) {
+  return (
+    <div className="flex min-h-[260px] items-center justify-center rounded-md border border-dashed bg-background px-6 text-center">
+      <div>
+        <CalendarDays className="mx-auto h-9 w-9 text-muted-foreground/40" />
+        <p className="mt-3 text-sm font-medium">当前筛选下暂无推荐</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          {`${effectiveDate || "最新一次推荐日"} 没有匹配的推荐记录，可以切换其他交易日。`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function Summary({ data }: { data: DailyRecommendationBacktestResponse }) {
   return (
     <section className="grid gap-3 md:grid-cols-4">
-      <Metric label="推荐数" value={`${data.summary.count}`} />
-      <Metric label="T+1样本" value={`${data.summary.t1_count}`} />
-      <Metric label="T+1胜率" value={data.summary.t1_win_rate === null ? "-" : `${data.summary.t1_win_rate}%`} />
-      <Metric label="T+1均值" value={fmtPct(data.summary.t1_avg_return)} tone={retTone(data.summary.t1_avg_return)} />
-      {data.by_slot.map((row) => (
-        <div key={row.slot} className="rounded-md border bg-card p-4 md:col-span-2">
-          <div className="mb-2 flex items-center justify-between">
-            <p className="text-sm font-semibold">{slotLabel(row.slot)} 推荐</p>
-            <span className="text-xs text-muted-foreground">{row.count} 条</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <Metric label="T+1胜率" value={row.t1_win_rate === null ? "-" : `${row.t1_win_rate}%`} compact />
-            <Metric label="T+1均值" value={fmtPct(row.t1_avg_return)} tone={retTone(row.t1_avg_return)} compact />
-          </div>
-        </div>
-      ))}
+      <Metric label="近30天推荐数" value={`${data.summary.count}`} />
+      <Metric label="近30天T+1样本" value={`${data.summary.t1_count}`} />
+      <Metric label="近30天T+1胜率" value={data.summary.t1_win_rate === null ? "-" : `${data.summary.t1_win_rate}%`} />
+      <Metric label="近30天T+1均值" value={fmtPct(data.summary.t1_avg_return)} tone={retTone(data.summary.t1_avg_return)} />
     </section>
   );
 }
 
-function StrategySummary({ items }: { items: DailyRecommendationItem[] }) {
-  const rows = useMemo(() => {
-    const grouped = new Map<string, DailyRecommendationItem[]>();
-    for (const item of items) {
-      const key = item.strategy || item.category || "综合推荐";
-      grouped.set(key, [...(grouped.get(key) ?? []), item]);
-    }
-    return Array.from(grouped.entries())
-      .map(([strategy, rows]) => {
-        const t1 = rows.map((item) => item.performance.t1?.return_pct).filter((value): value is number => value !== undefined && value !== null);
-        const t3 = rows.map((item) => item.performance.t3?.return_pct).filter((value): value is number => value !== undefined && value !== null);
-        const t1Wins = t1.filter((value) => value > 0).length;
-        return {
-          strategy,
-          count: rows.length,
-          t1Count: t1.length,
-          t1WinRate: t1.length ? t1Wins / t1.length * 100 : null,
-          t3Avg: avg(t3),
-        };
-      })
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 6);
-  }, [items]);
-
-  if (!rows.length) return null;
+function Filters({
+  dateOptions,
+  selectedDate,
+  onDateChange,
+  query,
+  onQueryChange,
+  resultFilter,
+  onResultFilterChange,
+}: {
+  dateOptions: string[];
+  selectedDate: string;
+  onDateChange: (value: string) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  resultFilter: "all" | "good" | "warn" | "bad";
+  onResultFilterChange: (value: "all" | "good" | "warn" | "bad") => void;
+}) {
   return (
-    <section className="rounded-md border bg-card p-4">
-      <div className="mb-3 flex items-center gap-2">
-        <BarChart3 className="h-4 w-4 text-primary" />
-        <h2 className="text-sm font-semibold">按策略复盘</h2>
-      </div>
-      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-        {rows.map((row) => (
-          <div key={row.strategy} className="rounded-md border bg-background px-3 py-2">
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate text-sm font-medium">{row.strategy}</p>
-              <span className="text-xs text-muted-foreground">{row.count}条</span>
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-              <Metric label="T+1胜率" value={row.t1WinRate === null ? "-" : `${row.t1WinRate.toFixed(1)}%`} compact />
-              <Metric label="T+3均值" value={fmtPct(row.t3Avg)} tone={retTone(row.t3Avg)} compact />
-            </div>
-          </div>
+    <section className="flex flex-col gap-3 rounded-md border bg-card p-3 md:flex-row md:items-center">
+      <select
+        value={selectedDate}
+        onChange={(event) => onDateChange(event.target.value)}
+        className="h-9 rounded-md border bg-background px-3 text-xs outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+      >
+        <option value="latest">最新一次推荐{dateOptions[0] ? `（${dateOptions[0]}）` : ""}</option>
+        {selectedDate !== "latest" && !dateOptions.includes(selectedDate) && (
+          <option value={selectedDate}>{selectedDate}（暂无记录）</option>
+        )}
+        {dateOptions.map((date) => (
+          <option key={date} value={date}>{date}</option>
         ))}
+      </select>
+      <select
+        value={resultFilter}
+        onChange={(event) => onResultFilterChange(event.target.value as "all" | "good" | "warn" | "bad")}
+        className="h-9 rounded-md border bg-background px-3 text-xs outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+      >
+        <option value="all">全部结论</option>
+        <option value="good">命中</option>
+        <option value="warn">观察中</option>
+        <option value="bad">失败</option>
+      </select>
+      <div className="relative min-w-0 flex-1">
+        <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+        <input
+          value={query}
+          onChange={(event) => onQueryChange(event.target.value)}
+          placeholder="搜索股票名称或代码"
+          className="h-9 w-full rounded-md border bg-background pl-9 pr-3 text-xs outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
+        />
       </div>
     </section>
   );
@@ -379,9 +390,6 @@ function HistoryDay({
                           复盘
                           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
                         </button>
-                        <Link to={`/logic-chain?symbol=${encodeURIComponent(item.symbol)}&q=${encodeURIComponent(item.reason || item.name)}`} className="rounded-md border px-2.5 py-1 text-xs hover:bg-muted">
-                          逻辑
-                        </Link>
                       </div>
                     </td>
                   </tr>
@@ -403,67 +411,66 @@ function HistoryDay({
 }
 
 function HistoryDetail({ item }: { item: DailyRecommendationItem }) {
-  const q = encodeURIComponent(item.reason || item.name);
-  const symbol = encodeURIComponent(item.symbol);
+  const p = item.performance;
   return (
-    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_260px]">
+    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1.2fr]">
       <DetailBlock icon={Target} title="当时为什么推荐" body={item.reason || "暂无推荐理由"} />
       <DetailBlock icon={ShieldAlert} title="风险/失效条件" body={item.risk_note || "如果价格、量能或板块同步性转弱，推荐假设需要降级。"} muted />
-      <AiFactorBlock item={item} />
-      <div className="rounded-md border bg-background p-3">
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <Search className="h-4 w-4 text-primary" />
-          证据回放
-        </div>
-        <div className="grid gap-2">
-          <EvidenceLink icon={Clock3} label="加入观察" to={`/watchlist-schedule?symbol=${symbol}`} primary />
-          <EvidenceLink icon={Newspaper} label="当时新闻" to={`/news?symbol=${symbol}&q=${q}`} />
-          <EvidenceLink icon={TrendingUp} label="相关事件" to={`/events?q=${q}&symbol=${symbol}`} />
-          <EvidenceLink icon={GitBranch} label="逻辑链" to={`/logic-chain?symbol=${symbol}&q=${q}`} />
-        </div>
+      <EvidenceSnapshotBlock item={item} />
+      <div className="xl:col-span-3">
+        <PerformanceBlock latest={p.latest_return_pct} maxGain={p.max_gain_pct} maxDrawdown={p.max_drawdown_pct} />
       </div>
     </div>
   );
 }
 
-function AiFactorBlock({ item }: { item: DailyRecommendationItem }) {
-  const ai = item.ai_review;
-  const factor = item.factor_review;
-  const strength = recommendationStrength(item);
-  const bullish = factor?.top_bullish?.filter((entry) => entry.label).slice(0, 2) ?? [];
-  const bearish = factor?.top_bearish?.filter((entry) => entry.label).slice(0, 2) ?? [];
+function EvidenceSnapshotBlock({ item }: { item: DailyRecommendationItem }) {
+  const snapshot = item.evidence_snapshot;
+  const fallbackMarket = `推荐时价格 ¥${fmtPrice(item.price_at_pick)}，日内涨跌幅 ${fmtPct(item.change_pct_at_pick)}`;
+  const bullish = snapshot?.bullish_factors?.filter(Boolean) ?? item.factor_review?.top_bullish?.map((entry) => entry.label || "").filter(Boolean).slice(0, 3) ?? [];
+  const bearish = snapshot?.bearish_factors?.filter(Boolean) ?? item.factor_review?.top_bearish?.map((entry) => entry.label || "").filter(Boolean).slice(0, 3) ?? [];
+  const rows = [
+    { label: "行情证据", value: snapshot?.market || fallbackMarket },
+    { label: "候选信号", value: snapshot?.scanner || item.reason },
+    { label: "AI复核", value: snapshot?.ai || item.ai_review?.summary },
+    { label: "因子证据", value: snapshot?.factor || item.factor_review?.summary },
+  ].filter((row) => row.value);
+
   return (
     <div className="rounded-md border bg-background px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-sm font-medium">
         <Sparkles className="h-4 w-4 text-primary" />
-        AI + 因子复核
+        当时证据快照
       </div>
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <CompactMetric label="综合强度" value={`${strength.label} ${strength.score.toFixed(2)}`} />
-        <CompactMetric label="AI评分" value={ai?.score === undefined ? "-" : ai.score.toFixed(2)} />
-        <CompactMetric label="因子评分" value={factor?.score === undefined ? "-" : factor.score.toFixed(2)} />
-        <CompactMetric label="AI结论" value={ai?.decision || "-"} />
+      <p className="mb-3 text-[11px] leading-5 text-muted-foreground">
+        {snapshot?.source || "推荐生成时记录的证据；复盘时不重新查询新闻、事件或逻辑链。"}
+      </p>
+      <div className="space-y-2">
+        {rows.map((row) => (
+          <EvidenceLine key={row.label} label={row.label} value={row.value || "-"} />
+        ))}
+        {bullish.length > 0 && <EvidenceLine label="偏强因子" value={bullish.join("、")} />}
+        {bearish.length > 0 && <EvidenceLine label="偏弱因子" value={bearish.join("、")} />}
       </div>
-      {(ai?.summary || factor?.summary) && (
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-          {ai?.summary || factor?.summary}
-        </p>
-      )}
-      {(bullish.length > 0 || bearish.length > 0) && (
-        <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-          {bullish.length > 0 && <p>偏强因子：{bullish.map((entry) => entry.label).join("、")}</p>}
-          {bearish.length > 0 && <p>偏弱因子：{bearish.map((entry) => entry.label).join("、")}</p>}
-        </div>
-      )}
     </div>
   );
 }
 
-function CompactMetric({ label, value }: { label: string; value: string }) {
+function EvidenceLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-muted/20 px-2.5 py-2">
-      <p className="font-semibold tabular-nums">{value}</p>
-      <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
+    <div className="rounded-md border bg-muted/20 px-3 py-2">
+      <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-foreground">{value}</p>
+    </div>
+  );
+}
+
+function PerformanceBlock({ latest, maxGain, maxDrawdown }: { latest?: number; maxGain?: number; maxDrawdown?: number }) {
+  return (
+    <div className="grid gap-2 rounded-md border bg-background p-3 md:grid-cols-3">
+      <Metric label="最新收益" value={fmtPct(latest)} tone={retTone(latest)} compact />
+      <Metric label="期间最大涨幅" value={fmtPct(maxGain)} tone={retTone(maxGain)} compact />
+      <Metric label="期间最大回撤" value={fmtPct(maxDrawdown)} tone={retTone(maxDrawdown)} compact />
     </div>
   );
 }
@@ -539,25 +546,5 @@ function StatusBadge({ label, tone }: { label: string; tone: "good" | "bad" | "w
     >
       {label}
     </span>
-  );
-}
-
-function EvidenceLink({ icon: Icon, label, to, primary }: { icon: LucideIcon; label: string; to: string; primary?: boolean }) {
-  return (
-    <Link
-      to={to}
-      className={cn(
-        "flex items-center justify-between rounded-md border px-3 py-2 text-xs transition",
-        primary
-          ? "border-primary/45 bg-primary text-primary-foreground hover:opacity-90"
-          : "bg-card hover:border-primary/35 hover:bg-primary/5",
-      )}
-    >
-      <span className="flex items-center gap-2">
-        <Icon className={cn("h-3.5 w-3.5", primary ? "text-primary-foreground" : "text-primary")} />
-        {label}
-      </span>
-      <ArrowUpRight className={cn("h-3.5 w-3.5", primary ? "text-primary-foreground" : "text-muted-foreground")} />
-    </Link>
   );
 }

@@ -427,6 +427,8 @@ def _make_record(item: dict[str, Any], slot: str, rank: int) -> dict[str, Any]:
     ai_risk = str(ai_review.get("risk") or "").strip()
     factor_note = str(ai_review.get("factor_note") or factor_review.get("summary") or "").strip()
     reason_parts = [part for part in [ai_summary, factor_note, item.get("reason", "")] if part]
+    reason = "；".join(reason_parts[:3]) or item.get("reason", "")
+    risk_note = ai_risk or _risk_note(item)
     return {
         "id": _record_key(date, slot, symbol),
         "date": date,
@@ -440,13 +442,52 @@ def _make_record(item: dict[str, Any], slot: str, rank: int) -> dict[str, Any]:
         "score": float(item.get("score", item.get("confidence", 0)) or 0),
         "strategy": _strategy_label(str(item.get("category_id", ""))),
         "category": item.get("category_id", ""),
-        "reason": "；".join(reason_parts[:3]) or item.get("reason", ""),
-        "risk_note": ai_risk or _risk_note(item),
+        "reason": reason,
+        "risk_note": risk_note,
         "ai_review": ai_review,
         "factor_review": factor_review,
+        "evidence_snapshot": _evidence_snapshot(item, slot, reason, risk_note, now),
         "recommendation_method": "ai_factor_review",
         "created_at": now.isoformat(),
         "source": "ai_factor_reviewer",
+    }
+
+
+def _evidence_snapshot(
+    item: dict[str, Any],
+    slot: str,
+    reason: str,
+    risk_note: str,
+    now: datetime,
+) -> dict[str, Any]:
+    ai_review = item.get("ai_review") or {}
+    factor_review = item.get("factor_review") or {}
+    bullish = [
+        str(entry.get("label", "")).strip()
+        for entry in factor_review.get("top_bullish", [])[:3]
+        if str(entry.get("label", "")).strip()
+    ]
+    bearish = [
+        str(entry.get("label", "")).strip()
+        for entry in factor_review.get("top_bearish", [])[:3]
+        if str(entry.get("label", "")).strip()
+    ]
+    market_line = (
+        f"推荐时价格 {float(item.get('price', 0) or 0):.2f}，"
+        f"日内涨跌幅 {float(item.get('change_pct', 0) or 0):+.2f}%"
+    )
+    return {
+        "as_of": now.isoformat(),
+        "slot": slot,
+        "source": "推荐生成时固化，后续复盘不重新查询",
+        "market": market_line,
+        "scanner": str(item.get("reason", "")).strip(),
+        "ai": str(ai_review.get("summary") or "").strip(),
+        "factor": str(factor_review.get("summary") or ai_review.get("factor_note") or "").strip(),
+        "bullish_factors": bullish,
+        "bearish_factors": bearish,
+        "recommendation": reason,
+        "risk": risk_note,
     }
 
 

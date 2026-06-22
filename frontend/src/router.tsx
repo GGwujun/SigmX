@@ -25,6 +25,9 @@ const AlphaZoo = lazy(() =>
 const Events = lazy(() =>
   import("@/pages/Events").then((m) => ({ default: m.Events })),
 );
+const GlobalEvents = lazy(() =>
+  import("@/pages/GlobalEvents").then((m) => ({ default: m.GlobalEvents })),
+);
 const TrackingDashboard = lazy(() =>
   import("@/pages/TrackingDashboard").then((m) => ({ default: m.TrackingDashboard })),
 );
@@ -139,6 +142,7 @@ export const router = createBrowserRouter([
           { path: "/compare", element: wrap(Compare) },
           { path: "/correlation", element: wrap(Correlation) },
           { path: "/events", element: wrap(Events) },
+          { path: "/global-events", element: wrap(GlobalEvents) },
           { path: "/tracking-dashboard", element: wrap(TrackingDashboard) },
           { path: "/watchlist-schedule", element: wrap(WatchlistSchedule) },
           { path: "/news", element: wrap(News) },

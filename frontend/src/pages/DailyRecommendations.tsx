@@ -2,16 +2,12 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import type { LucideIcon } from "lucide-react";
 import {
-  ArrowUpRight,
   CalendarDays,
   ChevronDown,
   Clock3,
-  GitBranch,
   History,
   Loader2,
-  Newspaper,
   RefreshCw,
-  Search,
   ShieldAlert,
   Sparkles,
   Star,
@@ -41,8 +37,8 @@ function fmtPrice(value?: number | null): string {
 
 function retTone(value?: number | null): string {
   if (value === undefined || value === null) return "text-muted-foreground";
-  if (value > 0) return "text-success";
-  if (value < 0) return "text-danger";
+  if (value > 0) return "text-danger";
+  if (value < 0) return "text-success";
   return "text-muted-foreground";
 }
 
@@ -108,7 +104,7 @@ export function DailyRecommendations() {
   const [backtest, setBacktest] = useState<DailyRecommendationBacktestResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState<"morning" | "afternoon" | null>(null);
-  const [date, setDate] = useState(today());
+  const [date] = useState(today());
   const [slotFilter, setSlotFilter] = useState<SlotFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -140,6 +136,11 @@ export function DailyRecommendations() {
         return a.rank - b.rank;
       });
   }, [items, slotFilter]);
+
+  // 判断今天是否已有推荐记录
+  const todayDate = today();
+  const hasMorningToday = items.some((item) => item.date === todayDate && item.slot === "morning");
+  const hasAfternoonToday = items.some((item) => item.date === todayDate && item.slot === "afternoon");
 
   useEffect(() => {
     if (expandedId && !sorted.some((item) => item.id === expandedId)) {
@@ -181,26 +182,22 @@ export function DailyRecommendations() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-              className="h-9 rounded-md border bg-background px-3 text-xs outline-none transition focus:border-primary/60 focus:ring-2 focus:ring-primary/15"
-            />
             <ActionButton
               icon={Clock3}
-              label="生成 9:27"
+              label={hasMorningToday ? "已生成 9:27" : "生成 9:27"}
               busy={generating === "morning"}
-              disabled={generating !== null}
+              disabled={generating !== null || hasMorningToday}
               onClick={() => generate("morning")}
               primary
+              disabledReason={hasMorningToday ? "今日早盘推荐已生成" : undefined}
             />
             <ActionButton
               icon={Sparkles}
-              label="生成 14:30"
+              label={hasAfternoonToday ? "已生成 14:30" : "生成 14:30"}
               busy={generating === "afternoon"}
-              disabled={generating !== null}
+              disabled={generating !== null || hasAfternoonToday}
               onClick={() => generate("afternoon")}
+              disabledReason={hasAfternoonToday ? "今日尾盘推荐已生成" : undefined}
             />
             <button
               type="button"
@@ -282,7 +279,7 @@ function SummaryBar({
 
         <div className="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
           <SummaryMetric label="当日推荐" value={`${count}`} />
-          <SummaryMetric label="当前上涨" value={`${risingCount}`} tone={risingCount ? "text-success" : undefined} />
+          <SummaryMetric label="当前上涨" value={`${risingCount}`} tone={risingCount ? "text-danger" : undefined} />
           <SummaryMetric label="当前平均" value={fmtPct(avgReturn)} tone={retTone(avgReturn)} />
           <SummaryMetric label="近30天T+1胜率" value={t1WinRate === null || t1WinRate === undefined ? "-" : `${t1WinRate}%`} />
           <SummaryMetric label="近30天T+1均值" value={fmtPct(t1AvgReturn)} tone={retTone(t1AvgReturn)} />
@@ -319,7 +316,7 @@ function RecommendationTable({
   return (
     <div className="overflow-hidden rounded-md border bg-card">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px] text-sm">
+        <table className="w-full min-w-[900px] text-sm">
           <thead className="border-b bg-muted/30 text-xs text-muted-foreground">
             <tr>
               <th className="px-3 py-2 text-left font-medium">排名</th>
@@ -328,11 +325,7 @@ function RecommendationTable({
               <th className="px-3 py-2 text-left font-medium">来源/策略</th>
               <th className="px-3 py-2 text-left font-medium">推荐理由</th>
               <th className="px-3 py-2 text-right font-medium">推荐价</th>
-              <th className="px-3 py-2 text-right font-medium">当前</th>
-              <th className="px-3 py-2 text-right font-medium">T+0</th>
-              <th className="px-3 py-2 text-right font-medium">T+1</th>
-              <th className="px-3 py-2 text-right font-medium">T+3</th>
-              <th className="px-3 py-2 text-right font-medium">T+5</th>
+              <th className="px-3 py-2 text-right font-medium">当前收益</th>
               <th className="px-3 py-2 text-left font-medium">状态</th>
               <th className="px-3 py-2 text-right font-medium">操作</th>
             </tr>
@@ -367,10 +360,6 @@ function RecommendationTable({
                     </td>
                     <td className="px-3 py-3 text-right font-mono text-xs">¥{fmtPrice(item.price_at_pick)}</td>
                     <ReturnCell value={item.performance.latest_return_pct} icon />
-                    <ReturnCell value={item.performance.t0?.return_pct} />
-                    <ReturnCell value={item.performance.t1?.return_pct} />
-                    <ReturnCell value={item.performance.t3?.return_pct} />
-                    <ReturnCell value={item.performance.t5?.return_pct} />
                     <td className="px-3 py-3">
                       <StatusBadge label={result.label} tone={result.tone} />
                     </td>
@@ -384,18 +373,12 @@ function RecommendationTable({
                           展开
                           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", open && "rotate-180")} />
                         </button>
-                        <Link
-                          to={`/logic-chain?symbol=${encodeURIComponent(item.symbol)}&q=${encodeURIComponent(item.reason || item.name)}`}
-                          className="rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground hover:opacity-90"
-                        >
-                          逻辑
-                        </Link>
                       </div>
                     </td>
                   </tr>
                   {open && (
                     <tr className="border-b bg-primary/5">
-                      <td colSpan={13} className="px-4 py-4">
+                      <td colSpan={9} className="px-4 py-4">
                         <RecommendationDetail item={item} />
                       </td>
                     </tr>
@@ -411,59 +394,52 @@ function RecommendationTable({
 }
 
 function RecommendationDetail({ item }: { item: DailyRecommendationItem }) {
-  const q = encodeURIComponent(item.reason || item.name);
-  const symbol = encodeURIComponent(item.symbol);
   return (
-    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_260px]">
+    <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1.2fr]">
       <DecisionBlock icon={Target} title="为什么推荐" body={item.reason || "暂无推荐理由"} />
       <DecisionBlock icon={ShieldAlert} title="风险/失效条件" body={item.risk_note || "如果价格、量能或板块同步性转弱，推荐假设需要降级。"} muted />
-      <AiFactorBlock item={item} />
-      <div className="rounded-md border bg-background p-3">
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <Search className="h-4 w-4 text-primary" />
-          相关证据
-        </div>
-        <div className="grid gap-2">
-          <EvidenceLink icon={Clock3} label="加入观察" to={`/watchlist-schedule?symbol=${symbol}`} primary />
-          <EvidenceLink icon={Newspaper} label="相关新闻" to={`/news?symbol=${symbol}&q=${q}`} />
-          <EvidenceLink icon={TrendingUp} label="相关事件" to={`/events?q=${q}&symbol=${symbol}`} />
-          <EvidenceLink icon={Search} label="候选池来源" to={`/opportunity?symbol=${symbol}`} />
-          <EvidenceLink icon={GitBranch} label="完整分析" to={`/logic-chain?symbol=${symbol}&q=${q}`} />
-        </div>
+      <EvidenceSnapshotBlock item={item} />
+    </div>
+  );
+}
+
+function EvidenceSnapshotBlock({ item }: { item: DailyRecommendationItem }) {
+  const snapshot = item.evidence_snapshot;
+  const fallbackMarket = `推荐时价格 ¥${fmtPrice(item.price_at_pick)}，日内涨跌幅 ${fmtPct(item.change_pct_at_pick)}`;
+  const bullish = snapshot?.bullish_factors?.filter(Boolean) ?? item.factor_review?.top_bullish?.map((entry) => entry.label || "").filter(Boolean).slice(0, 3) ?? [];
+  const bearish = snapshot?.bearish_factors?.filter(Boolean) ?? item.factor_review?.top_bearish?.map((entry) => entry.label || "").filter(Boolean).slice(0, 3) ?? [];
+  const rows = [
+    { label: "行情证据", value: snapshot?.market || fallbackMarket },
+    { label: "候选信号", value: snapshot?.scanner || item.reason },
+    { label: "AI复核", value: snapshot?.ai || item.ai_review?.summary },
+    { label: "因子证据", value: snapshot?.factor || item.factor_review?.summary },
+  ].filter((row) => row.value);
+
+  return (
+    <div className="rounded-md border bg-background px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+        <Sparkles className="h-4 w-4 text-primary" />
+        当时证据快照
+      </div>
+      <p className="mb-3 text-[11px] leading-5 text-muted-foreground">
+        {snapshot?.source || "推荐生成时记录的证据；复盘时不重新查询新闻、事件或逻辑链。"}
+      </p>
+      <div className="space-y-2">
+        {rows.map((row) => (
+          <EvidenceLine key={row.label} label={row.label} value={row.value || "-"} />
+        ))}
+        {bullish.length > 0 && <EvidenceLine label="偏强因子" value={bullish.join("、")} />}
+        {bearish.length > 0 && <EvidenceLine label="偏弱因子" value={bearish.join("、")} />}
       </div>
     </div>
   );
 }
 
-function AiFactorBlock({ item }: { item: DailyRecommendationItem }) {
-  const ai = item.ai_review;
-  const factor = item.factor_review;
-  const strength = recommendationStrength(item);
-  const bullish = factor?.top_bullish?.filter((entry) => entry.label).slice(0, 2) ?? [];
-  const bearish = factor?.top_bearish?.filter((entry) => entry.label).slice(0, 2) ?? [];
+function EvidenceLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-background px-4 py-3">
-      <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-        <Sparkles className="h-4 w-4 text-primary" />
-        AI + 因子复核
-      </div>
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <CompactMetric label="综合强度" value={`${strength.label} ${strength.score.toFixed(2)}`} />
-        <CompactMetric label="AI评分" value={ai?.score === undefined ? "-" : ai.score.toFixed(2)} />
-        <CompactMetric label="因子评分" value={factor?.score === undefined ? "-" : factor.score.toFixed(2)} />
-        <CompactMetric label="AI结论" value={ai?.decision || "-"} />
-      </div>
-      {(ai?.summary || factor?.summary) && (
-        <p className="mt-2 text-xs leading-5 text-muted-foreground">
-          {ai?.summary || factor?.summary}
-        </p>
-      )}
-      {(bullish.length > 0 || bearish.length > 0) && (
-        <div className="mt-2 space-y-1 text-[11px] text-muted-foreground">
-          {bullish.length > 0 && <p>偏强因子：{bullish.map((entry) => entry.label).join("、")}</p>}
-          {bearish.length > 0 && <p>偏弱因子：{bearish.map((entry) => entry.label).join("、")}</p>}
-        </div>
-      )}
+    <div className="rounded-md border bg-muted/20 px-3 py-2">
+      <p className="text-[10px] font-medium text-muted-foreground">{label}</p>
+      <p className="mt-1 text-xs leading-5 text-foreground">{value}</p>
     </div>
   );
 }
@@ -489,6 +465,7 @@ function ActionButton({
   disabled,
   onClick,
   primary,
+  disabledReason,
 }: {
   icon: LucideIcon;
   label: string;
@@ -496,12 +473,14 @@ function ActionButton({
   disabled?: boolean;
   onClick: () => void;
   primary?: boolean;
+  disabledReason?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
+      title={disabled && disabledReason ? disabledReason : undefined}
       className={cn(
         "inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-xs font-medium transition disabled:opacity-50",
         primary ? "bg-primary text-primary-foreground hover:opacity-90" : "border hover:bg-muted",
@@ -517,15 +496,6 @@ function SummaryMetric({ label, value, tone }: { label: string; value: string; t
   return (
     <div className="rounded-md border bg-card px-3 py-2">
       <p className={cn("text-sm font-semibold tabular-nums", tone)}>{value}</p>
-      <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
-    </div>
-  );
-}
-
-function CompactMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-md border bg-muted/20 px-2.5 py-2">
-      <p className="font-semibold tabular-nums">{value}</p>
       <p className="mt-0.5 text-[10px] text-muted-foreground">{label}</p>
     </div>
   );
@@ -550,26 +520,6 @@ function DecisionBlock({
       </div>
       <p className="text-sm leading-6 text-foreground">{body}</p>
     </div>
-  );
-}
-
-function EvidenceLink({ icon: Icon, label, to, primary }: { icon: LucideIcon; label: string; to: string; primary?: boolean }) {
-  return (
-    <Link
-      to={to}
-      className={cn(
-        "flex items-center justify-between rounded-md border px-3 py-2 text-xs transition",
-        primary
-          ? "border-primary/45 bg-primary text-primary-foreground hover:opacity-90"
-          : "bg-card hover:border-primary/35 hover:bg-primary/5",
-      )}
-    >
-      <span className="flex items-center gap-2">
-        <Icon className={cn("h-3.5 w-3.5", primary ? "text-primary-foreground" : "text-primary")} />
-        {label}
-      </span>
-      <ArrowUpRight className={cn("h-3.5 w-3.5", primary ? "text-primary-foreground" : "text-muted-foreground")} />
-    </Link>
   );
 }
 
