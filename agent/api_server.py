@@ -3189,6 +3189,14 @@ register_daily_recommendation_routes(app, require_auth, require_event_stream_aut
 
 
 # ============================================================================
+# Market dashboard aggregate route (Web UI) - defined in src/api/market_dashboard_routes.py
+# ============================================================================
+
+from src.api.market_dashboard_routes import register_market_dashboard_routes  # noqa: E402
+register_market_dashboard_routes(app, require_auth, require_event_stream_auth)
+
+
+# ============================================================================
 # AlphaForge routes (Web UI) — defined in src/api/alpha_forge_routes.py
 # ============================================================================
 

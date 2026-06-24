@@ -411,6 +411,13 @@ export const api = {
   // Opportunities
   listOpportunities: () => request<OpportunityResponse>("/opportunity"),
 
+  // AI market dashboard aggregate
+  getMarketDashboard: () => request<MarketDashboardResponse>("/market-dashboard"),
+  getMarketDashboardStage: (stage: MarketDashboardStage) =>
+    request<MarketDashboardStageResponse>(`/market-dashboard/stages/${stage}`),
+  getMarketBars: (code: string, days = 60) =>
+    request<MarketBarsResponse>(`/market-dashboard/bars/${encodeURIComponent(code)}?days=${days}`),
+
   // Daily recommendations
   listDailyRecommendations: (params: { date?: string; slot?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
@@ -1469,6 +1476,196 @@ export interface OpportunityResponse {
   categories: OpportunityCategory[];
   updated_at: string;
   error?: string | null;
+}
+
+// --- AI Market Dashboard ---
+
+export interface MarketDashboardSourceError {
+  source: string;
+  message: string;
+}
+
+export interface MarketDashboardMood {
+  label: string;
+  tone: "good" | "warn" | "bad" | "neutral";
+  detail: string;
+}
+
+export interface MarketDashboardCounts {
+  recommendations: number;
+  opportunities: number;
+  news: number;
+  events: number;
+  watchlist: number;
+  tasks: number;
+  tail_decisions?: number;
+  indices?: number;
+  hot_sectors?: number;
+}
+
+export interface TailDecisionItem {
+  symbol: string;
+  name: string;
+  action: string;
+  score: number;
+  price?: number | null;
+  change_pct?: number | null;
+  reason: string;
+  risk_note: string;
+  source: string;
+  source_label: string;
+}
+
+export type MarketDashboardStage =
+  | "morning-brief"
+  | "intraday-monitor"
+  | "tail-strategy"
+  | "close-review";
+
+export interface MarketDashboardStageResponse {
+  status: "ok" | "error";
+  stage: string;
+  date?: string;
+  updated_at?: string;
+  data: Record<string, unknown>;
+  errors: MarketDashboardSourceError[];
+  error?: string;
+  allowed?: string[];
+}
+
+export interface MarketIndexRow {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+}
+
+export interface MarketBreadth {
+  total: number;
+  advancers: number;
+  decliners: number;
+  flat: number;
+  limit_up: number;
+  limit_down: number;
+  turnover_billion: number;
+  limit_up_real?: boolean;
+}
+
+export interface MarketOverview {
+  as_of?: string;
+  indices: MarketIndexRow[];
+  breadth: MarketBreadth;
+  hot_sectors: MarketSectorRow[];
+  top_gainers: MarketStockRow[];
+  top_losers: MarketStockRow[];
+}
+
+export interface MarketSectorRow {
+  name: string;
+  change_pct: number;
+  advancers?: number;
+  decliners?: number;
+  leader?: string;
+}
+
+export interface MarketStockRow {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+}
+
+export interface CapitalSectorItem { sector: string; main_net: number; change_pct: number; }
+export interface CapitalStockItem { symbol: string; name: string; main_net: number; change_pct: number; }
+export interface NorthCapitalItem { date: string; net: number; }
+
+export interface MarketCapital {
+  as_of?: string;
+  sector_top5: CapitalSectorItem[];
+  stock_inflow_top: CapitalStockItem[];
+  stock_outflow_top: CapitalStockItem[];
+  north_recent: NorthCapitalItem[];
+}
+
+export interface LadderRung { days: number; count: number; stocks: { symbol: string; name: string; days: number }[]; }
+
+export interface MarketPools {
+  as_of?: string;
+  trade_date: string;
+  limit_up_count: number;
+  limit_down_count: number;
+  max_limit_up_height: number;
+  limit_up_list: { symbol: string; name: string; days: number }[];
+  limit_down_list: { symbol: string; name: string; days: number }[];
+  limitup_ladder: LadderRung[];
+}
+
+export interface MarketSentiment {
+  as_of?: string;
+  temperature: number;
+  label: string;
+  breadth_strength: number;
+  adv_dec_diff: number;
+  stage: string;
+  stage_reason: string;
+  summary: string;
+  formulas: Record<string, string>;
+}
+
+export interface MarketEnvironment {
+  regime: string;
+  turnover_billion: number;
+  adv_ratio: number;
+}
+
+export interface MarketThemes {
+  as_of?: string;
+  concept_sectors: MarketSectorRow[];
+  main_lines: { name: string; change_pct: number; leader: string }[];
+  observe: { name: string; change_pct: number; leader: string }[];
+}
+
+export interface MultiPeriodRow {
+  symbol: string;
+  name: string;
+  d1: number;
+  d5: number | null;
+  d20: number | null;
+  d60: number | null;
+  approx: boolean;
+}
+
+export interface MarketBarsResponse {
+  status: "ok" | "error";
+  code?: string;
+  error?: string;
+  bars: { date: string; open: number; close: number; high: number; low: number; volume: number }[];
+}
+
+export interface MarketDashboardResponse {
+  date: string;
+  updated_at: string;
+  mood: MarketDashboardMood;
+  market_overview: MarketOverview;
+  capital?: MarketCapital | null;
+  pools?: MarketPools | null;
+  sentiment?: MarketSentiment | null;
+  environment?: MarketEnvironment | null;
+  themes?: MarketThemes | null;
+  multi_period?: MultiPeriodRow[];
+  morning_brief: Record<string, unknown>;
+  intraday_monitor: Record<string, unknown>;
+  tail_strategy: Record<string, unknown>;
+  close_review: Record<string, unknown>;
+  tail_decisions: TailDecisionItem[];
+  recommendations: DailyRecommendationItem[];
+  opportunities: OpportunityCategory[];
+  news: NewsArticle[];
+  events: EventsCategory[];
+  watchlist: TrackingWatchlistItem[];
+  tasks: ScheduledTask[];
+  errors: MarketDashboardSourceError[];
+  counts: MarketDashboardCounts;
 }
 
 // --- Daily recommendations ---
