@@ -130,12 +130,45 @@ agents:
       | 缺失字段 | 影响模块 | 严重性(Critical/Moderate/Minor) | 下游处理建议 |
       ```
 
+      ## 数据获取策略（关键！决定 token 消耗与是否跑通，必须严格遵守）
+
+      **核心原则：优先用结构化工具/内置数据模块（返回短、稳、不耗 token），`read_url` 抓网页是最后手段。**
+      绝大多数字段都能用下面的工具一次拿到，不要用 `read_url` 去抓东方财富/同花顺的 API 或股票页（极易被限流掐连接、返回长 HTML 爆 token）。
+
+      ### 工具映射（按字段查表取数，不要自由发挥）
+      | 数据字段 | 用什么取 | 示例 |
+      |---|---|---|
+      | 价格/OHLCV/成交量/52周高低/技术原始数据 | `get_market_data`（一次拿 250 日 OHLCV，结构化、最省 token） | OHLCV/价格/量比全从这里算 |
+      | 主力资金/超大单/大单/北向/行业资金流 | `bash` 调 `src.data.capital_flow` | 见下方代码 |
+      | 国际市场快照（美股/大宗/汇率） | `bash` 调 `src.data.global_market` | 见下方代码 |
+      | 新闻/政策/事件/舆情 | `web_search`（短摘要） | 返回的是摘要，不要 read_url 展开全文 |
+      | 估值/财务/股本/解禁/回购 | `web_search` 摘要 + 必要时 `read_url`(direct) | 只在 web_search 摘要不够时才 read_url |
+
+      ### 内置数据模块（bash 调用，返回结构化短文本）
+      ```bash
+      # 资金流 + 北向 + 行业
+      python -c "import sys; sys.path.insert(0,'agent'); from src.data.capital_flow import get_stock_capital, get_north_capital, get_sector_capital; print(get_stock_capital('{target}'.split('.')[0])); print(get_north_capital(10)); print(get_sector_capital()[:5])"
+      # 国际市场快照
+      python -c "import sys; sys.path.insert(0,'agent'); from src.data.global_market import get_global_snapshot; print(get_global_snapshot())"
+      ```
+
+      ### read_url 使用纪律（违反 = 浪费迭代 + token）
+      1. **禁止 `strategy=jina`**：当前环境 r.jina.ai 不可用（返回 401/超时）。`read_url` 一律用 `strategy=auto`（国内站走 direct 直连）或 `strategy=direct`。
+      2. **全文 read_url 最多 3 次**：只用于取财报/公告等必读长文。新闻、行情、资金流一律不要 read_url。
+      3. **不要抓东方财富 API**（push2.eastmoney.com / datacenter-web / emweb.securities）：容器内常被限流掐断。行情用 `get_market_data`，财务用 web_search 摘要。
+
+      ### 节奏控制
+      - 目标：**12 轮迭代内**完成全部取数并写出 report.md（max_iterations=25 是上限，不是目标）。
+      - 每个数据模块只调一次，结果直接写入对应章节，不要反复取同一个字段。
+      - 取不到的字段立即写「[数据缺失: 字段名]」并继续，不要对同一字段重试超过 2 次。
+
       ## HARD RULES
-      1. 优先用结构化工具和本地数据模块取真实数据，禁止凭记忆/训练数据报价。
-      2. 取不到的字段写「[数据缺失: 字段名]」，绝对不能编造。
+      1. 优先用结构化工具和本地数据模块取真实数据，禁止凭记忆/训练数据报价；`read_url` 是最后手段且全文最多 3 次。
+      2. 取不到的字段写「[数据缺失: 字段名]」，绝对不能编造；同一字段重试不超过 2 次。
       3. 严格用上面的输出格式，方便下游 Agent 解析引用。
       4. 如果不同来源冲突，保留冲突值并写入“数据缺口清单/冲突说明”，不得自行择优隐藏。
       5. 全文中文。
+      6. `read_url` 禁止用 `strategy=jina`（当前不可用）；一律 `auto` 或 `direct`。
     tools: [bash, read_file, write_file, load_skill, get_market_data, web_search, read_url]
     skills: []
     max_iterations: 25

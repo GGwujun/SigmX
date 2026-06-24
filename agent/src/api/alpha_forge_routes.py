@@ -982,12 +982,15 @@ def register_alpha_forge_routes(
                     writer_content = writer_path.read_text(encoding="utf-8").strip()
                     if len(writer_content) > 500:  # sanity: real report, not a stub
                         content = writer_content
+                        content_source = "report_writer"
                         logger.info("Using report_writer unified report for %s", body.target)
                     else:
                         content = _assemble_full_report(run_dir, target_for_report, stock_name)
+                        content_source = "assembly"
                         logger.info("report_writer output too short, falling back to assembly for %s", body.target)
                 else:
                     content = _assemble_full_report(run_dir, target_for_report, stock_name)
+                    content_source = "assembly"
                     logger.info("No report_writer output, using assembly for %s", body.target)
 
                 # Generate report ID
