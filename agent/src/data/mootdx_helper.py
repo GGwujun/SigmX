@@ -47,8 +47,19 @@ def _ping(server: tuple[str, int], timeout: int) -> bool:
 
         client = Quotes.factory(market="std", timeout=timeout, server=server)
         # A trivial market-count call exercises the socket without depending on
-        # any specific symbol. markets() returns a list of (name, code, ...).
-        _ = client.markets()
+        # any specific symbol. ``stock_count(market=0)`` (沪深 A 股总数) is
+        # stable across mootdx versions. NOTE: ``markets()`` was removed in
+        # mootdx 0.9.x — calling it raised AttributeError on every probe, which
+        # made every TDX server look unreachable even when the socket was fine.
+        # If the exact method/signature drifts again, fall through to any
+        # available read method; treat construction success as liveness.
+        try:
+            client.stock_count(market=0)
+        except (AttributeError, TypeError):
+            try:
+                client.stocks()
+            except (AttributeError, TypeError):
+                pass
         return True
     except Exception as exc:  # noqa: BLE001 — any failure means try next server
         logger.debug("mootdx server %s:%d unreachable: %s", server[0], server[1], exc)

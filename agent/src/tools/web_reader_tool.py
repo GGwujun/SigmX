@@ -279,11 +279,12 @@ def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
     """Fetch web page content as Markdown text.
 
     Strategies with automatic fallback:
-      - ``auto`` (default): domestic sites → direct first (proxy/jina fallback);
-        foreign sites → overseas proxy first (jina/direct fallback).
-        foreign sites → Jina first, direct fallback.
+      - ``auto`` (default): domestic sites → direct first (jina fallback);
+        foreign sites → overseas proxy first (direct fallback) when a proxy is
+        configured, else jina first then direct.
       - ``direct``: force direct fetch only.
-      - ``jina``: force Jina Reader only.
+      - ``jina``: force Jina Reader only (via overseas proxy when configured,
+        since r.jina.ai is unreachable from a CN container).
 
     Never pass credentials/tokens or private addresses.
 
@@ -306,16 +307,22 @@ def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
 
     # Resolve strategy order. If an overseas proxy is configured, foreign sites
     # go through it first (it reaches Yahoo/Reuters/Jina fast from overseas).
+    # NOTE: r.jina.ai is unreachable from a CN-domiciled container, so when an
+    # overseas proxy exists we never attempt a *direct* jina call — the proxy's
+    # own jina strategy reaches r.jina.ai from overseas. Keeping a direct "jina"
+    # in the chain here would always log "Network is unreachable" noise.
     has_proxy = bool(_overseas_proxy_url())
     if strategy == "direct":
         order = ["direct"]
     elif strategy == "jina":
-        order = ["jina"]
+        # Forced jina: route through the overseas proxy when available (it runs
+        # jina from a fast vantage), else fall back to a direct jina attempt.
+        order = ["proxy", "jina"] if has_proxy else ["jina"]
     else:  # auto
         if _is_domestic(target_url):
             order = ["direct", "jina"]
         elif has_proxy:
-            order = ["proxy", "jina", "direct"]
+            order = ["proxy", "direct"]
         else:
             order = ["jina", "direct"]
 
