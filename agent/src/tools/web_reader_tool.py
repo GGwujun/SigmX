@@ -244,35 +244,56 @@ def _overseas_proxy_url() -> str:
     return os.getenv("OVERSEAS_PROXY_URL", "").strip().rstrip("/")
 
 
-def _proxy_fetch(url: str, no_cache: bool = False) -> dict:
-    """Fetch via the overseas proxy (which uses Jina/raw from a fast vantage)."""
+def _proxy_fetch(url: str, no_cache: bool = False, *, prefer: str = "raw") -> dict:
+    """Fetch via the overseas proxy (which reaches foreign sites fast).
+
+    Strategy: the proxy supports ``raw`` (direct HTTP + readability extract) and
+    ``jina`` (r.jina.ai from overseas). We prefer ``raw`` — it is reliable and
+    returns structured content — and only fall back to ``jina`` when raw yields
+    no usable text. NOTE: r.jina.ai now requires an API token and returns 401
+    without one, so jina is a last resort, not the default.
+    """
     base = _overseas_proxy_url()
     if not base:
         return {"status": "error", "error": "OVERSEAS_PROXY_URL not configured"}
     secret = os.getenv("PROXY_SECRET", "").strip()
     headers = {"X-Proxy-Key": secret} if secret else {}
-    try:
-        resp = requests.get(
-            f"{base}/fetch",
-            params={"url": url, "strategy": "jina"},
-            headers=headers,
-            timeout=_TIMEOUT,
-        )
-    except requests.RequestException as exc:
-        return {"status": "error", "error": f"proxy request failed: {exc}"}
-    if resp.status_code != 200:
-        return {"status": "error", "error": f"proxy HTTP {resp.status_code}: {resp.text[:200]}"}
-    data = resp.json()
-    if data.get("status") != "ok":
-        return data
-    return {
-        "status": "ok",
-        "title": data.get("title", ""),
-        "url": url,
-        "content": data.get("content", ""),
-        "length": data.get("length", 0),
-        "strategy": "proxy",
-    }
+
+    order = ["raw", "jina"] if prefer == "raw" else ["jina", "raw"]
+    last_error = "proxy: no strategy attempted"
+    for strat in order:
+        try:
+            resp = requests.get(
+                f"{base}/fetch",
+                params={"url": url, "strategy": strat},
+                headers=headers,
+                timeout=_TIMEOUT,
+            )
+        except requests.RequestException as exc:
+            last_error = f"proxy {strat} request failed: {exc}"
+            continue
+        if resp.status_code != 200:
+            last_error = f"proxy {strat} HTTP {resp.status_code}: {resp.text[:200]}"
+            continue
+        data = resp.json()
+        if data.get("status") != "ok":
+            last_error = f"proxy {strat}: {data.get('error', 'unknown')}"
+            continue
+        content = data.get("content", "") or ""
+        # raw can succeed (HTTP 200) but return near-empty text for JS-only
+        # pages; in that case try the next strategy before giving up.
+        if strat == "raw" and len(content.strip()) < 50:
+            last_error = "proxy raw: empty extract"
+            continue
+        return {
+            "status": "ok",
+            "title": data.get("title", ""),
+            "url": url,
+            "content": content,
+            "length": data.get("length", len(content)),
+            "strategy": "proxy",
+        }
+    return {"status": "error", "error": last_error}
 
 
 def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
@@ -338,7 +359,10 @@ def read_url(url: str, no_cache: bool = False, strategy: str = "auto") -> str:
             if strat == "direct":
                 result = _direct_fetch(target_url, no_cache)
             elif strat == "proxy":
-                result = _proxy_fetch(target_url, no_cache)
+                # When the caller asked for jina (forced-jina order), prefer the
+                # proxy's jina strategy; otherwise default to raw-first.
+                prefer = "jina" if (strategy == "jina") else "raw"
+                result = _proxy_fetch(target_url, no_cache, prefer=prefer)
             else:
                 result = _jina_fetch(target_url, no_cache)
             if result.get("status") == "ok":
