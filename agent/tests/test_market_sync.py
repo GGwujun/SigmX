@@ -156,6 +156,51 @@ def test_security_master_tpdog_fallback_marks_default_universe(store: MarketStor
     assert store.default_strategy_codes() == ["000001.SZ", "600000.SH"]
 
 
+def test_security_master_tushare_uses_single_active_call(store: MarketStore) -> None:
+    class FakeApi:
+        def __init__(self):
+            self.calls = []
+
+        def stock_basic(self, **kwargs):
+            self.calls.append(kwargs)
+            import pandas as pd
+            return pd.DataFrame(
+                [
+                    {
+                        "ts_code": "000001.SZ",
+                        "symbol": "000001",
+                        "name": "平安银行",
+                        "area": "深圳",
+                        "industry": "银行",
+                        "market": "主板",
+                        "exchange": "SZSE",
+                        "list_status": "L",
+                        "list_date": "19910403",
+                        "delist_date": None,
+                        "is_hs": "S",
+                    }
+                ]
+            )
+
+    fake_api = FakeApi()
+    with mock.patch.dict("os.environ", {"TUSHARE_TOKEN": "token"}), \
+         mock.patch("tushare.pro_api", return_value=fake_api):
+        written = ms._sync_security_master_tushare(store)
+
+    assert written == 1
+    assert fake_api.calls == [
+        {
+            "exchange": "",
+            "list_status": "L",
+            "fields": "ts_code,symbol,name,area,industry,market,exchange,list_status,list_date,delist_date,is_hs",
+        }
+    ]
+    row = store.list_security_master()[0]
+    assert row["name"] == "平安银行"
+    assert row["industry"] == "银行"
+    assert row["list_date"] == "19910403"
+
+
 def test_single_dataset_failure_does_not_block_siblings(store: MarketStore) -> None:
     with mock.patch.object(ms, "_sync_dragon_tiger", side_effect=RuntimeError("boom")), \
          mock.patch.object(ms, "_sync_pools", return_value=5):

@@ -100,10 +100,12 @@ def _sync_security_master_tushare(store: MarketStore) -> int:
     frames = []
     try:
         api = ts.pro_api(token)
-        for status in ("L", "P", "D"):
-            df = api.stock_basic(exchange="", list_status=status, fields=fields)
-            if df is not None and not df.empty:
-                frames.append(df)
+        # stock_basic can be limited as low as 1 request/hour. Pull the active
+        # universe in one call; delisted/pending history can be backfilled by a
+        # separate low-frequency job if we need it later.
+        df = api.stock_basic(exchange="", list_status="L", fields=fields)
+        if df is not None and not df.empty:
+            frames.append(df)
     except Exception as exc:  # noqa: BLE001
         logger.debug("tushare stock_basic failed: %s", exc)
         return 0
