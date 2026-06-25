@@ -92,6 +92,29 @@ CREATE TABLE IF NOT EXISTS security_master (
 CREATE INDEX IF NOT EXISTS idx_security_master_status ON security_master(list_status);
 CREATE INDEX IF NOT EXISTS idx_security_master_flags ON security_master(is_active, is_st, is_delisting, is_bj);
 
+CREATE TABLE IF NOT EXISTS stock_daily_basic (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    close REAL, turnover_rate REAL, turnover_rate_f REAL, volume_ratio REAL,
+    pe REAL, pe_ttm REAL, pb REAL, ps REAL, ps_ttm REAL,
+    dv_ratio REAL, dv_ttm REAL,
+    total_share REAL, float_share REAL, free_share REAL,
+    total_mv REAL, circ_mv REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_sdb_date ON stock_daily_basic(trade_date);
+
+CREATE TABLE IF NOT EXISTS etf_master (
+    code TEXT PRIMARY KEY,
+    csname TEXT, extname TEXT, cname TEXT,
+    index_code TEXT, index_name TEXT,
+    setup_date TEXT, list_date TEXT, list_status TEXT,
+    exchange TEXT, mgr_name TEXT, custod_name TEXT,
+    mgt_fee REAL, etf_type TEXT,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_etf_master_status ON etf_master(list_status);
+
 CREATE TABLE IF NOT EXISTS etf_daily (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
     open REAL, high REAL, low REAL, close REAL,
@@ -99,6 +122,24 @@ CREATE TABLE IF NOT EXISTS etf_daily (
     PRIMARY KEY (code, trade_date)
 );
 CREATE INDEX IF NOT EXISTS idx_etf_daily_date ON etf_daily(trade_date);
+
+CREATE TABLE IF NOT EXISTS etf_share_size (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    name TEXT, total_share REAL, total_size REAL,
+    nav REAL, close REAL, exchange TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_etf_share_size_date ON etf_share_size(trade_date);
+
+CREATE TABLE IF NOT EXISTS index_daily (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    open REAL, high REAL, low REAL, close REAL, pre_close REAL,
+    change REAL, pct_chg REAL, volume REAL, total_amt REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_index_daily_date ON index_daily(trade_date);
 
 CREATE TABLE IF NOT EXISTS fund_premium_snapshot (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
@@ -402,10 +443,17 @@ class MarketStore:
                 "JOIN security_master s ON s.code = b.code "
                 "WHERE s.is_active = 1 AND s.is_st = 0 AND s.is_delisting = 0 AND s.is_bj = 0"
             ),
+            "stock_daily_basic_rows": "SELECT COUNT(*) FROM stock_daily_basic",
+            "stock_daily_basic_codes": "SELECT COUNT(DISTINCT code) FROM stock_daily_basic",
+            "etf_master_rows": "SELECT COUNT(*) FROM etf_master",
             "fund_premium_rows": "SELECT COUNT(*) FROM fund_premium_snapshot",
             "fund_premium_codes": "SELECT COUNT(DISTINCT code) FROM fund_premium_snapshot",
             "etf_daily_rows": "SELECT COUNT(*) FROM etf_daily",
             "etf_daily_codes": "SELECT COUNT(DISTINCT code) FROM etf_daily",
+            "etf_share_size_rows": "SELECT COUNT(*) FROM etf_share_size",
+            "etf_share_size_codes": "SELECT COUNT(DISTINCT code) FROM etf_share_size",
+            "index_daily_rows": "SELECT COUNT(*) FROM index_daily",
+            "index_daily_codes": "SELECT COUNT(DISTINCT code) FROM index_daily",
             "dragon_tiger_rows": "SELECT COUNT(*) FROM dragon_tiger",
             "stock_capital_flow_rows": "SELECT COUNT(*) FROM stock_capital_flow",
             "stock_pool_rows": "SELECT COUNT(*) FROM stock_pool",
@@ -421,7 +469,11 @@ class MarketStore:
         for table in (
             "security_master",
             "bars_daily",
+            "stock_daily_basic",
+            "etf_master",
             "etf_daily",
+            "etf_share_size",
+            "index_daily",
             "fund_premium_snapshot",
             "dragon_tiger",
             "stock_capital_flow",
@@ -452,6 +504,90 @@ class MarketStore:
     # ------------------------------------------------------------------
     # ETF daily (etf_daily)
     # ------------------------------------------------------------------
+
+    @_synchronized
+    def upsert_stock_daily_basic(self, rows: list[dict]) -> int:
+        """Upsert per-stock daily valuation/turnover indicators."""
+        if not rows:
+            return 0
+        payload = []
+        for r in rows:
+            code = str(r.get("code") or r.get("ts_code") or "").upper()
+            trade_date = r.get("date") or r.get("trade_date")
+            if not code or not trade_date:
+                continue
+            payload.append(
+                (
+                    code,
+                    trade_date,
+                    _f(r.get("close")),
+                    _f(r.get("turnover_rate")),
+                    _f(r.get("turnover_rate_f")),
+                    _f(r.get("volume_ratio")),
+                    _f(r.get("pe")),
+                    _f(r.get("pe_ttm")),
+                    _f(r.get("pb")),
+                    _f(r.get("ps")),
+                    _f(r.get("ps_ttm")),
+                    _f(r.get("dv_ratio")),
+                    _f(r.get("dv_ttm")),
+                    _f(r.get("total_share")),
+                    _f(r.get("float_share")),
+                    _f(r.get("free_share")),
+                    _f(r.get("total_mv")),
+                    _f(r.get("circ_mv")),
+                    _now_iso(),
+                )
+            )
+        if not payload:
+            return 0
+        return self._executemany_chunked(
+            "INSERT OR REPLACE INTO stock_daily_basic "
+            "(code, trade_date, close, turnover_rate, turnover_rate_f, volume_ratio, "
+            "pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm, total_share, float_share, "
+            "free_share, total_mv, circ_mv, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            payload,
+        )
+
+    @_synchronized
+    def upsert_etf_master(self, rows: list[dict]) -> int:
+        """Upsert ETF metadata from Tushare etf_basic."""
+        if not rows:
+            return 0
+        payload = []
+        for r in rows:
+            code = str(r.get("code") or r.get("ts_code") or "").upper()
+            if not code:
+                continue
+            payload.append(
+                (
+                    code,
+                    r.get("csname"),
+                    r.get("extname"),
+                    r.get("cname"),
+                    r.get("index_code"),
+                    r.get("index_name"),
+                    r.get("setup_date"),
+                    r.get("list_date"),
+                    r.get("list_status"),
+                    r.get("exchange"),
+                    r.get("mgr_name"),
+                    r.get("custod_name"),
+                    _f(r.get("mgt_fee")),
+                    r.get("etf_type"),
+                    _now_iso(),
+                )
+            )
+        if not payload:
+            return 0
+        return self._executemany_chunked(
+            "INSERT OR REPLACE INTO etf_master "
+            "(code, csname, extname, cname, index_code, index_name, setup_date, "
+            "list_date, list_status, exchange, mgr_name, custod_name, mgt_fee, etf_type, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            payload,
+        )
 
     @_synchronized
     def upsert_etf_daily(self, code: str, rows: list[dict]) -> int:
@@ -510,6 +646,76 @@ class MarketStore:
             (code, trade_date),
         ).fetchone()
         return row is not None
+
+    @_synchronized
+    def upsert_etf_share_size(self, rows: list[dict]) -> int:
+        """Upsert ETF share/size snapshots."""
+        if not rows:
+            return 0
+        payload = []
+        for r in rows:
+            code = str(r.get("code") or r.get("ts_code") or "").upper()
+            trade_date = r.get("date") or r.get("trade_date")
+            if not code or not trade_date:
+                continue
+            payload.append(
+                (
+                    code,
+                    trade_date,
+                    r.get("name"),
+                    _f(r.get("total_share")),
+                    _f(r.get("total_size")),
+                    _f(r.get("nav")),
+                    _f(r.get("close")),
+                    r.get("exchange"),
+                    _now_iso(),
+                )
+            )
+        if not payload:
+            return 0
+        return self._executemany_chunked(
+            "INSERT OR REPLACE INTO etf_share_size "
+            "(code, trade_date, name, total_share, total_size, nav, close, exchange, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            payload,
+        )
+
+    @_synchronized
+    def upsert_index_daily(self, code: str, rows: list[dict]) -> int:
+        """Upsert index OHLCV rows for one index code."""
+        if not rows:
+            return 0
+        payload = []
+        for r in rows:
+            row_code = str(r.get("code") or r.get("ts_code") or code).upper()
+            trade_date = r.get("date") or r.get("trade_date")
+            if not row_code or not trade_date:
+                continue
+            payload.append(
+                (
+                    row_code,
+                    trade_date,
+                    _f(r.get("open")),
+                    _f(r.get("high")),
+                    _f(r.get("low")),
+                    _f(r.get("close")),
+                    _f(r.get("pre_close")),
+                    _f(r.get("change")),
+                    _f(r.get("pct_chg")),
+                    _f(r.get("volume")),
+                    _f(r.get("total_amt")),
+                    _now_iso(),
+                )
+            )
+        if not payload:
+            return 0
+        return self._executemany_chunked(
+            "INSERT OR REPLACE INTO index_daily "
+            "(code, trade_date, open, high, low, close, pre_close, change, pct_chg, "
+            "volume, total_amt, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            payload,
+        )
 
     # ------------------------------------------------------------------
     # Dragon-tiger list
@@ -728,20 +934,45 @@ class MarketStore:
     @_synchronized
     def table_counts(self) -> dict[str, int]:
         out: dict[str, int] = {}
-        for t in ("security_master", "bars_daily", "etf_daily", "fund_premium_snapshot",
-                  "dragon_tiger", "stock_capital_flow", "stock_pool"):
+        for t in (
+            "security_master",
+            "bars_daily",
+            "stock_daily_basic",
+            "etf_master",
+            "etf_daily",
+            "etf_share_size",
+            "index_daily",
+            "fund_premium_snapshot",
+            "dragon_tiger",
+            "stock_capital_flow",
+            "stock_pool",
+        ):
             row = self._conn.execute(f"SELECT COUNT(*) AS c FROM {t}").fetchone()
             out[t] = int(row["c"]) if row else 0
         return out
 
     @_synchronized
     def date_range(self, table: str) -> tuple[Optional[str], Optional[str]]:
-        if table not in {"security_master", "bars_daily", "etf_daily", "fund_premium_snapshot",
-                         "dragon_tiger", "stock_capital_flow", "stock_pool"}:
+        if table not in {
+            "security_master",
+            "bars_daily",
+            "stock_daily_basic",
+            "etf_master",
+            "etf_daily",
+            "etf_share_size",
+            "index_daily",
+            "fund_premium_snapshot",
+            "dragon_tiger",
+            "stock_capital_flow",
+            "stock_pool",
+        }:
             raise ValueError(f"unknown table: {table}")
-        if table == "security_master":
+        if table in {"security_master", "etf_master"}:
+            date_col = "list_date"
+            if table == "etf_master":
+                date_col = "list_date"
             row = self._conn.execute(
-                "SELECT MIN(list_date) AS lo, MAX(list_date) AS hi FROM security_master"
+                f"SELECT MIN({date_col}) AS lo, MAX({date_col}) AS hi FROM {table}"
             ).fetchone()
             if not row or not row["lo"]:
                 return (None, None)

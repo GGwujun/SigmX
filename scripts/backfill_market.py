@@ -65,12 +65,18 @@ def _estimate_credits(codes_n: int, dates_n: int, datasets: set[str], years: int
     if "daily" in datasets:
         # 1 credit per code per ~28-day slice; ~12.2 slices/year
         est += int(codes_n * years * 12.2)
+    if "daily_basic" in datasets:
+        est += dates_n
     if "dragon" in datasets:
         est += dates_n
     if "pool" in datasets:
         est += dates_n * 5
     if "etf" in datasets:
         est += 80 * years * 12
+    if "etf_size" in datasets:
+        est += dates_n
+    if "index" in datasets:
+        est += dates_n * 7
     return est
 
 
@@ -108,6 +114,22 @@ def _print_coverage(store) -> None:
         f"range={ranges.get('bars_daily')}"
     )
     print(
+        "  daily_basic: "
+        f"rows={cov['stock_daily_basic_rows']}, codes={cov['stock_daily_basic_codes']}, "
+        f"range={ranges.get('stock_daily_basic')}"
+    )
+    print(
+        "  etf        : "
+        f"master={cov['etf_master_rows']}, daily_rows={cov['etf_daily_rows']}, "
+        f"daily_codes={cov['etf_daily_codes']}, size_rows={cov['etf_share_size_rows']}, "
+        f"size_codes={cov['etf_share_size_codes']}"
+    )
+    print(
+        "  index      : "
+        f"rows={cov['index_daily_rows']}, codes={cov['index_daily_codes']}, "
+        f"range={ranges.get('index_daily')}"
+    )
+    print(
         "  premium    : "
         f"rows={cov['fund_premium_rows']}, codes={cov['fund_premium_codes']}, "
         f"range={ranges.get('fund_premium_snapshot')}"
@@ -139,8 +161,9 @@ def main() -> int:
     ap.add_argument("--end", help="override end date (yyyy-MM-dd)")
     ap.add_argument("--codes", help="comma-separated codes (project form 600206.SH)")
     ap.add_argument("--max-codes", type=int, help="cap the code universe size")
-    ap.add_argument("--datasets", default="master,daily,dragon,pool,etf",
-                    help="comma-separated: master,daily,dragon,pool,etf,premium,capital")
+    ap.add_argument("--datasets", default="master,daily,daily_basic,dragon,pool,etf,etf_master,etf_size,index",
+                    help=("comma-separated: master,daily,daily_basic,dragon,pool,etf,"
+                          "etf_master,etf_size,index,premium,capital"))
     ap.add_argument("--universe", default="default", choices=["default", "all"])
     ap.add_argument("--lookback-days", type=int, default=None,
                     help="initial daily lookback when a code is cold; use 0 for today-only")
@@ -206,6 +229,11 @@ def main() -> int:
         rows = run_daily_sync(end, store=store, datasets={"master"}, deadline_seconds=3600)
         print(f"[master] wrote {rows.get('master', 0)} rows")
 
+    if "etf_master" in datasets:
+        print("\n[etf_master] syncing ETF master...")
+        rows = run_daily_sync(end, store=store, datasets={"etf_master"}, deadline_seconds=3600)
+        print(f"[etf_master] wrote {rows.get('etf_master', 0)} rows")
+
     # Resolve the code universe after master sync so a fresh DB can populate
     # security_master first, then derive the backfill universe from it.
     codes = _resolve_daily_codes(store, args, datasets)
@@ -236,7 +264,15 @@ def main() -> int:
             print(f"[daily] wrote {rows.get('daily', 0)} rows")
 
     # Per-date snapshot datasets: walk calendar days.
-    snap = datasets & {"dragon", "pool", "etf", "premium", "capital"}
+    snap = datasets & {"daily_basic", "dragon", "pool", "etf", "etf_size", "index", "premium", "capital"}
+    if "daily_basic" in snap and dates_n > 1:
+        print(
+            "\n[daily_basic] Tushare daily_basic is low-frequency on this token; "
+            f"syncing end date only ({end})."
+        )
+        rows = run_daily_sync(end, store=store, datasets={"daily_basic"}, deadline_seconds=3600)
+        print(f"[daily_basic] wrote {rows.get('daily_basic', 0)} rows")
+        snap = snap - {"daily_basic"}
     if snap:
         print(f"\n[snapshots] walking {dates_n} dates for {sorted(snap)}...")
         etf_codes = None

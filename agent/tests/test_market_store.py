@@ -97,11 +97,23 @@ def test_meta_round_trip(store: MarketStore) -> None:
 def test_table_counts_and_range(store: MarketStore) -> None:
     store.upsert_daily_bars("600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
     store.upsert_security_master([{"code": "600206.SH", "name": "X", "list_status": "L"}])
+    store.upsert_stock_daily_basic([{"code": "600206.SH", "trade_date": "2026-06-11", "pe": 10.5}])
+    store.upsert_etf_master([{"code": "510300.SH", "list_date": "20120528", "csname": "CSI300"}])
+    store.upsert_etf_share_size([{"code": "510300.SH", "trade_date": "2026-06-11", "total_size": 100}])
+    store.upsert_index_daily("000300.SH", [{"trade_date": "2026-06-11", "close": 4000}])
     counts = store.table_counts()
     assert counts["security_master"] == 1
     assert counts["bars_daily"] == 2
+    assert counts["stock_daily_basic"] == 1
+    assert counts["etf_master"] == 1
+    assert counts["etf_share_size"] == 1
+    assert counts["index_daily"] == 1
     lo, hi = store.date_range("bars_daily")
     assert lo == "2026-06-10" and hi == "2026-06-11"
+    assert store.date_range("stock_daily_basic") == ("2026-06-11", "2026-06-11")
+    assert store.date_range("etf_master") == ("20120528", "20120528")
+    assert store.date_range("etf_share_size") == ("2026-06-11", "2026-06-11")
+    assert store.date_range("index_daily") == ("2026-06-11", "2026-06-11")
 
 
 def test_market_coverage_and_missing_daily_codes(store: MarketStore) -> None:
@@ -121,6 +133,10 @@ def test_market_coverage_and_missing_daily_codes(store: MarketStore) -> None:
     assert cov["daily_codes"] == 1
     assert cov["daily_default_codes"] == 1
     assert cov["daily_default_missing_codes"] == 1
+    assert cov["stock_daily_basic_rows"] == 0
+    assert cov["etf_master_rows"] == 0
+    assert cov["etf_share_size_rows"] == 0
+    assert cov["index_daily_rows"] == 0
     assert cov["date_ranges"]["bars_daily"] == ["2026-06-10", "2026-06-10"]
     assert store.missing_daily_codes() == ["000002.SZ"]
 

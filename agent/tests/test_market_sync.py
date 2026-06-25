@@ -287,6 +287,207 @@ def test_capital_uses_tushare_moneyflow(store: MarketStore) -> None:
     assert rows[0]["r_net"] == 6
 
 
+def test_daily_basic_uses_tushare(store: MarketStore) -> None:
+    class FakeApi:
+        def daily_basic(self, **kwargs):
+            assert kwargs["trade_date"] == "20260624"
+            assert "fields" in kwargs
+            import pandas as pd
+            return pd.DataFrame(
+                [
+                    {
+                        "ts_code": "000001.SZ",
+                        "close": 12.3,
+                        "turnover_rate": 1.2,
+                        "turnover_rate_f": 1.5,
+                        "volume_ratio": 0.9,
+                        "pe": 8,
+                        "pe_ttm": 7,
+                        "pb": 1.1,
+                        "ps": 2.1,
+                        "ps_ttm": 2.0,
+                        "dv_ratio": 3.0,
+                        "dv_ttm": 2.8,
+                        "total_share": 100,
+                        "float_share": 80,
+                        "free_share": 60,
+                        "total_mv": 123,
+                        "circ_mv": 100,
+                    },
+                    {"ts_code": "000002.SZ", "close": 9.9},
+                ]
+            )
+
+    with mock.patch.dict("os.environ", {"TUSHARE_TOKEN": "token"}), \
+         mock.patch("tushare.pro_api", return_value=FakeApi()):
+        res = ms.run_daily_sync(
+            "2026-06-24",
+            store=store,
+            codes=["000001.SZ"],
+            datasets={"daily_basic"},
+        )
+
+    assert res["daily_basic"] == 1
+    assert store.table_counts()["stock_daily_basic"] == 1
+    assert store.date_range("stock_daily_basic") == ("2026-06-24", "2026-06-24")
+
+
+def test_etf_master_size_and_index_use_tushare(store: MarketStore) -> None:
+    class FakeApi:
+        def etf_basic(self, **kwargs):
+            assert kwargs["list_status"] == "L"
+            import pandas as pd
+            return pd.DataFrame(
+                [
+                    {
+                        "ts_code": "510300.SH",
+                        "csname": "CSI300ETF",
+                        "index_code": "000300.SH",
+                        "list_date": "20120528",
+                        "list_status": "L",
+                        "mgt_fee": 0.5,
+                    }
+                ]
+            )
+
+        def etf_share_size(self, **kwargs):
+            assert kwargs["trade_date"] == "20260624"
+            import pandas as pd
+            return pd.DataFrame(
+                [
+                    {
+                        "ts_code": "510300.SH",
+                        "trade_date": "20260624",
+                        "name": "ETF",
+                        "total_share": 100,
+                        "total_size": 400,
+                        "nav": 4.0,
+                        "close": 4.05,
+                        "exchange": "SSE",
+                    }
+                ]
+            )
+
+        def index_daily(self, **kwargs):
+            assert kwargs["start_date"] == "20260624"
+            import pandas as pd
+            return pd.DataFrame(
+                [
+                    {
+                        "ts_code": kwargs["ts_code"],
+                        "open": 1,
+                        "high": 2,
+                        "low": 1,
+                        "close": 2,
+                        "pre_close": 1.9,
+                        "change": 0.1,
+                        "pct_chg": 5,
+                        "vol": 1000,
+                        "amount": 2000,
+                    }
+                ]
+            )
+
+    with mock.patch.dict("os.environ", {"TUSHARE_TOKEN": "token"}), \
+         mock.patch("tushare.pro_api", return_value=FakeApi()), \
+         mock.patch.object(ms, "_DEFAULT_INDEX_CODES", ("000300.SH",)):
+        res = ms.run_daily_sync(
+            "2026-06-24",
+            store=store,
+            datasets={"etf_master", "etf_size", "index"},
+        )
+
+    assert res["etf_master"] == 1
+    assert res["etf_size"] == 1
+    assert res["index"] == 1
+    counts = store.table_counts()
+    assert counts["etf_master"] == 1
+    assert counts["etf_share_size"] == 1
+    assert counts["index_daily"] == 1
+
+
+def test_index_daily_defaults_to_one_core_index_per_run(store: MarketStore) -> None:
+    class FakeApi:
+        def __init__(self):
+            self.calls = []
+
+        def index_daily(self, **kwargs):
+            self.calls.append(kwargs["ts_code"])
+            import pandas as pd
+            return pd.DataFrame(
+                [
+                    {
+                        "ts_code": kwargs["ts_code"],
+                        "open": 1,
+                        "high": 2,
+                        "low": 1,
+                        "close": 2,
+                    }
+                ]
+            )
+
+    fake = FakeApi()
+    with mock.patch.dict("os.environ", {"TUSHARE_TOKEN": "token"}), \
+         mock.patch("tushare.pro_api", return_value=fake), \
+         mock.patch.object(ms, "_DEFAULT_INDEX_CODES", ("000001.SH", "399001.SZ")):
+        first = ms.run_daily_sync("2026-06-24", store=store, datasets={"index"})
+        second = ms.run_daily_sync("2026-06-25", store=store, datasets={"index"})
+
+    assert first["index"] == 1
+    assert second["index"] == 1
+    assert fake.calls == ["000001.SH", "399001.SZ"]
+
+
+def test_etf_master_falls_back_to_tpdog(store: MarketStore) -> None:
+    def fake_call(path: str, **params):
+        assert path == "etfs/list"
+        return [{"code": "510300", "name": "CSI300ETF", "type": "etf"}]
+
+    with mock.patch.object(ms, "_sync_etf_master_tushare", return_value=0), \
+         mock.patch("src.data.tpdog_client.call", side_effect=fake_call):
+        res = ms.run_daily_sync("2026-06-24", store=store, datasets={"etf_master"})
+
+    assert res["etf_master"] == 1
+    assert store.table_counts()["etf_master"] == 1
+
+
+def test_index_daily_falls_back_to_tpdog_daily(store: MarketStore) -> None:
+    def fake_call(path: str, **params):
+        assert path == "stock/daily"
+        assert params["code"] in {"zssh.000001", "zssz.399001"}
+        return [{"date": params["date"], "open": 1, "high": 2, "low": 1, "close": 2, "volume": 100}]
+
+    with mock.patch.object(ms, "_sync_index_daily_tushare", return_value=0), \
+         mock.patch.object(ms, "_DEFAULT_INDEX_CODES", ("000001.SH", "399001.SZ")), \
+         mock.patch("src.data.tpdog_client.call", side_effect=fake_call):
+        res = ms.run_daily_sync("2026-06-25", store=store, datasets={"index"})
+
+    assert res["index"] == 2
+    assert store.table_counts()["index_daily"] == 2
+
+
+def test_capital_falls_back_to_tpdog_current_funds(store: MarketStore) -> None:
+    def fake_call(path: str, **params):
+        assert path == "current/funds"
+        if params["zs_type"] == "zssh":
+            return [{"code": "600000", "name": "A", "m_in": 10, "m_out": 4, "m_net": 6}]
+        if params["zs_type"] == "zssz":
+            return [{"code": "000001", "name": "B", "m_in": 8, "m_out": 3, "m_net": 5}]
+        return []
+
+    with mock.patch.object(ms, "_sync_stock_capital_tushare_by_date", return_value=0), \
+         mock.patch.object(ms, "_today_cst_str", return_value="2026-06-25"), \
+         mock.patch("src.data.trade_calendar.cn_market_phase", return_value="post_close"), \
+         mock.patch("src.data.tpdog_client.call", side_effect=fake_call):
+        res = ms.run_daily_sync("2026-06-25", store=store, datasets={"capital"})
+
+    assert res["capital"] == 2
+    rows = store.get_stock_capital("600000.SH", start="2026-06-25", end="2026-06-25")
+    assert len(rows) == 1
+    assert rows[0]["m_in"] == 10
+    assert rows[0]["source"] == "tpdog_current_funds"
+
+
 def test_single_dataset_failure_does_not_block_siblings(store: MarketStore) -> None:
     with mock.patch.object(ms, "_sync_dragon_tiger", side_effect=RuntimeError("boom")), \
          mock.patch.object(ms, "_sync_pools", return_value=5):

@@ -34,6 +34,15 @@ _SYNC_TICK_SECONDS = 60
 _TICK_DEADLINE_SECONDS = 600  # one sync tick must not run longer than 10 min
 _POOL_TYPES = ("limitup", "limitdown", "strong", "fire", "secnew")
 _SLEEP_BETWEEN_CALLS = 0.05  # tpdog caps at 30 calls/sec
+_DEFAULT_INDEX_CODES = (
+    "000001.SH",  # 上证指数
+    "399001.SZ",  # 深证成指
+    "399006.SZ",  # 创业板指
+    "000300.SH",  # 沪深300
+    "000905.SH",  # 中证500
+    "000852.SH",  # 中证1000
+    "000688.SH",  # 科创50
+)
 
 _daemon_started = False
 _daemon_lock = threading.Lock()
@@ -476,6 +485,336 @@ def _sync_etf_daily_tushare_by_date(
     return written
 
 
+def _sync_stock_daily_basic_tushare_by_date(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    codes: Optional[list[str]] = None,
+) -> int:
+    """Fetch one settled A-share valuation/turnover date via Tushare daily_basic."""
+    token = os.getenv("TUSHARE_TOKEN", "").strip()
+    if not token or token.lower() == "your-tushare-token":
+        return 0
+    try:
+        import tushare as ts
+    except Exception:  # noqa: BLE001
+        logger.debug("tushare package unavailable; daily_basic skipped")
+        return 0
+
+    fields = (
+        "ts_code,trade_date,close,turnover_rate,turnover_rate_f,volume_ratio,"
+        "pe,pe_ttm,pb,ps,ps_ttm,dv_ratio,dv_ttm,total_share,float_share,"
+        "free_share,total_mv,circ_mv"
+    )
+    try:
+        api = ts.pro_api(token)
+        df = api.daily_basic(trade_date=trade_date.replace("-", ""), fields=fields)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("tushare daily_basic failed for %s: %s", trade_date, exc)
+        return 0
+    if df is None or df.empty:
+        return 0
+
+    wanted = {c.upper() for c in codes} if codes else None
+    rows: list[dict] = []
+    for _, r in df.iterrows():
+        code = str(r.get("ts_code", "")).upper()
+        if not code or (wanted is not None and code not in wanted):
+            continue
+        rows.append(
+            {
+                "code": code,
+                "trade_date": trade_date,
+                "close": r.get("close"),
+                "turnover_rate": r.get("turnover_rate"),
+                "turnover_rate_f": r.get("turnover_rate_f"),
+                "volume_ratio": r.get("volume_ratio"),
+                "pe": r.get("pe"),
+                "pe_ttm": r.get("pe_ttm"),
+                "pb": r.get("pb"),
+                "ps": r.get("ps"),
+                "ps_ttm": r.get("ps_ttm"),
+                "dv_ratio": r.get("dv_ratio"),
+                "dv_ttm": r.get("dv_ttm"),
+                "total_share": r.get("total_share"),
+                "float_share": r.get("float_share"),
+                "free_share": r.get("free_share"),
+                "total_mv": r.get("total_mv"),
+                "circ_mv": r.get("circ_mv"),
+            }
+        )
+    written = store.upsert_stock_daily_basic(rows)
+    if written:
+        logger.info("tushare daily_basic wrote %d rows for %s", written, trade_date)
+    return written
+
+
+def _sync_etf_master_tushare(store: MarketStore) -> int:
+    """Sync ETF metadata via Tushare etf_basic."""
+    token = os.getenv("TUSHARE_TOKEN", "").strip()
+    if not token or token.lower() == "your-tushare-token":
+        return 0
+    try:
+        import tushare as ts
+    except Exception:  # noqa: BLE001
+        logger.debug("tushare package unavailable; etf_basic skipped")
+        return 0
+
+    fields = (
+        "ts_code,csname,extname,cname,index_code,index_name,setup_date,list_date,"
+        "list_status,exchange,mgr_name,custod_name,mgt_fee,etf_type"
+    )
+    try:
+        api = ts.pro_api(token)
+        df = api.etf_basic(list_status="L", fields=fields)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("tushare etf_basic failed: %s", exc)
+        return 0
+    if df is None or df.empty:
+        return 0
+
+    rows: list[dict] = []
+    for _, r in df.iterrows():
+        code = str(r.get("ts_code", "")).upper()
+        if not code:
+            continue
+        rows.append(
+            {
+                "code": code,
+                "csname": r.get("csname"),
+                "extname": r.get("extname"),
+                "cname": r.get("cname"),
+                "index_code": r.get("index_code"),
+                "index_name": r.get("index_name"),
+                "setup_date": r.get("setup_date"),
+                "list_date": r.get("list_date"),
+                "list_status": r.get("list_status"),
+                "exchange": r.get("exchange"),
+                "mgr_name": r.get("mgr_name"),
+                "custod_name": r.get("custod_name"),
+                "mgt_fee": r.get("mgt_fee"),
+                "etf_type": r.get("etf_type"),
+            }
+        )
+    written = store.upsert_etf_master(rows)
+    if written:
+        logger.info("tushare etf_basic wrote %d rows", written)
+    return written
+
+
+def _sync_etf_master_tpdog(store: MarketStore) -> int:
+    """Fallback ETF metadata via TPDog etfs/list."""
+    from src.data.tpdog_client import call
+
+    try:
+        rows = call("etfs/list")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("tpdog etfs/list failed: %s", exc)
+        return 0
+    payload: list[dict] = []
+    for r in rows:
+        code = str(r.get("code", "")).strip()
+        if not code:
+            continue
+        payload.append(
+            {
+                "code": code,
+                "csname": r.get("name"),
+                "cname": r.get("name"),
+                "list_status": "L",
+                "exchange": "SZSE" if code.startswith(("1", "3")) else "SSE",
+                "etf_type": r.get("type") or "etf",
+            }
+        )
+    written = store.upsert_etf_master(payload)
+    if written:
+        logger.info("tpdog etfs/list wrote %d rows", written)
+    return written
+
+
+def _sync_etf_master(store: MarketStore) -> int:
+    written = _sync_etf_master_tushare(store)
+    if written:
+        return written
+    return _sync_etf_master_tpdog(store)
+
+
+def _sync_etf_share_size_tushare_by_date(store: MarketStore, trade_date: str) -> int:
+    """Fetch ETF share/size snapshot for one date via Tushare etf_share_size."""
+    token = os.getenv("TUSHARE_TOKEN", "").strip()
+    if not token or token.lower() == "your-tushare-token":
+        return 0
+    try:
+        import pandas as pd
+        import tushare as ts
+    except Exception:  # noqa: BLE001
+        logger.debug("tushare package unavailable; etf_share_size skipped")
+        return 0
+
+    api = ts.pro_api(token)
+    frames = []
+    for exchange in ("", "SSE", "SZSE"):
+        try:
+            kwargs: dict[str, Any] = {"trade_date": trade_date.replace("-", "")}
+            if exchange:
+                kwargs["exchange"] = exchange
+            df = api.etf_share_size(**kwargs)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("tushare etf_share_size failed for %s/%s: %s", trade_date, exchange or "ALL", exc)
+            continue
+        if df is not None and not df.empty:
+            frames.append(df)
+            if not exchange:
+                break
+    if not frames:
+        return 0
+    df = pd.concat(frames, ignore_index=True).drop_duplicates(
+        subset=["ts_code", "trade_date"], keep="last"
+    )
+    rows: list[dict] = []
+    for _, r in df.iterrows():
+        code = str(r.get("ts_code", "")).upper()
+        if not code:
+            continue
+        rows.append(
+            {
+                "code": code,
+                "trade_date": trade_date,
+                "name": r.get("name"),
+                "total_share": r.get("total_share"),
+                "total_size": r.get("total_size"),
+                "nav": r.get("nav"),
+                "close": r.get("close"),
+                "exchange": r.get("exchange"),
+            }
+        )
+    written = store.upsert_etf_share_size(rows)
+    if written:
+        logger.info("tushare etf_share_size wrote %d rows for %s", written, trade_date)
+    return written
+
+
+def _sync_index_daily_tushare(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    index_codes: Optional[list[str]] = None,
+) -> int:
+    """Fetch core index daily OHLCV rows for one date via Tushare index_daily."""
+    token = os.getenv("TUSHARE_TOKEN", "").strip()
+    if not token or token.lower() == "your-tushare-token":
+        return 0
+    try:
+        import tushare as ts
+    except Exception:  # noqa: BLE001
+        logger.debug("tushare package unavailable; index_daily skipped")
+        return 0
+
+    if index_codes is not None:
+        codes = index_codes
+    else:
+        all_codes = list(_DEFAULT_INDEX_CODES)
+        try:
+            cursor = int(store.get_meta("index_daily_cursor") or "0") % len(all_codes)
+        except Exception:  # noqa: BLE001
+            cursor = 0
+        codes = [all_codes[cursor]]
+        try:
+            store.set_meta("index_daily_cursor", str((cursor + 1) % len(all_codes)))
+        except Exception:  # noqa: BLE001
+            logger.debug("index_daily cursor update failed", exc_info=True)
+    api = ts.pro_api(token)
+    total = 0
+    date_key = trade_date.replace("-", "")
+    for code in codes:
+        try:
+            df = api.index_daily(ts_code=code, start_date=date_key, end_date=date_key)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("tushare index_daily failed for %s/%s: %s", code, trade_date, exc)
+            continue
+        if df is None or df.empty:
+            continue
+        rows = []
+        for _, r in df.iterrows():
+            rows.append(
+                {
+                    "code": str(r.get("ts_code", code)).upper(),
+                    "trade_date": trade_date,
+                    "open": r.get("open"),
+                    "high": r.get("high"),
+                    "low": r.get("low"),
+                    "close": r.get("close"),
+                    "pre_close": r.get("pre_close"),
+                    "change": r.get("change"),
+                    "pct_chg": r.get("pct_chg"),
+                    "volume": r.get("vol"),
+                    "total_amt": r.get("amount"),
+                }
+            )
+        total += store.upsert_index_daily(code, rows)
+    if total:
+        logger.info("tushare index_daily wrote %d rows for %s", total, trade_date)
+    return total
+
+
+def _to_tpdog_index_code(code: str) -> str:
+    digits = code.split(".", 1)[0]
+    if code.upper().endswith(".SZ"):
+        return f"zssz.{digits}"
+    return f"zssh.{digits}"
+
+
+def _sync_index_daily_tpdog(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    index_codes: Optional[list[str]] = None,
+) -> int:
+    """Fallback index daily K via TPDog stock/daily, which supports index codes."""
+    from src.data.tpdog_client import call
+
+    codes = index_codes or list(_DEFAULT_INDEX_CODES)
+    total = 0
+    for code in codes:
+        try:
+            rows = call("stock/daily", code=_to_tpdog_index_code(code), date=trade_date)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("tpdog stock/daily index failed for %s/%s: %s", code, trade_date, exc)
+            continue
+        payload = []
+        for r in rows:
+            payload.append(
+                {
+                    "code": code,
+                    "trade_date": r.get("date") or trade_date,
+                    "open": r.get("open"),
+                    "high": r.get("high"),
+                    "low": r.get("low"),
+                    "close": r.get("close"),
+                    "change": r.get("rise"),
+                    "pct_chg": r.get("rise_rate"),
+                    "volume": r.get("volume"),
+                    "total_amt": r.get("total_amt"),
+                }
+            )
+        total += store.upsert_index_daily(code, payload)
+    if total:
+        logger.info("tpdog index daily wrote %d rows for %s", total, trade_date)
+    return total
+
+
+def _sync_index_daily(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    index_codes: Optional[list[str]] = None,
+) -> int:
+    written = _sync_index_daily_tushare(store, trade_date, index_codes=index_codes)
+    if written:
+        return written
+    return _sync_index_daily_tpdog(store, trade_date, index_codes=index_codes)
+
+
 def _sync_etf_daily(store: MarketStore, etf_codes: list[str], trade_date: str, today_str: str) -> int:
     from src.data.tpdog_client import call
 
@@ -554,6 +893,51 @@ def _sync_stock_capital_tushare_by_date(store: MarketStore, trade_date: str) -> 
     return written
 
 
+def _sync_stock_capital_tpdog_current(store: MarketStore, trade_date: str) -> int:
+    """Fallback whole-market stock money flow via TPDog current/funds."""
+    from src.data.tpdog_client import call
+
+    if _latest_settled_date_for_sync(trade_date, _today_cst_str()) != trade_date:
+        return 0
+    total = 0
+    for zs_type, suffix in (("zssh", ".SH"), ("zssz", ".SZ"), ("zsbj", ".BJ")):
+        try:
+            rows = call("current/funds", zs_type=zs_type, sort=1)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("tpdog current/funds failed for %s: %s", zs_type, exc)
+            continue
+        for r in rows:
+            code = str(r.get("code", "")).strip()
+            if len(code) != 6 or not code.isdigit():
+                continue
+            row = {
+                "date": trade_date,
+                "m_in": r.get("m_in"),
+                "m_out": r.get("m_out"),
+                "m_net": r.get("m_net"),
+                "r_in": r.get("r_in"),
+                "r_out": r.get("r_out"),
+                "r_net": r.get("r_net"),
+                "m_in_ratio": r.get("m_in_ratio"),
+                "m_out_ratio": r.get("m_out_ratio"),
+                "r_in_ratio": r.get("r_in_ratio"),
+                "r_out_ratio": r.get("r_out_ratio"),
+                "name": r.get("name"),
+                "source": "tpdog_current_funds",
+            }
+            total += store.upsert_stock_capital(code + suffix, trade_date, 1, [row])
+    if total:
+        logger.info("tpdog current/funds wrote %d rows for %s", total, trade_date)
+    return total
+
+
+def _sync_stock_capital(store: MarketStore, trade_date: str) -> int:
+    written = _sync_stock_capital_tushare_by_date(store, trade_date)
+    if written:
+        return written
+    return _sync_stock_capital_tpdog_current(store, trade_date)
+
+
 def _sync_fund_premium_snapshot(store: MarketStore, trade_date: str) -> int:
     """Persist the day's fund-premium scan result as a close snapshot."""
     try:
@@ -605,7 +989,18 @@ def run_daily_sync(
         return {}
     today_str = _today_cst_str()
     deadline = time.monotonic() + deadline_seconds
-    datasets = datasets or {"master", "daily", "dragon", "pool", "etf", "premium"}
+    datasets = datasets or {
+        "master",
+        "daily",
+        "daily_basic",
+        "dragon",
+        "pool",
+        "etf",
+        "etf_master",
+        "etf_size",
+        "index",
+        "premium",
+    }
     result: dict[str, int] = {}
 
     if "master" in datasets:
@@ -661,6 +1056,8 @@ def run_daily_sync(
         except Exception:  # noqa: BLE001 — one dataset failing must not abort the rest
             logger.exception("market_sync: %s dataset failed", name)
 
+    _run("daily_basic", lambda: _sync_stock_daily_basic_tushare_by_date(store, trade_date, codes=codes))
+    _run("etf_master", lambda: _sync_etf_master(store))
     _run("dragon", lambda: _sync_dragon_tiger(store, trade_date))
     _run("pool", lambda: _sync_pools(store, trade_date))
 
@@ -682,7 +1079,9 @@ def run_daily_sync(
         return _sync_etf_daily(store, resolved_etf_codes, trade_date, today_str)
 
     _run("etf", _run_etf)
-    _run("capital", lambda: _sync_stock_capital_tushare_by_date(store, trade_date))
+    _run("etf_size", lambda: _sync_etf_share_size_tushare_by_date(store, trade_date))
+    _run("index", lambda: _sync_index_daily(store, trade_date))
+    _run("capital", lambda: _sync_stock_capital(store, trade_date))
     _run("premium", lambda: _sync_fund_premium_snapshot(store, trade_date))
 
     return result
