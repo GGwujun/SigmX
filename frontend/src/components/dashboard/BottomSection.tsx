@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Panel, EmptyHint, Pct, fmtYi, pctBg } from "./primitives";
+import { Panel, EmptyHint, Pct, fmtYi } from "./primitives";
 import { Chart } from "./Chart";
 import type {
   MarketCapital,
