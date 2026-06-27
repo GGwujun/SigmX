@@ -120,7 +120,7 @@ export function LogicChain() {
   if (result?.code) flowParams.set("symbol", result.code);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       <MarketIntelHeader
         active="logic-chain"
         query={query}

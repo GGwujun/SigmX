@@ -146,7 +146,7 @@ export function Opportunity() {
   }, [candidates, dailyMap, fit, query, symbol]);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       <MarketIntelHeader
         active="opportunity"
         query={query}

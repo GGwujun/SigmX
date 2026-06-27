@@ -108,7 +108,7 @@ export function RssFeed() {
   );
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] min-h-0 flex-col overflow-hidden bg-card text-foreground">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-card text-foreground">
       <header className="shrink-0 border-b bg-card px-4 py-2.5 md:px-5">
         <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-center gap-2.5">

@@ -89,6 +89,8 @@ function DashboardSection({
   icon,
   right,
   className,
+  headerClassName,
+  bodyClassName,
   children,
 }: {
   title: string;
@@ -96,11 +98,13 @@ function DashboardSection({
   icon?: React.ReactNode;
   right?: React.ReactNode;
   className?: string;
+  headerClassName?: string;
+  bodyClassName?: string;
   children: React.ReactNode;
 }) {
   return (
     <section className={cn("rounded-md border bg-background/95 shadow-sm", className)}>
-      <header className="flex items-start justify-between gap-3 px-4 py-3">
+      <header className={cn("flex items-start justify-between gap-3 px-4 py-3", headerClassName)}>
         <div className="flex min-w-0 items-center gap-2">
           {icon}
           <div className="min-w-0">
@@ -112,7 +116,7 @@ function DashboardSection({
         </div>
         {right}
       </header>
-      <div className="px-4 pb-4">{children}</div>
+      <div className={cn("px-4 pb-4", bodyClassName)}>{children}</div>
     </section>
   );
 }
@@ -595,31 +599,51 @@ function ThemeHeatmapBlock({ themes }: { themes?: MarketThemes | null }) {
   // 优先行业板块（语义干净），概念板块里混入"昨日涨停/打板"等机械分类，仅作回退。
   const sectors = themes?.industry_sectors ?? themes?.concept_sectors ?? [];
   const option = useMemo<EChartsOption>(() => {
-    // 等面积 + 全部行业：每格大小相同、画全部板块，红绿比例=真实涨跌分布。
-    // 按涨跌幅降序排列，让红(涨)绿(跌)自然分簇，大跌日直观看到大片绿。
+    // 筛选：涨幅 TOP 15 + 跌幅 TOP 15
     const sorted = [...sectors].sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0));
+    const topGainers = sorted.slice(0, 15);
+    const topLosers = sorted.slice(-15);
+    // 用 name 去重
+    const filtered = [...topGainers];
+    for (const s of topLosers) {
+      if (!filtered.some((f) => f.name === s.name)) {
+        filtered.push(s);
+      }
+    }
+
     return {
-    tooltip: { formatter: (p: any) => `${p?.name ?? ""}<br/>${pct(p?.data?.change_pct, 2)}` },
-    series: [
-      {
-        type: "treemap",
-        roam: false,
-        nodeClick: false,
-        breadcrumb: { show: false },
-        label: { color: "#fff", fontSize: 10, fontWeight: 600, overflow: "truncate", width: 60 },
-        data: sorted.map((s) => ({
-          name: s.name,
-          value: 1, // 等面积
-          change_pct: s.change_pct,
-          itemStyle: { color: pctBg(s.change_pct) },
-        })),
-      },
-    ],
+      grid: { left: 0, right: 0, top: 0, bottom: 0 },
+      tooltip: { formatter: (p: any) => `${p?.name ?? ""}<br/>${pct(p?.data?.change_pct, 2)}` },
+      series: [
+        {
+          type: "treemap",
+          roam: false,
+          nodeClick: false,
+          breadcrumb: { show: false },
+          label: { color: "#fff", fontSize: 10, fontWeight: 600, overflow: "truncate", width: 60 },
+          top: 0,
+          bottom: 0,
+          left: 0,
+          right: 0,
+          data: filtered.map((s) => ({
+            name: s.name,
+            value: Math.abs(s.change_pct ?? 0) * 10 + 1, // 涨跌幅绝对值决定面积
+            change_pct: s.change_pct,
+            itemStyle: { color: pctBg(s.change_pct ?? 0) },
+          })),
+        },
+      ],
     };
   }, [sectors]);
 
   return (
-    <DashboardSection title="行业热力图" sub="颜色=涨跌（红涨绿跌）" icon={<Activity className="h-5 w-5 text-amber-500" />}>
+    <DashboardSection
+      title="行业热力图"
+      sub="TOP 15涨跌 · 面积=涨跌幅 · 颜色=红涨绿跌"
+      icon={<Activity className="h-5 w-5 text-amber-500" />}
+      headerClassName="py-2 px-2"
+      bodyClassName="p-5"
+    >
       {sectors.length ? <Chart option={option} height={360} /> : <EmptyHint>行业热力图未同步</EmptyHint>}
     </DashboardSection>
   );
@@ -656,7 +680,7 @@ export function MarketDashboard() {
 
   if (loading) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center gap-2 text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
         <Loader2 className="h-4 w-4 animate-spin" />
         加载总览大屏...
       </div>
@@ -665,14 +689,14 @@ export function MarketDashboard() {
 
   if (!data) {
     return (
-      <div className="flex h-[calc(100vh-3.5rem)] items-center justify-center text-sm text-muted-foreground">
+      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
         总览大屏暂不可用
       </div>
     );
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-muted/20">
+    <div className="flex h-full flex-col bg-muted/20">
       <header className="shrink-0 border-b bg-background">
         <div className="flex flex-col gap-4 px-4 py-4 md:px-6 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">

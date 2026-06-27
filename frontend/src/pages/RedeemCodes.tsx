@@ -102,7 +102,7 @@ export function RedeemCodes() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       {/* Header */}
       <div className="border-b bg-card/80 px-4 py-4 md:px-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">

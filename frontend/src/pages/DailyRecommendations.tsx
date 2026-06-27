@@ -167,7 +167,7 @@ export function DailyRecommendations() {
     : null;
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-muted/20">
+    <div className="flex h-full flex-col bg-muted/20">
       <header className="shrink-0 border-b bg-background">
         <div className="flex flex-col gap-4 px-4 py-4 md:px-6 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">

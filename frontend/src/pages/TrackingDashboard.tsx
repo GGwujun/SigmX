@@ -1143,7 +1143,7 @@ export function TrackingDashboard() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       <HeaderBar
         totalValue={totalValue}
         totalPnL={totalPnL}

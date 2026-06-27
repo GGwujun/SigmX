@@ -143,7 +143,7 @@ export function RecommendationHistory() {
   }, [data, effectiveDate, query, resultFilter]);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-muted/20">
+    <div className="flex h-full flex-col bg-muted/20">
       <header className="shrink-0 border-b bg-background px-4 py-4 md:px-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>

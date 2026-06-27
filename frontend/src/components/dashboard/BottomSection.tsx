@@ -133,24 +133,3 @@ export function MultiPeriodMovers({ rows }: { rows: MultiPeriodRow[] | undefined
   );
 }
 
-export function ThemeHeatmap({ themes }: { themes: MarketThemes | null | undefined }) {
-  const sectors = themes?.concept_sectors ?? [];
-  const option = useMemo((): EChartsOption => {
-    const data = sectors.map((s) => ({
-      name: s.name,
-      value: Math.max(1, Math.abs(s.change_pct) + 1),
-      change_pct: s.change_pct,
-      itemStyle: { color: pctBg(s.change_pct) },
-    }));
-    return {
-      tooltip: { formatter: (p: any) => `${p?.name ?? ""} ${(p?.data?.change_pct ?? 0).toFixed(2)}%` },
-      series: [{ type: "treemap", data, roam: false, nodeClick: false, breadcrumb: { show: false }, label: { fontSize: 10, color: "#fff" } }],
-    };
-  }, [sectors]);
-  if (!sectors.length) return <EmptyHint>题材热力图暂不可用</EmptyHint>;
-  return (
-    <Panel title="题材热力图（概念板块）" bodyClassName="p-1">
-      <Chart option={option} height={280} />
-    </Panel>
-  );
-}

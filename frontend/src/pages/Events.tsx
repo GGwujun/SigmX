@@ -128,7 +128,7 @@ export function Events() {
   const bigMoveCount = visibleEvents.filter((event) => isBigMove(event.prob_change_24h)).length;
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col">
+    <div className="flex h-full flex-col">
       <MarketIntelHeader
         active="events"
         query={query}

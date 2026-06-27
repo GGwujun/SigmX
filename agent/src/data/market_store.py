@@ -513,7 +513,7 @@ class MarketStore:
         if end:
             clauses.append("trade_date <= ?")
             params.append(end)
-        order = "trade_date ASC" if (start or end or days) else "trade_date DESC"
+        order = "trade_date ASC" if (start or end) else "trade_date DESC"
         sql = (
             f"SELECT trade_date, open, high, low, close, volume FROM bars_daily "
             f"WHERE {' AND '.join(clauses)} ORDER BY {order}"

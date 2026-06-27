@@ -100,7 +100,7 @@ function StageShell({
   const meta = STAGE_META[stage];
   const data = (payload?.data ?? {}) as Row;
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] flex-col bg-muted/20 text-foreground">
+    <div className="flex h-full flex-col bg-muted/20 text-foreground">
       <header className="shrink-0 border-b bg-background/95 px-4 py-3 md:px-6">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
