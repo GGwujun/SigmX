@@ -681,6 +681,13 @@ _UNPARSED_TOOL_MARKERS = (
     "<tool_call_begin>",
     "<tool_sep>",
     "tool\u2581sep",
+    # DSML format (DeepSeek/GLM markup)
+    "<\uff5c\uff5cDSML\uff5c\uff5c",
+    "\uff5c\uff5cDSML\uff5c\uff5c",
+    "<\uff5ctool_calls_begin\uff5c>",
+    "<\uff5ctool\u2581calls\u2581begin\uff5c>",
+    "<\uff5ctool_call_begin\uff5c>",
+    "<\uff5ctool\u2581call\u2581begin\uff5c>",
 )
 _FABRICATION_MARKERS = ("mock data", "without actual data", "fabricated data", "placeholder data")
 _PLAN_PREFIXES = (

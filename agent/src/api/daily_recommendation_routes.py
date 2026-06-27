@@ -660,9 +660,14 @@ def register_daily_recommendation_routes(
             records = [r for r in records if r.get("slot") == normalized]
         records = records[:limit]
         enriched = _with_performance(records)
+        cutoff = (_now_cst() - timedelta(days=30)).strftime("%Y-%m-%d")
+        with _STORE_LOCK:
+            rolling_records = [r for r in _load_records() if str(r.get("date", "")) >= cutoff]
+        rolling_enriched = _with_performance(rolling_records)
         return {
             "items": enriched,
-            "summary": _summary(enriched),
+            "summary": _summary(rolling_enriched),
+            "list_summary": _summary(enriched),
             "updated_at": _now_cst().isoformat(),
         }
 

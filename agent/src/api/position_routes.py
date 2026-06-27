@@ -1763,6 +1763,14 @@ def register_position_routes(
             if error_msg:
                 full_content = error_msg
 
+            # Detect unparsed DSML tool-call markup (GLM/DeepSeek models may emit this)
+            if not error_msg and full_content:
+                dsml_markers = ["<｜｜DSML｜｜", "｜｜DSML｜｜", "<｜tool_calls_begin｜>", "<｜tool▁calls▁begin｜>"]
+                if any(marker in full_content for marker in dsml_markers):
+                    logger.warning("AI analysis returned unparsed DSML tool markup for %s", code)
+                    error_msg = "AI 模型返回了未解析的工具调用格式（DSML）。这通常发生在 GLM/DeepSeek 模型未正确配置工具调用时。建议切换到标准 OpenAI 格式的模型（如 DeepSeek-V3 或 GLM-4），或检查模型配置。"
+                    full_content = error_msg
+
             # Cache successful results
             if full_content and not error_msg:
                 with _AI_CACHE_LOCK:

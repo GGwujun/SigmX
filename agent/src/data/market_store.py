@@ -424,9 +424,9 @@ class MarketStore:
     def _executemany_chunked(self, sql: str, rows: list[tuple]) -> int:
         """Run executemany in ≤_BATCH-row transactions; return rows written."""
         written = 0
-        with self._write_transaction():
-            for i in range(0, len(rows), _BATCH):
-                chunk = rows[i : i + _BATCH]
+        for i in range(0, len(rows), _BATCH):
+            chunk = rows[i : i + _BATCH]
+            with self._write_transaction():
                 self._conn.executemany(sql, chunk)
                 written += len(chunk)
         return written

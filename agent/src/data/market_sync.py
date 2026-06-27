@@ -404,11 +404,13 @@ def _env_token(name: str) -> str:
     if token:
         return token
     env_path = os.getenv("VIBE_TRADING_ENV_PATH", "")
-    candidates = [env_path] if env_path else []
-    candidates.extend([
-        os.path.join(os.getcwd(), "agent", ".env"),
-        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"),
-    ])
+    if env_path:
+        candidates = [env_path]
+    else:
+        candidates = [
+            os.path.join(os.getcwd(), "agent", ".env"),
+            os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), ".env"),
+        ]
     for path in candidates:
         if not path or not os.path.exists(path):
             continue
@@ -4433,11 +4435,7 @@ def _loop() -> None:
     # Mark this daemon thread as background so the limiter reserves slots for
     # foreground requests and reclaims permits if a sync stalls.
     token = mark_background(True)
-    store = get_market_store()
-    if store is None:
-        logger.warning("market-sync daemon: store unavailable, exiting loop")
-        reset_background(token)
-        return
+    store = MarketStore()
     while True:
         try:
             _maybe_run_premarket_sync(store)
@@ -4451,6 +4449,9 @@ def _loop() -> None:
 
 def start_market_sync_daemon() -> None:
     """Start the background market-sync daemon thread (idempotent)."""
+    if os.getenv("MARKET_SYNC_DAEMON_ENABLED", "0").strip().lower() not in {"1", "true", "yes"}:
+        logger.info("market-sync daemon disabled; use vibe-trading-sync worker")
+        return
     global _daemon_started
     with _daemon_lock:
         if _daemon_started:

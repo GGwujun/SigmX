@@ -12,6 +12,7 @@ services:
       - agent/.env
     environment:
       - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
+      - MARKET_SYNC_DAEMON_ENABLED=0
       # RSSHub instance (docker service name `rsshub`, internal port 1200).
       # The data layer (news_feed.py) reads this to aggregate A-share news.
       - RSSHUB_URL=http://rsshub:1200
@@ -24,6 +25,22 @@ services:
       # inside the container is /home/vibe/.vibe-trading). Without this, users /
       # balances / saved reports are lost on container rebuild.
       - vibe-data:/home/vibe/.vibe-trading
+    restart: unless-stopped
+
+  market-sync:
+    image: crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com/ggwujun/sigmx:latest
+    build: .
+    env_file:
+      - agent/.env
+    environment:
+      - RSSHUB_URL=http://rsshub:1200
+      - MARKET_SYNC_POSTCLOSE_UNIVERSE=all
+      - MARKET_SYNC_POSTCLOSE_LOOKBACK_DAYS=365
+    depends_on:
+      - rsshub
+    volumes:
+      - vibe-data:/home/vibe/.vibe-trading
+    command: ["vibe-trading-sync", "worker", "--interval", "60"]
     restart: unless-stopped
 
   # RSSHub — turns financial sites (财联社/东财/雪球/同花顺) into structured RSS

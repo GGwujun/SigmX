@@ -104,6 +104,11 @@ def _store():
     return get_market_store()
 
 
+def _sync_store():
+    from src.data.market_store import MarketStore
+    return MarketStore()
+
+
 def _latest_synced() -> dict[str, str]:
     """Return {date: iso_ts} for every daemon:<date> sync_meta key."""
     store = _store()
@@ -155,7 +160,7 @@ async def sync_daily(body: DailySyncRequest) -> SyncResultResponse:
     """Run one trade date's sync synchronously (foreground)."""
     from src.data.market_sync import run_daily_sync
 
-    store = _store()
+    store = _sync_store()
     if store is None:
         raise HTTPException(503, "market store unavailable")
     trade_date = _resolve_trade_date(body.trade_date)
@@ -180,7 +185,7 @@ async def sync_code(body: CodeSyncRequest) -> SyncResultResponse:
     """Sync a single code's daily-K over [start, end] (defaults: last 90 days)."""
     from src.data.market_sync import _fetch_daily_range_rows, _latest_settled_date_for_sync, _to_tpdog_code
 
-    store = _store()
+    store = _sync_store()
     if store is None:
         raise HTTPException(503, "market store unavailable")
     from src.data.market_sync import _today_cst_str
@@ -215,7 +220,7 @@ async def backfill(body: BackfillRequest) -> dict[str, Any]:
         try:
             today = _today_cst_str()
             rows = run_daily_sync(
-                today, store=_store(), codes=body.codes,
+                today, store=_sync_store(), codes=body.codes,
                 datasets=set(body.datasets), universe=body.universe,
                 etf_codes=body.etf_codes, deadline_seconds=3600,
                 lookback_days=body.lookback_days if body.lookback_days is not None else body.years * 365,
