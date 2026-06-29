@@ -1,65 +1,71 @@
 #!/bin/bash
-# Vibe Trading 部署脚本
-# 服务器: 47.115.144.24
-# 用户: root
+set -euo pipefail
+
+# Vibe Trading deployment script
+# Server: 47.115.144.24
+# User: root
+
+REGISTRY="crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com"
+REGISTRY_USER="876337269@qq.com"
+REGISTRY_PASSWORD="Gao876337@"
+SERVICES=(rsshub vibe-trading market-sync)
 
 echo "========================================="
-echo "Vibe Trading 自动部署"
+echo "Vibe Trading deploy"
 echo "========================================="
 echo ""
 
-# 1. 登录阿里云 ACR
-echo "步骤 1: 登录阿里云 ACR..."
-docker login --username=876337269@qq.com --password=Gao876337@ crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com
-
-if [ $? -ne 0 ]; then
-    echo "❌ ACR 登录失败"
-    exit 1
-fi
-echo "✅ ACR 登录成功"
+echo "Step 1: Log in to Aliyun ACR..."
+echo "${REGISTRY_PASSWORD}" | docker login \
+  --username="${REGISTRY_USER}" \
+  --password-stdin \
+  "${REGISTRY}"
+echo "ACR login OK"
 echo ""
 
-# 2. 查找项目目录
-echo "步骤 2: 查找项目目录..."
-PROJECT_DIR=$(find /root /home -name "Vibe-Trading" -type d 2>/dev/null | head -1)
-
-if [ -z "$PROJECT_DIR" ]; then
-    echo "❌ 未找到项目目录，请手动指定:"
-    echo "   cd /path/to/Vibe-Trading"
-    exit 1
+echo "Step 2: Locate project directory..."
+PROJECT_DIR=$(find /opt /root /home -name "Vibe-Trading" -type d 2>/dev/null | head -1)
+if [ -z "${PROJECT_DIR}" ] && [ -d "/opt/sigmx" ]; then
+  PROJECT_DIR="/opt/sigmx"
 fi
-
-echo "✅ 找到项目目录: $PROJECT_DIR"
-cd "$PROJECT_DIR"
+if [ -z "${PROJECT_DIR}" ]; then
+  echo "Project directory not found. Expected /opt/sigmx or a Vibe-Trading checkout."
+  exit 1
+fi
+echo "Project directory: ${PROJECT_DIR}"
+cd "${PROJECT_DIR}"
 echo ""
 
-# 3. 拉取最新镜像
-echo "步骤 3: 拉取最新镜像..."
-docker compose pull vibe-trading
-
-if [ $? -ne 0 ]; then
-    echo "❌ 镜像拉取失败"
-    exit 1
+echo "Step 3: Update deployment checkout..."
+if [ -d ".git" ]; then
+  git fetch origin main
+  git pull --ff-only origin main
+else
+  echo "Not a git checkout; using the existing files in ${PROJECT_DIR}"
 fi
-echo "✅ 镜像拉取成功"
 echo ""
 
-# 4. 重启服务
-echo "步骤 4: 重启服务..."
-docker compose up -d vibe-trading
-
-if [ $? -ne 0 ]; then
-    echo "❌ 服务启动失败"
+echo "Step 4: Validate compose services..."
+for service in "${SERVICES[@]}"; do
+  if ! docker compose config --services | grep -qx "${service}"; then
+    echo "Missing required compose service: ${service}"
     exit 1
-fi
-echo "✅ 服务启动成功"
+  fi
+done
+echo "Required services present: ${SERVICES[*]}"
 echo ""
 
-# 5. 查看服务状态
-echo "步骤 5: 查看服务状态..."
+echo "Step 5: Pull latest images..."
+docker compose pull "${SERVICES[@]}"
+echo ""
+
+echo "Step 6: Start application and data sync worker..."
+docker compose up -d --remove-orphans "${SERVICES[@]}"
+echo ""
+
+echo "Step 7: Service status..."
 docker compose ps
 echo ""
 
-# 6. 查看日志
-echo "步骤 6: 查看最近日志 (Ctrl+C 退出)..."
-docker compose logs vibe-trading --tail=50 --follow
+echo "Step 8: Recent logs..."
+docker compose logs --tail=80 vibe-trading market-sync
