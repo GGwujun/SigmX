@@ -216,12 +216,11 @@ def _build_index_rows(df: pd.DataFrame) -> list[dict[str, Any]]:
         return []
 
     preferred_codes = ("000001", "399001", "399006", "000300", "000905", "000852", "000688", "899050")
-    preferred_names = ("上证", "深证", "创业板", "沪深300", "中证500", "北证50")
     rows: list[dict[str, Any]] = []
     for _, row in df.iterrows():
         code = str(row.get(code_col, ""))
         name = str(row.get(name_col, ""))
-        if not any(key in code for key in preferred_codes) and not any(key in name for key in preferred_names):
+        if not any(key in code for key in preferred_codes):
             continue
         rows.append({
             "symbol": code,
@@ -229,7 +228,7 @@ def _build_index_rows(df: pd.DataFrame) -> list[dict[str, Any]]:
             "price": round(_number(row.get(price_col)) if price_col else 0, 2),
             "change_pct": round(_number(row.get(change_col)) if change_col else 0, 2),
         })
-        if len(rows) >= 6:
+        if len(rows) >= len(preferred_codes):
             break
     return rows
 

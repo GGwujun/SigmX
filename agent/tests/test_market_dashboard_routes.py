@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+import pandas as pd
 
 from src.api import market_dashboard_routes as routes
 
@@ -206,6 +207,20 @@ def test_market_overview_uses_live_index_rows(monkeypatch) -> None:
     assert overview["indices"] == [{"symbol": "000001.SH", "price": 3100, "trade_date": "2026-06-29"}]
     assert overview["index_source"] == "akshare.index_spot"
     assert overview["trade_date"] == "2026-06-26"
+
+
+def test_build_index_rows_filters_to_dashboard_indices() -> None:
+    rows = routes._build_index_rows(
+        pd.DataFrame(
+            [
+                {"code": "000001", "name": "上证指数", "price": 4034.08, "change_pct": 0.17},
+                {"code": "399330", "name": "深证100", "price": 6662.41, "change_pct": -1.32},
+                {"code": "000300", "name": "沪深300", "price": 5200.0, "change_pct": -0.2},
+            ]
+        )
+    )
+
+    assert [row["symbol"] for row in rows] == ["000001", "000300"]
 
 
 def test_apply_breadth_snapshot_maps_intraday_fields() -> None:
