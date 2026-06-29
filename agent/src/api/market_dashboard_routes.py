@@ -1369,7 +1369,7 @@ def _provisional_daily_bar(store: Any, project_code: str, latest_official_date: 
     normalized = _normalize_index_symbol(project_code)
     if normalized in _INDEX_SYMBOL_MAP.values():
         return _index_provisional_daily_bar(normalized, today)
-    return _stock_realtime_snapshot_bar(store, project_code, today) or _stock_spot_provisional_daily_bar(project_code, today)
+    return _stock_realtime_snapshot_bar(store, project_code, today)
 
 
 def _live_index_rows() -> list[dict[str, Any]]:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import sqlite3
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 import pandas as pd
@@ -310,6 +312,42 @@ def test_stock_spot_provisional_daily_bar_builds_intraday_daily(monkeypatch) -> 
     assert bar["volume"] == 1000.0
     assert bar["provisional"] is True
     assert bar["source"] == "akshare.stock_spot"
+
+
+def test_stock_realtime_snapshot_bar_builds_intraday_daily() -> None:
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """
+        CREATE TABLE realtime_quote_snapshot (
+            trade_date TEXT,
+            code TEXT,
+            snapshot_at TEXT,
+            price REAL,
+            open REAL,
+            high REAL,
+            low REAL,
+            volume REAL,
+            source TEXT,
+            updated_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        "INSERT INTO realtime_quote_snapshot VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ("2026-06-29", "600000.SH", "2026-06-29T10:00:00+08:00", 12.34, 12.0, 12.5, 11.9, 1000, "akshare.stock_zh_a_spot_em", "2026-06-29T10:00:01+08:00"),
+    )
+
+    class Store:
+        _conn = conn
+
+    bar = routes._stock_realtime_snapshot_bar(Store(), "600000.SH", "2026-06-29")
+
+    assert bar is not None
+    assert bar["date"] == "2026-06-29"
+    assert bar["close"] == 12.34
+    assert bar["provisional"] is True
+    assert bar["source"] == "akshare.stock_zh_a_spot_em"
 
 
 def test_provisional_daily_bar_skips_when_official_bar_is_today() -> None:

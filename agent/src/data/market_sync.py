@@ -1528,6 +1528,74 @@ def _sync_realtime_quotes_tpdog(store: MarketStore, trade_date: str) -> int:
     written = store.upsert_realtime_quotes(trade_date, rows, snapshot_at=snapshot_at)
     if written:
         _clear_sync_error(store, "realtime", "tpdog.current_funds")
+        return written
+    return _sync_realtime_quotes_akshare(store, trade_date)
+
+
+def _sync_realtime_quotes_akshare(store: MarketStore, trade_date: str) -> int:
+    """Fallback realtime A-share quotes via akshare spot."""
+    try:
+        import akshare as ak
+
+        if hasattr(ak, "stock_zh_a_spot_em"):
+            df = ak.stock_zh_a_spot_em()
+            source = "akshare.stock_zh_a_spot_em"
+        else:
+            df = ak.stock_zh_a_spot()
+            source = "akshare.stock_zh_a_spot"
+    except Exception as exc:  # noqa: BLE001
+        _set_sync_error(store, "realtime", "akshare.stock_spot", exc)
+        return 0
+    if df is None or df.empty:
+        _set_sync_error(store, "realtime", "akshare.stock_spot", "empty result")
+        return 0
+
+    code_col = _pick_column(df, ("代码",), 1) or _pick_any_column(df, ("code", "symbol"))
+    name_col = _pick_column(df, ("名称",), 2) or _pick_any_column(df, ("name",))
+    price_col = _pick_column(df, ("最新价",), 3) or _pick_any_column(df, ("price", "trade", "close"))
+    pre_close_col = _pick_column(df, ("昨收",), None) or _pick_any_column(df, ("pre_close", "yt_close"))
+    open_col = _pick_column(df, ("今开",), None) or _pick_column(df, ("开盘",), None) or _pick_any_column(df, ("open",))
+    high_col = _pick_column(df, ("最高",), None) or _pick_any_column(df, ("high",))
+    low_col = _pick_column(df, ("最低",), None) or _pick_any_column(df, ("low",))
+    volume_col = _pick_column(df, ("成交量",), None) or _pick_any_column(df, ("volume",))
+    amount_col = _pick_column(df, ("成交额",), None) or _pick_column(df, ("成交金额",), None) or _pick_any_column(df, ("amount", "turnover"))
+    rise_col = _pick_column(df, ("涨跌额",), None) or _pick_any_column(df, ("change", "rise"))
+    rise_rate_col = _pick_column(df, ("涨跌幅",), None) or _pick_any_column(df, ("change_pct", "pct_chg"))
+    turnover_col = _pick_column(df, ("换手率",), None) or _pick_any_column(df, ("turnover_rate", "t_rate"))
+    if not code_col or not price_col:
+        _set_sync_error(store, "realtime", source, f"missing columns: {list(df.columns)}")
+        return 0
+
+    rows: list[dict[str, Any]] = []
+    snapshot_at = _now_cst().isoformat()
+    for _, raw in df.iterrows():
+        code = _a_share_code(raw.get(code_col))
+        if not code or len("".join(ch for ch in code if ch.isdigit())) != 6:
+            continue
+        price = _num(raw.get(price_col))
+        if price <= 0:
+            continue
+        rows.append({
+            "code": code,
+            "name": raw.get(name_col) if name_col else None,
+            "price": price,
+            "pre_close": raw.get(pre_close_col) if pre_close_col else None,
+            "open": raw.get(open_col) if open_col else None,
+            "high": raw.get(high_col) if high_col else None,
+            "low": raw.get(low_col) if low_col else None,
+            "volume": raw.get(volume_col) if volume_col else None,
+            "total_amt": raw.get(amount_col) if amount_col else None,
+            "rise": raw.get(rise_col) if rise_col else None,
+            "rise_rate": raw.get(rise_rate_col) if rise_rate_col else None,
+            "turnover_rate": raw.get(turnover_col) if turnover_col else None,
+            "source": source,
+            "snapshot_at": snapshot_at,
+        })
+    written = store.upsert_realtime_quotes(trade_date, rows, snapshot_at=snapshot_at)
+    if written:
+        _clear_sync_error(store, "realtime", source)
+    else:
+        _set_sync_error(store, "realtime", source, "empty mapped result")
     return written
 
 
