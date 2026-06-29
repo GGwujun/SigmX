@@ -34,6 +34,7 @@ RUN pip install --no-cache-dir -r agent/requirements.txt
 # Copy project
 COPY pyproject.toml LICENSE README.md ./
 COPY agent/ agent/
+COPY docker/start-server.sh docker/start-server.sh
 
 # Copy built frontend
 COPY --from=frontend-build /app/frontend/dist frontend/dist
@@ -46,6 +47,7 @@ RUN pip install --no-cache-dir -e .
 RUN useradd --create-home --shell /usr/sbin/nologin vibe \
     && mkdir -p agent/runs agent/sessions agent/uploads agent/.swarm/runs \
     && mkdir -p /home/vibe/.vibe-trading \
+    && chmod +x docker/start-server.sh \
     && chown -R vibe:vibe /app /home/vibe
 USER vibe
 
@@ -56,5 +58,5 @@ EXPOSE 8899
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8899/health')" || exit 1
 
-# Run API server (serves frontend/dist as static files)
-CMD ["vibe-trading", "serve", "--host", "0.0.0.0", "--port", "8899"]
+# Run API server and, by default, the market-data sync worker.
+CMD ["docker/start-server.sh"]
