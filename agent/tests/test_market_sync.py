@@ -594,7 +594,7 @@ def test_yahoo_chart_last_rows_uses_overseas_proxy(monkeypatch) -> None:
     assert rows["NVDA"][-1]["close"] == 12.5
     assert rows["NVDA"][-1]["volume"] == 200
     assert calls[1][0] == "http://proxy.local/fetch"
-    assert calls[1][1]["params"]["strategy"] == "json"
+    assert calls[1][1]["params"]["strategy"] == "raw"
     assert calls[1][1]["headers"]["X-Proxy-Key"] == "secret"
 
 

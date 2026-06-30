@@ -2921,7 +2921,7 @@ def _yahoo_chart_last_rows(symbols: list[str], *, period: str = "10d") -> dict[s
         try:
             resp = requests.get(
                 f"{proxy}/fetch",
-                params={"url": url, "strategy": "json"},
+                params={"url": url, "strategy": "raw"},
                 headers={"X-Proxy-Key": secret},
                 timeout=20,
             )
