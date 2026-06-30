@@ -510,6 +510,50 @@ def _bar_date(index_value: Any) -> str:
     return str(index_value)[:10]
 
 
+def _realtime_performance(symbol: str, price_at_pick: float, pick_date: str) -> dict[str, Any] | None:
+    try:
+        from src.data.market_data_service import normalize_code
+        from src.data.market_store import get_market_store
+
+        store = get_market_store()
+        if store is None:
+            return None
+        quote = store.get_latest_realtime_quote(normalize_code(symbol))
+    except Exception:
+        logger.debug("daily recommendation realtime quote lookup failed for %s", symbol, exc_info=True)
+        return None
+
+    if not quote:
+        return None
+    quote_date = str(quote.get("trade_date") or "")[:10]
+    if pick_date and quote_date and quote_date < pick_date:
+        return None
+    current = float(quote.get("price") or 0)
+    if current <= 0 or price_at_pick <= 0:
+        return None
+
+    high = float(quote.get("high") or current)
+    low = float(quote.get("low") or current)
+    return {
+        "status": "realtime",
+        "latest_date": quote_date or None,
+        "latest_price": round(current, 3),
+        "latest_return_pct": round((current - price_at_pick) / price_at_pick * 100, 2),
+        "max_gain_pct": round((max(high, current) - price_at_pick) / price_at_pick * 100, 2),
+        "max_drawdown_pct": round((min(low, current) - price_at_pick) / price_at_pick * 100, 2),
+        "source": quote.get("source") or "realtime_quote_snapshot",
+        "snapshot_at": quote.get("snapshot_at") or quote.get("updated_at"),
+        "t0": {
+            "date": quote_date or pick_date,
+            "close": round(current, 3),
+            "return_pct": round((current - price_at_pick) / price_at_pick * 100, 2),
+        },
+        "t1": None,
+        "t3": None,
+        "t5": None,
+    }
+
+
 def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
     from src.data.market_data_service import latest_daily_bars
 
@@ -518,11 +562,11 @@ def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
     if not symbol or price <= 0:
         return {"status": "missing_price"}
 
+    pick_date = str(record.get("date", ""))
     df = latest_daily_bars(symbol, days=40)
     if df is None or df.empty or "close" not in df.columns:
-        return {"status": "no_market_data"}
+        return _realtime_performance(symbol, price, pick_date) or {"status": "no_market_data"}
 
-    pick_date = str(record.get("date", ""))
     rows = []
     for idx, row in df.sort_index().iterrows():
         date = _bar_date(idx)
@@ -532,7 +576,7 @@ def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
             low = float(row.get("low", close) or close)
             rows.append({"date": date, "close": close, "high": high, "low": low})
     if not rows:
-        return {"status": "pending"}
+        return _realtime_performance(symbol, price, pick_date) or {"status": "pending"}
 
     out: dict[str, Any] = {
         "status": "ok",

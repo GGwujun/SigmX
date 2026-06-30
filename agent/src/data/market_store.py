@@ -735,6 +735,25 @@ class MarketStore:
         return [dict(r) for r in rows]
 
     @_synchronized
+    def get_latest_realtime_quote(self, code: str, trade_date: str | None = None) -> dict | None:
+        project_code = str(code or "").upper().strip()
+        if not project_code:
+            return None
+        params: list[Any] = [project_code]
+        where = "code = ?"
+        if trade_date:
+            where += " AND trade_date = ?"
+            params.append(trade_date)
+        row = self._conn.execute(
+            "SELECT trade_date, code, snapshot_at, name, price, pre_close, open, high, low, "
+            "volume, total_amt, rise, rise_rate, turnover_rate, source, updated_at "
+            f"FROM realtime_quote_snapshot WHERE {where} "
+            "ORDER BY trade_date DESC, snapshot_at DESC, updated_at DESC LIMIT 1",
+            params,
+        ).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
     def market_coverage(self) -> dict[str, Any]:
         """Return high-level local-data coverage for operator/status views."""
         scalar_sql = {
