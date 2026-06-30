@@ -564,6 +564,15 @@ def _is_spa_html_route(path: str) -> bool:
     return any(pattern.match(path) for pattern in _SPA_HTML_PATH_REGEX)
 
 
+def _with_frontend_cache_headers(response: Any, path: str) -> Any:
+    normalized = path.lstrip("/")
+    if normalized in {"", ".", "index.html"} or normalized.endswith(".html"):
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+    elif normalized.startswith("assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
 @app.middleware("http")
 async def _spa_html_deep_link_fallback(request: Request, call_next):
     """Serve ``frontend/dist/index.html`` when a browser navigates directly to
@@ -578,7 +587,7 @@ async def _spa_html_deep_link_fallback(request: Request, call_next):
         if "text/html" in accept and _is_spa_html_route(request.url.path):
             index = _FRONTEND_DIST / "index.html"
             if index.exists():
-                return FileResponse(str(index))
+                return _with_frontend_cache_headers(FileResponse(str(index)), "index.html")
     return await call_next(request)
 
 
@@ -3281,11 +3290,13 @@ def serve_main(argv: list[str] | None = None) -> int:
 
         async def get_response(self, path: str, scope: Dict[str, Any]):
             try:
-                return await super().get_response(path, scope)
+                response = await super().get_response(path, scope)
             except StarletteHTTPException as exc:
                 if exc.status_code != status.HTTP_404_NOT_FOUND:
                     raise
-                return await super().get_response("index.html", scope)
+                response = await super().get_response("index.html", scope)
+                path = "index.html"
+            return _with_frontend_cache_headers(response, path)
 
     parser = argparse.ArgumentParser(description="Vibe-Trading Server")
     parser.add_argument("--port", type=int, default=8000, help="Listen port (default 8000)")

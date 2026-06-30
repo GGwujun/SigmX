@@ -414,7 +414,7 @@ export const api = {
   // AI market dashboard aggregate
   getMarketDashboard: () => request<MarketDashboardResponse>("/market-dashboard"),
   getMarketDashboardStage: (stage: MarketDashboardStage) =>
-    request<MarketDashboardStageResponse>(`/market-dashboard/stages/${stage}`),
+    request<MarketDashboardStageResponse>(`/market-dashboard/stages/${stage}?_=${Date.now()}`, { cache: "no-store" }),
   getMarketBars: (code: string, days = 60) =>
     request<MarketBarsResponse>(`/market-dashboard/bars/${encodeURIComponent(code)}?days=${days}`),
 

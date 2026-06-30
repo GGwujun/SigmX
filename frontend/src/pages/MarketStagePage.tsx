@@ -52,6 +52,12 @@ const STAGE_META: Record<MarketDashboardStage, { title: string; desc: string; na
   },
 };
 
+const AUTO_REFRESH_MS: Partial<Record<MarketDashboardStage, number>> = {
+  "morning-brief": 60_000,
+  "intraday-monitor": 60_000,
+  "tail-strategy": 60_000,
+};
+
 function arr<T = Row>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -1468,10 +1474,11 @@ function MarketStagePage({ stage }: { stage: MarketDashboardStage }) {
   }, [load]);
 
   useEffect(() => {
-    if (stage !== "intraday-monitor") return undefined;
+    const intervalMs = AUTO_REFRESH_MS[stage];
+    if (!intervalMs) return undefined;
     const id = window.setInterval(() => {
       void load(false);
-    }, 60_000);
+    }, intervalMs);
     return () => window.clearInterval(id);
   }, [load, stage]);
 
