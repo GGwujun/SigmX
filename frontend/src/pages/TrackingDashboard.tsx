@@ -38,6 +38,7 @@ interface Position {
 const REFRESH_MS = 120_000;
 const LS_KEY = "vibe-position-watchlist";
 const AI_CACHE_KEY = "vibe-position-ai-cache";
+const ANALYSIS_CACHE_KEY = "vibe-position-analysis-cache";
 
 const DECISION_COLORS: Record<string, string> = {
   strong_buy: "text-success bg-success/10 border-success/20",
@@ -117,6 +118,25 @@ function loadPositions(): Position[] {
 function savePositions(list: Position[]): void {
   localStorage.setItem(LS_KEY, JSON.stringify(list));
   api.saveWatchlist(list).catch(() => {});
+}
+
+function loadCachedSignals(): PositionSignal[] {
+  try {
+    const raw = localStorage.getItem(ANALYSIS_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    const signals = Array.isArray(parsed?.signals) ? parsed.signals : [];
+    return signals;
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedSignals(signals: PositionSignal[]): void {
+  try {
+    localStorage.setItem(ANALYSIS_CACHE_KEY, JSON.stringify({ signals, updated_at: new Date().toISOString() }));
+  } catch {
+    // Best-effort cache for fast first paint.
+  }
 }
 
 function positionStats(signal?: PositionSignal | null, position?: Position) {
@@ -880,12 +900,17 @@ function PageState({
 
 export function TrackingDashboard() {
   const { dark } = useDarkMode();
+  const initialSignalsRef = useRef<PositionSignal[] | null>(null);
+  if (initialSignalsRef.current === null) {
+    initialSignalsRef.current = loadCachedSignals();
+  }
+  const initialSignals = initialSignalsRef.current;
   const [positions, setPositions] = useState<Position[]>([]);
   const [watchlistReady, setWatchlistReady] = useState(false);
-  const [signals, setSignals] = useState<PositionSignal[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [signals, setSignals] = useState<PositionSignal[]>(initialSignals);
+  const [loading, setLoading] = useState(initialSignals.length === 0);
   const [error, setError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<PositionSignal | null>(null);
+  const [selected, setSelected] = useState<PositionSignal | null>(initialSignals[0] ?? null);
   const [refreshing, setRefreshing] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
   const [addSymbol, setAddSymbol] = useState("");
@@ -961,6 +986,7 @@ export function TrackingDashboard() {
     api.analyzePositions(body)
       .then((res) => {
         setSignals(res.signals);
+        saveCachedSignals(res.signals);
         setError(null);
         setSelected((prev) => {
           if (prev && res.signals.some((item) => item.symbol === prev.symbol)) {
@@ -1034,6 +1060,7 @@ export function TrackingDashboard() {
     api.analyzePositions({ symbols: next.map((pos) => pos.symbol) })
       .then((res) => {
         setSignals(res.signals);
+        saveCachedSignals(res.signals);
         setError(null);
         setSelected(res.signals.find((item) => item.symbol === code) ?? res.signals[0] ?? null);
       })
@@ -1056,6 +1083,7 @@ export function TrackingDashboard() {
     api.analyzePositions({ symbols: next.map((pos) => pos.symbol) })
       .then((res) => {
         setSignals(res.signals);
+        saveCachedSignals(res.signals);
         setSelected((prev) => prev && res.signals.some((item) => item.symbol === prev.symbol) ? prev : res.signals[0] ?? null);
       })
       .catch(() => {});

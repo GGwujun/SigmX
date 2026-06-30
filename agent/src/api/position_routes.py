@@ -1417,6 +1417,7 @@ def register_position_routes(
         # Analyze each symbol concurrently
         loop = asyncio.get_event_loop()
         results = []
+        analysis_jobs: list[tuple[str, pd.DataFrame]] = []
         for code in symbols:
             df = data.get(code)
             if df is None or df.empty:
@@ -1434,10 +1435,23 @@ def register_position_routes(
                 })
                 continue
 
-            result = await loop.run_in_executor(None, _analyze_symbol, code, df)
-            results.append(result)
+            analysis_jobs.append((code, df))
 
         # Sort: strong_buy → buy → hold → sell → strong_sell, then by score
+        if analysis_jobs:
+            max_workers = min(4, len(analysis_jobs))
+            with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                futures = [
+                    loop.run_in_executor(pool, _analyze_symbol, code, df)
+                    for code, df in analysis_jobs
+                ]
+                analyzed = await asyncio.gather(*futures, return_exceptions=True)
+            for (code, _df), result in zip(analysis_jobs, analyzed):
+                if isinstance(result, Exception):
+                    logger.warning("Position analysis failed for %s: %s", code, result)
+                    continue
+                results.append(result)
+
         order = {"strong_buy": 0, "buy": 1, "hold": 2, "sell": 3, "strong_sell": 4}
         results.sort(key=lambda r: (order.get(r["decision"], 99), -r["overall_score"]))
 
