@@ -1439,7 +1439,11 @@ def register_position_routes(
 
         # Sort: strong_buy → buy → hold → sell → strong_sell, then by score
         if analysis_jobs:
-            max_workers = min(4, len(analysis_jobs))
+            try:
+                configured_workers = int(os.getenv("POSITION_ANALYSIS_MAX_WORKERS", "1"))
+            except ValueError:
+                configured_workers = 1
+            max_workers = max(1, min(configured_workers, len(analysis_jobs)))
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 futures = [
                     loop.run_in_executor(pool, _analyze_symbol, code, df)
