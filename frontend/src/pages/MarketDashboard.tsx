@@ -39,6 +39,8 @@ const INDEX_OPTIONS = [
   { symbol: "000300.SH", name: "沪深300" },
 ];
 
+const DASHBOARD_REFRESH_MS = 60_000;
+
 function num(value: unknown): number | null {
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
@@ -224,7 +226,7 @@ function HoldingsStrip({
   );
 }
 
-function MarketEnvironmentBlock({ data }: { data: MarketDashboardResponse }) {
+function MarketEnvironmentBlock({ data, refreshKey }: { data: MarketDashboardResponse; refreshKey: string }) {
   const overviewRows = data.market_overview?.indices ?? [];
   const breadth = data.market_overview?.breadth;
   const indexMap = new Map(overviewRows.map((row) => [row.symbol, row]));
@@ -238,7 +240,7 @@ function MarketEnvironmentBlock({ data }: { data: MarketDashboardResponse }) {
     <DashboardSection title="盘型 / 环境" sub="A股 + 海外" icon={<Layers3 className="h-5 w-5 text-amber-500" />}>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {INDEX_OPTIONS.map((item) => (
-          <IndexMiniCard key={item.symbol} meta={item} row={indexMap.get(item.symbol)} latestDate={latestDate} />
+          <IndexMiniCard key={item.symbol} meta={item} row={indexMap.get(item.symbol)} latestDate={latestDate} refreshKey={refreshKey} />
         ))}
       </div>
       <div className="mt-3 rounded-md border bg-muted/20 px-3 py-3">
@@ -259,7 +261,17 @@ function MarketEnvironmentBlock({ data }: { data: MarketDashboardResponse }) {
   );
 }
 
-function IndexMiniCard({ meta, row, latestDate }: { meta: { symbol: string; name: string }; row?: MarketIndexRow; latestDate?: string }) {
+function IndexMiniCard({
+  meta,
+  row,
+  latestDate,
+  refreshKey,
+}: {
+  meta: { symbol: string; name: string };
+  row?: MarketIndexRow;
+  latestDate?: string;
+  refreshKey: string;
+}) {
   // 指数日期落后于最新交易日 → 数据源抽风导致缺最新日，静默回退到了旧值，必须标出来。
   const stale = !!latestDate && !!row?.trade_date && row.trade_date < latestDate;
   const [bars, setBars] = useState<MarketBarsResponse | null>(null);
@@ -275,7 +287,7 @@ function IndexMiniCard({ meta, row, latestDate }: { meta: { symbol: string; name
     return () => {
       cancelled = true;
     };
-  }, [meta.symbol]);
+  }, [meta.symbol, refreshKey]);
 
   const option = useMemo<EChartsOption>(() => {
     const chartBars = bars?.bars ?? [];
@@ -678,6 +690,15 @@ export function MarketDashboard() {
     load(true);
   }, [load]);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        load(true);
+      }
+    }, DASHBOARD_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -737,7 +758,7 @@ export function MarketDashboard() {
 
         <SummaryHero data={data} />
         <HoldingsStrip dashboard={data} closeStage={closeStage} />
-        <MarketEnvironmentBlock data={data} />
+        <MarketEnvironmentBlock data={data} refreshKey={data.updated_at} />
         <LimitStats data={data} />
         <SentimentGauge sentiment={data.sentiment} />
         <CapitalEvidenceBlock capital={data.capital} pools={data.pools} />
