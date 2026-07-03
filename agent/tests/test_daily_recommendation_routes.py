@@ -223,3 +223,65 @@ def test_generate_for_phase_versions_and_supersedes(monkeypatch: pytest.MonkeyPa
     draft = next(record for record in storage if record["id"] == second[0]["id"])
     assert final[0]["status"] == "final"
     assert draft["status"] == "superseded"
+
+
+def test_generate_final_supersedes_legacy_same_slot_final(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage: list[dict] = [
+        {
+            "id": "2026-07-03:morning:v1:600001.SH",
+            "date": "2026-07-03",
+            "target_date": "2026-07-03",
+            "slot": "morning",
+            "generation_phase": "morning",
+            "status": "final",
+            "version": 1,
+            "symbol": "600001.SH",
+            "rank": 1,
+            "created_at": "2026-07-03T09:20:00+08:00",
+        }
+    ]
+
+    monkeypatch.setattr(routes, "_now_cst", lambda: datetime(2026, 7, 3, 9, 24, tzinfo=routes._CST))
+    monkeypatch.setattr(routes, "_reviewed_candidates", lambda slot, limit: [_candidate("600000.SH")])
+    monkeypatch.setattr(routes, "_load_records", lambda: list(storage))
+    monkeypatch.setattr(routes, "_save_records", lambda records: storage.__setitem__(slice(None), records))
+
+    routes._generate_for_phase("morning_final", 1, target_date="2026-07-03")
+
+    legacy = next(record for record in storage if record["id"] == "2026-07-03:morning:v1:600001.SH")
+    assert legacy["status"] == "superseded"
+
+
+def test_cap_latest_final_per_slot_keeps_latest_batch_only() -> None:
+    old_batch = [
+        {
+            "id": f"old-{idx}",
+            "target_date": "2026-07-03",
+            "date": "2026-07-03",
+            "slot": "morning",
+            "generation_phase": "morning",
+            "status": "final",
+            "version": 1,
+            "rank": idx,
+            "created_at": f"2026-07-03T09:20:0{idx}+08:00",
+        }
+        for idx in range(1, 6)
+    ]
+    new_batch = [
+        {
+            "id": f"new-{idx}",
+            "target_date": "2026-07-03",
+            "date": "2026-07-03",
+            "slot": "morning",
+            "generation_phase": "morning_final",
+            "status": "final",
+            "version": 1,
+            "rank": idx,
+            "created_at": f"2026-07-03T09:24:0{idx}+08:00",
+        }
+        for idx in range(1, 6)
+    ]
+
+    visible = routes._cap_latest_final_per_slot(old_batch + new_batch)
+
+    assert [record["id"] for record in visible] == [f"new-{idx}" for idx in range(1, 6)]

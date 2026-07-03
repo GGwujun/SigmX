@@ -106,8 +106,10 @@ def _load_news(limit: int = 12) -> dict[str, Any]:
 def _load_tracking() -> dict[str, Any]:
     from src.data import schedule_store
     from src.data.tracking_watchlist_store import load_tracking_watchlist
+    from src.data.watchlist_store import load_watchlist
 
     return {
+        "holdings": load_watchlist(),
         "watchlist": load_tracking_watchlist(),
         "tasks": schedule_store.load_tasks(),
     }
@@ -1976,6 +1978,7 @@ def register_market_dashboard_routes(
             "news": news_items,
             "events": event_categories,
             "watchlist": tracking.get("watchlist", []),
+            "holdings": tracking.get("holdings", []),
             "tasks": tracking.get("tasks", []),
             "errors": errors,
             "counts": {
@@ -1985,6 +1988,7 @@ def register_market_dashboard_routes(
                 "hot_sectors": len(market_overview.get("hot_sectors", [])),
                 "news": len((data.get("news") or {}).get("articles", [])),
                 "events": sum(len(category.get("events", []) or []) for category in (data.get("events") or {}).get("categories", [])),
+                "holdings": len(tracking.get("holdings", [])),
                 "watchlist": len(tracking.get("watchlist", [])),
                 "tasks": len(tracking.get("tasks", [])),
                 "tail_decisions": len(tail_decisions),

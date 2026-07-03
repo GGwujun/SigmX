@@ -429,21 +429,29 @@ export const api = {
     request<MarketBarsResponse>(`/market-dashboard/bars/${encodeURIComponent(code)}?days=${days}`),
 
   // Daily recommendations
-  listDailyRecommendations: (params: { date?: string; slot?: string; limit?: number } = {}) => {
+  listDailyRecommendations: (params: { date?: string; slot?: string; target_date?: string; phase?: string; status?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.date) q.set("date", params.date);
     if (params.slot) q.set("slot", params.slot);
+    if (params.target_date) q.set("target_date", params.target_date);
+    if (params.phase) q.set("phase", params.phase);
+    if (params.status) q.set("status", params.status);
     if (params.limit) q.set("limit", String(params.limit));
     const qs = q.toString();
     return request<DailyRecommendationListResponse>(`/daily-recommendations${qs ? `?${qs}` : ""}`);
   },
-  generateDailyRecommendations: (slot: "morning" | "afternoon" | "manual", limit = 5) =>
+  generateDailyRecommendations: (
+    slot: "morning" | "afternoon" | "manual" | "post_close_base" | "evening_review" | "premarket_review" | "morning_final" | "afternoon_final",
+    limit = 5,
+  ) =>
     request<DailyRecommendationGenerateResponse>("/daily-recommendations/generate", {
       method: "POST",
       body: JSON.stringify({ slot, limit }),
     }),
   getDailyRecommendationBacktest: (days = 30) =>
     request<DailyRecommendationBacktestResponse>(`/daily-recommendations/backtest?days=${days}`),
+  getDailyRecommendationAttribution: (days = 30, horizon: "t0" | "t1" | "t3" | "t5" = "t1") =>
+    request<DailyRecommendationAttributionResponse>(`/daily-recommendations/attribution?days=${days}&horizon=${horizon}`),
 
   // Logic Chain
   getLogicChain: (code: string) => request<LogicChainResponse>(`/logic-chain/${encodeURIComponent(code)}`),
@@ -1342,6 +1350,14 @@ export interface TrackingWatchlistItem {
   added_at: string;
 }
 
+export interface PositionHoldingItem {
+  symbol: string;
+  name?: string;
+  cost?: number;
+  shares?: number;
+  date?: string;
+}
+
 export type Horizon = "短线" | "中线" | "长线";
 
 export interface ScheduledTask {
@@ -1518,6 +1534,7 @@ export interface MarketDashboardCounts {
   opportunities: number;
   news: number;
   events: number;
+  holdings?: number;
   watchlist: number;
   tasks: number;
   tail_decisions?: number;
@@ -1561,6 +1578,8 @@ export interface MarketIndexRow {
   price: number;
   change_pct: number;
   trade_date?: string;
+  source?: string;
+  is_realtime?: boolean;
 }
 
 export interface MarketBreadth {
@@ -1576,6 +1595,10 @@ export interface MarketBreadth {
 
 export interface MarketOverview {
   as_of?: string;
+  trade_date?: string;
+  breadth_updated_at?: string;
+  breadth_source?: string;
+  index_source?: string;
   indices: MarketIndexRow[];
   breadth: MarketBreadth;
   hot_sectors: MarketSectorRow[];
@@ -1673,7 +1696,7 @@ export interface MarketBarsResponse {
   status: "ok" | "error";
   code?: string;
   error?: string;
-  bars: { date: string; open: number; close: number; high: number; low: number; volume: number }[];
+  bars: { date: string; open: number; close: number; high: number; low: number; volume: number; provisional?: boolean; is_realtime?: boolean; snapshot_at?: string; source?: string }[];
 }
 
 export interface MarketDashboardResponse {
@@ -1696,6 +1719,7 @@ export interface MarketDashboardResponse {
   opportunities: OpportunityCategory[];
   news: NewsArticle[];
   events: EventsCategory[];
+  holdings?: PositionHoldingItem[];
   watchlist: TrackingWatchlistItem[];
   tasks: ScheduledTask[];
   errors: MarketDashboardSourceError[];
@@ -1725,8 +1749,16 @@ export interface RecommendationPerformance {
 export interface DailyRecommendationItem {
   id: string;
   date: string;
+  target_date?: string;
   slot: "morning" | "afternoon" | "manual";
   slot_label: string;
+  generation_phase?: string;
+  phase_label?: string;
+  status?: "draft" | "final" | "superseded";
+  version?: number;
+  supersedes_id?: string | null;
+  superseded_by?: string | null;
+  final_for?: string | null;
   rank: number;
   symbol: string;
   name: string;
@@ -1740,6 +1772,13 @@ export interface DailyRecommendationItem {
   created_at: string;
   source: string;
   recommendation_method?: string;
+  attribution_adjustments?: string[];
+  market_regime?: {
+    regime?: string;
+    score?: number;
+    reason?: string;
+    index_code?: string;
+  };
   ai_review?: {
     score?: number;
     decision?: string;
@@ -1787,8 +1826,12 @@ export interface DailyRecommendationListResponse {
 
 export interface DailyRecommendationGenerateResponse {
   date: string;
+  target_date?: string;
   slot: "morning" | "afternoon" | "manual";
   slot_label: string;
+  generation_phase?: string;
+  phase_label?: string;
+  status?: string;
   items: DailyRecommendationItem[];
   updated_at: string;
 }
@@ -1797,7 +1840,37 @@ export interface DailyRecommendationBacktestResponse {
   days: number;
   summary: DailyRecommendationSummary;
   by_slot: Array<DailyRecommendationSummary & { slot: string; slot_label: string }>;
+  by_phase?: Array<DailyRecommendationSummary & { generation_phase: string; phase_label: string }>;
   items: DailyRecommendationItem[];
+  updated_at: string;
+}
+
+export interface DailyRecommendationAttributionSummary {
+  count: number;
+  completed_count: number;
+  win_rate: number | null;
+  avg_return: number | null;
+  median_return: number | null;
+  avg_win: number | null;
+  avg_loss: number | null;
+  payoff_ratio: number | null;
+  best_return: number | null;
+  worst_return: number | null;
+}
+
+export interface DailyRecommendationAttributionRow extends DailyRecommendationAttributionSummary {
+  dimension: string;
+  key: string;
+}
+
+export interface DailyRecommendationAttributionResponse {
+  days: number;
+  horizon: "t0" | "t1" | "t3" | "t5";
+  summary: DailyRecommendationAttributionSummary;
+  by_dimension: Record<string, DailyRecommendationAttributionRow[]>;
+  weak_spots: DailyRecommendationAttributionRow[];
+  strong_spots: DailyRecommendationAttributionRow[];
+  min_completed_for_spots: number;
   updated_at: string;
 }
 

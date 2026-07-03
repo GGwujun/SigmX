@@ -203,9 +203,14 @@ function HoldingsStrip({
         symbol: String(r.symbol ?? ""),
         name: String(r.name ?? r.symbol ?? ""),
         change_pct: num(r.change_pct ?? r.return_pct),
-        note: String(r.sector ?? r.theme ?? ""),
+        note: String(r.note ?? r.sector ?? r.theme ?? ""),
       }))
-    : dashboard.watchlist.slice(0, 8).map((w) => ({ symbol: w.symbol, name: w.name || w.symbol, change_pct: null, note: "持仓/自选" }));
+    : (dashboard.holdings ?? []).slice(0, 8).map((holding) => ({
+        symbol: holding.symbol,
+        name: holding.name || holding.symbol,
+        change_pct: null,
+        note: holding.shares ? `持仓 ${Number(holding.shares).toLocaleString("zh-CN")} 股` : "持仓",
+      }));
 
   return (
     <DashboardSection title="我的持仓" icon={<Wallet className="h-5 w-5 text-amber-500" />}>
@@ -229,6 +234,8 @@ function HoldingsStrip({
 function MarketEnvironmentBlock({ data, refreshKey }: { data: MarketDashboardResponse; refreshKey: string }) {
   const overviewRows = data.market_overview?.indices ?? [];
   const breadth = data.market_overview?.breadth;
+  const environment = data.environment;
+  const sentiment = data.sentiment;
   const indexMap = new Map(overviewRows.map((row) => [row.symbol, row]));
   const adv = breadth?.advancers ?? 0;
   const dec = breadth?.decliners ?? 0;
@@ -238,6 +245,20 @@ function MarketEnvironmentBlock({ data, refreshKey }: { data: MarketDashboardRes
 
   return (
     <DashboardSection title="盘型 / 环境" sub="A股 + 海外" icon={<Layers3 className="h-5 w-5 text-amber-500" />}>
+      <div className="mb-3 grid gap-2 md:grid-cols-3">
+        <div className="rounded-md border bg-muted/20 px-3 py-2">
+          <div className="text-[10px] text-muted-foreground">市场环境</div>
+          <div className="mt-1 text-sm font-semibold">{environment?.regime ?? "-"}</div>
+        </div>
+        <div className="rounded-md border bg-muted/20 px-3 py-2">
+          <div className="text-[10px] text-muted-foreground">情绪阶段</div>
+          <div className="mt-1 text-sm font-semibold">{sentiment ? `${sentiment.stage} · ${sentiment.label}` : "-"}</div>
+        </div>
+        <div className="rounded-md border bg-muted/20 px-3 py-2">
+          <div className="text-[10px] text-muted-foreground">成交额</div>
+          <div className="mt-1 text-sm font-semibold">{fmtYi(environment?.turnover_billion ?? breadth?.turnover_billion)}</div>
+        </div>
+      </div>
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {INDEX_OPTIONS.map((item) => (
           <IndexMiniCard key={item.symbol} meta={item} row={indexMap.get(item.symbol)} latestDate={latestDate} refreshKey={refreshKey} />

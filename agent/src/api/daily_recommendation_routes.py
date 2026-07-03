@@ -1166,13 +1166,40 @@ def _mark_superseded(records: list[dict[str, Any]], new_records: list[dict[str, 
             continue
         same_target = record.get("target_date", record.get("date")) == new_target
         same_phase = record.get("generation_phase", record.get("slot")) == phase.id
+        same_slot = record.get("slot") == phase.analysis_slot
         same_symbol = str(record.get("symbol", "")).upper() in new_symbols
-        if same_target and same_phase:
+        if same_target and (same_phase or (phase.status == "final" and same_slot and record.get("status", "final") == "final")):
             record["status"] = "superseded"
             record["superseded_by"] = ",".join(sorted(new_ids))
         elif phase.status == "final" and same_target and same_symbol and record.get("status") == "draft":
             record["status"] = "superseded"
             record["superseded_by"] = next((r["id"] for r in new_records if r.get("symbol") == record.get("symbol")), None)
+
+
+def _cap_latest_final_per_slot(records: list[dict[str, Any]], per_slot: int = _MAX_GENERATED) -> list[dict[str, Any]]:
+    """Keep only the latest visible final batch for each target date and slot."""
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for record in records:
+        if record.get("status", "final") != "final":
+            passthrough.append(record)
+            continue
+        key = (str(record.get("target_date", record.get("date"))), str(record.get("slot") or ""))
+        grouped.setdefault(key, []).append(record)
+
+    capped: list[dict[str, Any]] = list(passthrough)
+    for rows in grouped.values():
+        batches: dict[tuple[str, int], list[dict[str, Any]]] = {}
+        for row in rows:
+            batch_key = (str(row.get("generation_phase", row.get("slot"))), int(row.get("version", 1) or 1))
+            batches.setdefault(batch_key, []).append(row)
+        latest_batch = max(
+            batches.values(),
+            key=lambda batch: max(str(r.get("created_at", "")) for r in batch),
+        )
+        latest_batch = sorted(latest_batch, key=lambda r: int(r.get("rank", 0) or 0))
+        capped.extend(latest_batch[:per_slot])
+    return capped
 
 
 def _generate_for_phase(phase_id: str, limit: int, *, target_date: str | None = None) -> list[dict[str, Any]]:
@@ -1278,6 +1305,9 @@ def register_daily_recommendation_routes(
             records = [r for r in records if r.get("generation_phase", r.get("slot")) == normalized_phase]
         if status and status != "all":
             records = [r for r in records if r.get("status", "final") == status]
+        if not phase:
+            records = _cap_latest_final_per_slot(records)
+            records = sorted(records, key=lambda r: str(r.get("created_at", "")), reverse=True)
         records = records[:limit]
         enriched = _with_performance(records)
         cutoff = (_now_cst() - timedelta(days=30)).strftime("%Y-%m-%d")
