@@ -11,11 +11,12 @@ Mounted under ``/market-sync`` and proxied by Vite (``API_ONLY_PATHS``).
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from src.api.auth_routes import require_admin
@@ -107,6 +108,76 @@ def _store():
 def _sync_store():
     from src.data.market_store import MarketStore
     return MarketStore()
+
+
+# ----------------------------------------------------------------------
+# Data push (本地 data-sync 推送增量数据，替代 rsync 文件覆盖)
+# 鉴权：固定 token（环境变量 MARKET_SYNC_PUSH_TOKEN）。不配则放开（方便测试）。
+# ----------------------------------------------------------------------
+
+
+def _check_push_token(x_push_token: str = Header(default="")) -> None:
+    expected = os.getenv("MARKET_SYNC_PUSH_TOKEN", "").strip()
+    if expected and x_push_token.strip() != expected:
+        raise HTTPException(status_code=401, detail="invalid push token")
+
+
+class PushRequest(BaseModel):
+    table: str
+    trade_date: str
+    rows: list[dict]
+
+
+# table -> (kind, pk_cols, value_cols)
+#   kind="wide"     : A类 market-wide，用 _upsert_market_wide（删当日再插，整日覆盖）
+#   kind="per_code" : B类 per-code，按 code 分组调专用 upsert（不删当日）
+PUSH_TABLES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
+    "sector_capital_flow": ("wide", ("trade_date", "sector"),
+     ("main_net", "change_pct", "extra_json")),
+    "stock_capital_rank": ("wide", ("trade_date", "rank_type", "code"),
+     ("name", "main_net", "change_pct", "extra_json")),
+    "market_breadth_snapshot": ("wide", ("trade_date",),
+     ("total", "advancers", "decliners", "unchanged", "limit_up", "limit_down",
+      "turnover_billion", "source", "extra_json")),
+    "sector_snapshot": ("wide", ("trade_date", "board_type", "name"),
+     ("change_pct", "advancers", "decliners", "leader", "extra_json")),
+    "global_market_index_daily": ("wide", ("trade_date", "symbol"),
+     ("name", "open", "high", "low", "close", "prev_close", "change_pct",
+      "currency", "source", "history_json", "extra_json")),
+    "us_theme_snapshot": ("wide", ("trade_date", "theme_id"),
+     ("theme_name", "proxy_symbol", "proxy_name", "close", "change_pct",
+      "a_share_mapping_json", "source", "extra_json")),
+    "us_a_share_transmission": ("wide", ("trade_date", "theme_id"),
+     ("us_theme", "a_share_themes_json", "signal_strength", "direction",
+      "reason", "source_data_json", "extra_json")),
+    "premarket_news": ("wide", ("trade_date", "category", "title"),
+     ("summary", "url", "source", "published_at")),
+    "dragon_tiger": ("wide", ("code", "trade_date"),
+     ("name", "close", "rise_rate", "net_amt", "buy_amt", "sell_amt", "extra_json")),
+    "stock_pool": ("wide", ("pool_type", "trade_date", "code"),
+     ("extra_json",)),
+    # B 类 per-code（专用 upsert，不删当日）
+    "bars_daily": ("per_code", (), ()),
+    "index_daily": ("per_code", (), ()),
+}
+
+
+def _push_per_code(store, table: str, rows: list[dict]) -> int:
+    """B 类：按 code 分组调专用 upsert（不删当日，避免误删其他 code）。"""
+    from src.data import market_store as ms
+    by_code: dict[str, list[dict]] = {}
+    for r in rows:
+        code = r.get("code")
+        if not code:
+            continue
+        by_code.setdefault(code, []).append(r)
+    total = 0
+    for code, group in by_code.items():
+        if table == "bars_daily":
+            total += store.upsert_daily_bars(code, group)
+        elif table == "index_daily":
+            total += store.upsert_index_daily(code, group)
+    return total
 
 
 def _latest_synced() -> dict[str, str]:
@@ -266,6 +337,30 @@ async def health() -> HealthResponse:
         tpdog_configured=configured, tpdog_ok=tpdog_ok,
         trading_today=_is_trading_day(_today_cst_str()), detail=detail,
     )
+
+
+@router.post("/push")
+def push_data(body: PushRequest, _: None = Depends(_check_push_token)) -> dict:
+    """接收本地 data-sync 推送的增量数据，写入本地库。
+    走应用单例连接写库（不覆盖文件），避免 rsync 句柄失效问题。"""
+    spec = PUSH_TABLES.get(body.table)
+    if spec is None:
+        raise HTTPException(status_code=400, detail=f"table '{body.table}' not pushable")
+    store = _store()
+    if store is None:
+        raise HTTPException(status_code=503, detail="market store unavailable")
+    kind, pk_cols, value_cols = spec
+    try:
+        if kind == "wide":
+            from src.data.market_store import _upsert_market_wide
+            n = _upsert_market_wide(store, body.table, body.trade_date, body.rows,
+                                    pk_cols=pk_cols, value_cols=value_cols)
+        else:  # per_code
+            n = _push_per_code(store, body.table, body.rows)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("market-sync push failed for %s/%s", body.table, body.trade_date)
+        raise HTTPException(status_code=500, detail=f"push failed: {exc}") from exc
+    return {"ok": True, "table": body.table, "trade_date": body.trade_date, "rows": n}
 
 
 def register_market_sync_routes(app: FastAPI) -> None:

@@ -35,6 +35,9 @@ _SYNC_TICK_SECONDS = 60
 _TICK_DEADLINE_SECONDS = 600  # one sync tick must not run longer than 10 min
 _POOL_TYPES = ("limitup", "limitdown", "strong", "fire", "secnew", "previous")
 _SLEEP_BETWEEN_CALLS = 0.05  # tpdog caps at 30 calls/sec
+# akshare 同花顺单股资金流兜底：限流 ~1 QPS 易被封，sleep 比较保守
+_AKSHARE_CAPITAL_SLEEP = float(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_SLEEP", "0.6"))
+_AKSHARE_CAPITAL_BUDGET = int(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_BUDGET", "1500"))  # 25 分钟时间盒
 _DEFAULT_INDEX_CODES = (
     "000001.SH",  # 上证指数
     "399001.SZ",  # 深证成指
@@ -1808,11 +1811,105 @@ def _sync_stock_capital_tpdog_history(store: MarketStore, trade_date: str) -> in
     return total
 
 
+def _sync_stock_capital_akshare_ths(store: MarketStore, trade_date: str) -> int:
+    """Fallback whole-market stock money flow via akshare 同花顺单股接口.
+
+    当 tushare(无权限) + tpdog(积分不足) 都失败时的免费兜底。
+    逐股调用 ak.stock_individual_fund_flow，带断点续传 + 内部时间盒。
+    同花顺只给净额(主力/超大/大/中/小单)，故 m_in/m_out/r_in/r_out 留 NULL，
+    m_net/r_net 用真实净额，其余净额进 extra_json 供溯源。
+    """
+    try:
+        import akshare as ak
+    except Exception:  # noqa: BLE001
+        logger.debug("akshare package unavailable; stock capital fallback skipped")
+        return 0
+
+    securities = store.list_security_master(default_only=True)  # 过滤 ST/退市/BJ
+    deadline = time.monotonic() + _AKSHARE_CAPITAL_BUDGET       # 内部时间盒
+    total = 0
+    processed = 0
+    for security in securities:
+        if time.monotonic() > deadline:
+            logger.warning(
+                "akshare capital hit budget at %d/%d codes for %s",
+                processed, len(securities), trade_date,
+            )
+            break
+        code = str(security.get("code") or "").upper()
+        if not code or code.endswith(".BJ"):
+            continue
+        # 断点续传：已存在则跳过
+        try:
+            existing = store._conn.execute(  # noqa: SLF001 - cheap resumability check
+                "SELECT 1 FROM stock_capital_flow WHERE code = ? AND trade_date = ? LIMIT 1",
+                (code, trade_date),
+            ).fetchone()
+        except Exception:  # noqa: BLE001
+            existing = None
+        if existing:
+            continue
+        symbol = code.split(".", 1)[0]
+        market = "sh" if code.endswith(".SH") else "sz"
+        # 单股调用 + 重试（同花顺限流约 1 QPS 易被封）
+        df = None
+        for attempt in range(3):
+            try:
+                df = ak.stock_individual_fund_flow(stock=symbol, market=market)
+                break
+            except Exception:  # noqa: BLE001
+                if attempt == 2:
+                    logger.debug(
+                        "akshare stock_individual_fund_flow failed for %s/%s",
+                        code, trade_date,
+                    )
+                time.sleep(_AKSHARE_CAPITAL_SLEEP * (attempt + 1))
+        if df is None or df.empty:
+            continue
+        # 取目标日期那一行（akshare 返回历史序列）
+        try:
+            row_target = df[df["日期"].astype(str) == trade_date]
+        except Exception:  # noqa: BLE001 - 列名变动等
+            row_target = df.iloc[0:0]
+        if row_target.empty:
+            continue
+        r = row_target.iloc[0]
+        row = {
+            "date": trade_date,
+            "m_net": _num(r.get("主力净流入-净额")),      # 真实净额(主力)
+            "r_net": _num(r.get("小单净流入-净额")),      # 真实净额(散户=小单口径)
+            # m_in/m_out/r_in/r_out 留 None：同花顺无 in/out 明细，且无消费者
+            "super_net": _num(r.get("超大单净流入-净额")),  # 以下进 extra_json
+            "big_net": _num(r.get("大单净流入-净额")),
+            "mid_net": _num(r.get("中单净流入-净额")),
+            "main_pct": _num(r.get("主力净流入-净占比")),
+            "change_pct": _num(r.get("涨跌幅")),
+            "close": _num(r.get("收盘价")),
+            "source": "akshare_ths",
+        }
+        total += store.upsert_stock_capital(code, trade_date, 1, [row])
+        processed += 1
+        time.sleep(_AKSHARE_CAPITAL_SLEEP)
+    if total:
+        _clear_sync_error(store, "stock_capital", "akshare.stock_individual_fund_flow")
+        logger.info("akshare capital wrote %d rows for %s", total, trade_date)
+    elif processed == 0:
+        # 一只都没抓到，记录错误状态方便排查
+        _set_sync_error(
+            store, "stock_capital", "akshare.stock_individual_fund_flow",
+            "no rows written (all empty/failed)",
+        )
+    return total
+
+
 def _sync_stock_capital(store: MarketStore, trade_date: str) -> int:
     written = _sync_stock_capital_tushare_by_date(store, trade_date)
     if written:
         return written
     written = _sync_stock_capital_tpdog_history(store, trade_date)
+    if written:
+        return written
+    written = _sync_stock_capital_akshare_ths(store, trade_date)
     if written:
         return written
     return _sync_stock_capital_tpdog_current(store, trade_date)
