@@ -3151,10 +3151,17 @@ def _ak_hk_index_history(symbol: str) -> list[dict[str, Any]]:
 
 
 def _sync_global_market_indices(store: MarketStore, trade_date: str) -> int:
-    histories = _yf_last_rows([symbol for symbol, _ in _GLOBAL_INDEX_SYMBOLS])
+    # HSTECH 走 akshare（yfinance 的 HSTECH 代码已失效，恒生科技用新浪源稳定）
+    yf_symbols = [s for s, _ in _GLOBAL_INDEX_SYMBOLS if s != "HSTECH"]
+    histories = _yf_last_rows(yf_symbols)
     rows: list[dict[str, Any]] = []
     for symbol, name in _GLOBAL_INDEX_SYMBOLS:
-        hist = histories.get(symbol) or _ak_hk_index_history(symbol)
+        if symbol == "HSTECH":
+            hist = _ak_hk_index_history(symbol)  # 直接 akshare，避免 yfinance delisted 噪音
+            source = "akshare.stock_hk_index_daily_sina"
+        else:
+            hist = histories.get(symbol)
+            source = "yfinance"
         if not hist:
             continue
         last = hist[-1]
@@ -3172,7 +3179,7 @@ def _sync_global_market_indices(store: MarketStore, trade_date: str) -> int:
             "prev_close": prev_close,
             "change_pct": ((close - prev_close) / prev_close * 100.0) if prev_close else 0.0,
             "currency": "USD",
-            "source": "yfinance",
+            "source": source,
             "history": hist,
             "source_trade_date": last.get("trade_date"),
         })
