@@ -3256,6 +3256,10 @@ register_tpdog_routes(app)
 from src.api.market_sync_routes import register_market_sync_routes  # noqa: E402
 register_market_sync_routes(app)
 
+# SigmX public market-data API (/api/v1/* — no auth, read-only)
+from src.api.sigmx_routes import register_sigmx_routes  # noqa: E402
+register_sigmx_routes(app)
+
 
 # ============================================================================
 # AlphaForge routes (Web UI)
