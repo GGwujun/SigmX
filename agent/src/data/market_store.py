@@ -2445,7 +2445,12 @@ def _upsert_market_wide(
     placeholders = ", ".join("?" for _ in cols)
     col_list = ", ".join(cols)
     text_cols = {"code", "trade_date", "name", "type", "signal",
-                 "redeem_status", "subscribe_status"}
+                 "redeem_status", "subscribe_status",
+                 # push 路径新增的文本型标识符列（按原值透传，不做 float 转换）
+                 "sector", "rank_type", "theme_id", "board_type", "category",
+                 "title", "pool_type", "currency", "symbol", "direction",
+                 "source", "url", "published_at", "theme_name", "proxy_symbol",
+                 "proxy_name", "us_theme"}
     payload = []
     for r in rows:
         vals = []
