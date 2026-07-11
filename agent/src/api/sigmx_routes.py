@@ -3,6 +3,12 @@ SigmX Market Data API（并入 vibe-trading）
 Implements the contract in sigmx_market_data_api_contract.md
 Base: /api/v1   Timezone: Asia/Shanghai   Unit: 100M CNY (亿元)
 只读访问 market.db；新闻走 RSSHub。无鉴权（公开只读行情）。
+
+⚠️ 双份维护约定（DEPRECATED 同步责任）：
+本文件是这 11 个 /api/v1 端点的【服务器主版本】（公网 8900）。
+另有【本地副本】E:\\gwj\\sigmx-local\\query-service\\app.py（本地 9000，同接口）。
+**改这些端点的实现/契约，两边必须同步修改**，否则本地与服务器行为不一致。
+两端代码未做自动同步（端点稳定，手动维护成本可控）。
 """
 import json
 import math
