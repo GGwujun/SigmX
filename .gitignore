@@ -98,5 +98,3 @@ wiki/alpha-library/content/
 # Runtime logs / temp outputs
 frontend/vite-sigmx.log
 scripts/_news_out.txt
-data/market.db*
-data/*.db-journal

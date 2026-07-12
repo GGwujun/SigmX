@@ -1,5 +1,6 @@
 # 本地部署覆盖配置
 # 用法：docker-compose -f docker-compose.yml -f docker-compose.local.yml up
+# 数据目录：E:\gwj\sigmx-local\data（与代码分离）
 
 services:
   # 数据推送服务（本地 → 服务器）
@@ -8,7 +9,7 @@ services:
     container_name: sigmx-data-sync
     restart: unless-stopped
     volumes:
-      - ./data:/data:rw
+      - ../sigmx-local/data:/data:rw
     environment:
       - TZ=Asia/Shanghai
       - DB_PATH=/data/market.db
@@ -23,7 +24,7 @@ services:
     ports:
       - "8900:8900"
     volumes:
-      - ./data:/data:ro
+      - ../sigmx-local/data:/data:ro
     environment:
       - TZ=Asia/Shanghai
       - DB_PATH=/data/market.db
@@ -35,4 +36,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ./data
+      device: ../sigmx-local/data

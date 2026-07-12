@@ -228,14 +228,15 @@ docker-compose -f docker-compose.yml -f docker-compose.local.yml down
 │   └── Dockerfile
 ├── frontend/               前端（React + TS）
 │   └── src/pages/          页面（AlphaForge/FundArbitrage/Account...）
-├── data/                   本地数据库（.gitignore）
-│   ├── market.db           行情数据（market-sync 写入）
-│   └── sessions.db         用户会话
 ├── Dockerfile
 ├── docker-compose.yml      服务器默认配置
 ├── docker-compose.local.yml 本地部署覆盖配置
 └── pyproject.toml
 ```
+
+**数据目录**（与代码分离）：
+- `E:\gwj\sigmx-local\data\` — 本地数据库文件（market.db、sessions.db 等）
+- 通过 `docker-compose.local.yml` 挂载到容器内 `/data`
 
 ---
 
