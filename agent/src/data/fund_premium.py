@@ -574,6 +574,55 @@ def _overlay_subscribe_redeem(rows: list[dict[str, Any]]) -> None:
             r["redeem_status"] = info.get("redeem_status", "")
 
 
+def _fetch_purchase_status() -> dict[str, dict[str, Any]]:
+    """Fetch fund purchase status via akshare (东方财富).
+
+    Returns {code: {purchase_status, purchase_limit, daily_limit, fee_rate}}.
+    Covers LOF + ETF. Best-effort: returns {} on failure.
+    """
+    try:
+        import akshare as ak
+        df = ak.fund_purchase_em()
+    except Exception as exc:
+        logger.info("fund_premium: purchase status fetch failed: %s", exc)
+        return {}
+    if df is None or df.empty:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        code = str(row.get("基金代码", "")).strip()
+        if not code or len(code) != 6:
+            continue
+        out[code] = {
+            "purchase_status": str(row.get("申购状态", "")).strip(),
+            "purchase_limit": _safe_float(row.get("购买起点")),
+            "daily_limit": _safe_float(row.get("日累计限定金额")),
+            "fee_rate": _safe_float(row.get("手续费")),
+        }
+    logger.info("fund_premium: purchase status fetched (%d funds)", len(out))
+    return out
+
+
+def _overlay_purchase_status(rows: list[dict[str, Any]]) -> None:
+    """Fill purchase_status / purchase_limit / daily_limit / fee_rate (in place).
+
+    Overwrites existing values — purchase status is authoritative from
+    fund_purchase_em (东方财富), the single source for 申赎状态.
+    """
+    status_map = _fetch_purchase_status()
+    if not status_map:
+        return
+    for r in rows:
+        code = str(r.get("code", "")).strip()
+        info = status_map.get(code)
+        if not info:
+            continue
+        r["purchase_status"] = info.get("purchase_status", "")
+        r["purchase_limit"] = info.get("purchase_limit", 0.0)
+        r["daily_limit"] = info.get("daily_limit", 0.0)
+        r["fee_rate"] = info.get("fee_rate", 0.0)
+
+
 def _backfill_names(rows: list[dict[str, Any]]) -> None:
     """Fill empty ``name`` fields from the local fund master (in place).
 
@@ -662,6 +711,7 @@ def scan_fund_premium(
     # occasionally lack one too — fill them so the UI isn't nameless.
     _backfill_names(all_rows)
     _overlay_subscribe_redeem(all_rows)
+    _overlay_purchase_status(all_rows)
 
     # Filter: min premium + drop absurd values (stale NAV noise)
     out = [

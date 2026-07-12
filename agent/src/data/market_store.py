@@ -415,6 +415,10 @@ class MarketStore:
             # Additive column migrations for pre-existing tables.
             self._ensure_column("fund_premium_snapshot", "nav_date", "TEXT")
             self._ensure_column("fund_premium_snapshot", "iopv", "REAL")
+            self._ensure_column("fund_premium_snapshot", "purchase_status", "TEXT DEFAULT ''")
+            self._ensure_column("fund_premium_snapshot", "purchase_limit", "REAL DEFAULT 0")
+            self._ensure_column("fund_premium_snapshot", "daily_limit", "REAL DEFAULT 0")
+            self._ensure_column("fund_premium_snapshot", "fee_rate", "REAL DEFAULT 0")
             self._conn.commit()
 
     @contextmanager
@@ -2164,14 +2168,19 @@ class MarketStore:
                 _f(r.get("iopv")) or None,
                 r.get("nav_date") or r.get("trade_date") or "",
                 _now_iso(),
+                r.get("purchase_status") or "",
+                _f(r.get("purchase_limit")),
+                _f(r.get("daily_limit")),
+                _f(r.get("fee_rate")),
             )
             for r in rows
         ]
         return self._executemany_chunked(
             "INSERT OR REPLACE INTO fund_premium_snapshot "
             "(code, trade_date, name, type, price, nav, premium_rate, amount, "
-            "change_pct, redeem_status, subscribe_status, signal, iopv, nav_date, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "change_pct, redeem_status, subscribe_status, signal, iopv, nav_date, updated_at, "
+            "purchase_status, purchase_limit, daily_limit, fee_rate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             payload,
         )
 
@@ -2179,7 +2188,8 @@ class MarketStore:
     def get_fund_premium(self, trade_date: str) -> list[dict]:
         rows = self._conn.execute(
             "SELECT code, name, type, price, nav, premium_rate, amount, change_pct, "
-            "redeem_status, subscribe_status, signal, iopv, nav_date, updated_at "
+            "redeem_status, subscribe_status, signal, iopv, nav_date, updated_at, "
+            "purchase_status, purchase_limit, daily_limit, fee_rate "
             "FROM fund_premium_snapshot WHERE trade_date = ?",
             (trade_date,),
         ).fetchall()

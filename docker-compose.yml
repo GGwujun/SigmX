@@ -17,6 +17,8 @@ services:
       # RSSHub instance (docker service name `rsshub`, internal port 1200).
       # The data layer (news_feed.py) reads this to aggregate A-share news.
       - RSSHUB_URL=http://rsshub:1200
+      # Redis (optional — only when --profile realtime is active)
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - rsshub
     volumes:
@@ -37,6 +39,7 @@ services:
       - RSSHUB_URL=http://rsshub:1200
       - MARKET_SYNC_POSTCLOSE_UNIVERSE=all
       - MARKET_SYNC_POSTCLOSE_LOOKBACK_DAYS=365
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - rsshub
     volumes:
@@ -51,6 +54,19 @@ services:
     restart: unless-stopped
     expose:
       - "1200"
+
+  # Redis — optional real-time pub/sub channel for SSE streaming.
+  # Enable with: docker compose --profile realtime up
+  # If not running, the app gracefully falls back to polling.
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    expose:
+      - "6379"
+    volumes:
+      - redis-data:/data
+    profiles:
+      - realtime
 
   frontend:
     image: node:20
@@ -72,3 +88,4 @@ volumes:
   vibe-runs:
   vibe-sessions:
   vibe-data:
+  redis-data:

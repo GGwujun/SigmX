@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, Wifi, WifiOff, Bell } from "lucide-react";
 import { toast } from "sonner";
 import { api, type FundScanItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { fmtYi } from "@/components/dashboard/primitives";
+import { useSSE } from "@/lib/sseProvider";
 
 const FUND_TYPES = [
   { value: "ETF", label: "ETF" },
@@ -14,12 +15,13 @@ const FUND_TYPES = [
 
 const PAGE_SIZES = [10, 20, 50];
 
-type SortKey = "premium_abs" | "premium_desc" | "premium_asc" | "amount_desc";
+type SortKey = "premium_abs" | "premium_desc" | "premium_asc" | "amount_desc" | "limited_premium";
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
   { value: "premium_abs", label: "折溢价空间（大→小）" },
   { value: "amount_desc", label: "成交额（高→低）" },
   { value: "premium_desc", label: "溢价优先（申购）" },
   { value: "premium_asc", label: "折价优先（赎回）" },
+  { value: "limited_premium", label: "🔒 限购溢价优先" },
 ];
 
 function fmtTime(value?: string | null): string {
@@ -39,6 +41,7 @@ function premiumClass(p: number): string {
 
 export function FundOpportunity() {
   const navigate = useNavigate();
+  const { prices: ssePrices, connected: sseConnected, lastUpdate: sseLastUpdate } = useSSE();
   const [fundType, setFundType] = useState("ETF");
   const [minPremium, setMinPremium] = useState(0.5);
   const [items, setItems] = useState<FundScanItem[]>([]);
@@ -50,6 +53,7 @@ export function FundOpportunity() {
   const [source, setSource] = useState<"snapshot" | "live">("snapshot");
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("premium_abs");
+  const [limitedOnly, setLimitedOnly] = useState(false);
 
   const doScan = useCallback(async (targetPage: number, targetSize: number, typeVal: string, minVal: number, sortVal: SortKey, showToast = false) => {
     setLoading(true);
@@ -104,6 +108,16 @@ export function FundOpportunity() {
   };
   const onRefresh = () => doScan(page, pageSize, fundType, minPremium, sort, true);
 
+  // Merge SSE real-time prices onto scanned items
+  const displayItems = useMemo(() => {
+    if (!sseConnected || ssePrices.size === 0) return items;
+    return items.map(item => {
+      const live = ssePrices.get(item.code);
+      if (!live) return item;
+      return { ...item, price: live.price, premium_rate: live.premium_rate, amount: live.amount, nav: live.nav };
+    });
+  }, [items, ssePrices, sseConnected]);
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* header */}
@@ -118,6 +132,11 @@ export function FundOpportunity() {
               {source === "live" && (
                 <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">实时</span>
               )}
+              {sseConnected ? (
+                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400 flex items-center gap-1">
+                  <Wifi className="h-2.5 w-2.5" />SSE
+                </span>
+              ) : null}
             </h1>
             <p className="text-xs text-muted-foreground">
               LOF/ETF 折溢价扫描
@@ -154,6 +173,11 @@ export function FundOpportunity() {
             {SORT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </div>
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input type="checkbox" checked={limitedOnly} onChange={e => { setLimitedOnly(e.target.checked); setPage(1); }}
+            className="h-3.5 w-3.5 rounded border accent-primary" />
+          <span className="text-xs text-muted-foreground">仅限购</span>
+        </label>
         <button onClick={onRefresh} disabled={loading}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm font-medium hover:bg-background disabled:opacity-40">
           <Search className="h-3.5 w-3.5" /> 扫描
@@ -183,6 +207,7 @@ export function FundOpportunity() {
                   <th className="text-right px-3 py-2.5 font-medium">场内价</th>
                   <th className="text-right px-3 py-2.5 font-medium">净值</th>
                   <th className="text-center px-3 py-2.5 font-medium">方向</th>
+                  <th className="text-center px-3 py-2.5 font-medium">状态</th>
                   <th className="px-3 py-2.5 font-medium">
                     <div className="flex items-center justify-end gap-1">
                       <button onClick={() => {
@@ -212,10 +237,16 @@ export function FundOpportunity() {
                 </tr>
               </thead>
               <tbody>
-                {items.map(item => {
+                {displayItems
+                  .filter(item => !limitedOnly || item.is_limited)
+                  .map(item => {
                   const blocked = item.can_trade === false;
                   return (
-                  <tr key={item.code} className={cn("border-t transition-colors", blocked ? "opacity-40 hover:opacity-70" : "hover:bg-muted/30")}>
+                  <tr key={item.code} className={cn(
+                    "border-t transition-colors",
+                    blocked ? "opacity-40 hover:opacity-70" : "hover:bg-muted/30",
+                    item.is_limited && !blocked && "border-l-2 border-l-amber-500 bg-amber-500/5",
+                  )}>
                     <td className="px-3 py-2 font-mono text-xs">{item.code}</td>
                     <td className="px-3 py-2 truncate max-w-[220px]" title={item.name}>
                       <div className="flex items-center gap-1.5">
@@ -233,6 +264,17 @@ export function FundOpportunity() {
                         <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-green-500/15 text-green-600 dark:text-green-400">赎回</span>
                       ) : <span className="text-muted-foreground/50">—</span>}
                     </td>
+                    <td className="px-3 py-2 text-center">
+                      {item.status_class === "limited" ? (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400" title={`限购: ${item.purchase_status || ''}`}>🔒限购</span>
+                      ) : item.status_class === "suspended" ? (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-500/15 text-red-500" title={`暂停: ${item.purchase_status || ''}`}>⛔暂停</span>
+                      ) : item.status_class === "open" ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400">✅开放</span>
+                      ) : (
+                        <span className="text-muted-foreground/40 text-xs">—</span>
+                      )}
+                    </td>
                     <td className={cn("px-3 py-2 text-right font-mono", premiumClass(item.premium_rate))}>
                       {item.premium_rate > 0 ? "+" : ""}{item.premium_rate}%
                       {item.premium_percentile != null && item.premium_percentile >= 90 && (
@@ -244,10 +286,17 @@ export function FundOpportunity() {
                     </td>
                     <td className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">{fmtYi(item.amount)}</td>
                     <td className="px-3 py-2 text-center">
-                      <button onClick={() => goAnalyze(item)}
-                        className="text-xs px-2.5 py-1 rounded-md border border-primary/40 text-primary hover:bg-primary/10 transition-colors">
-                        深度分析
-                      </button>
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button onClick={() => navigate("/settings?tab=alerts", { state: { fundCode: item.code, fundName: item.name } })}
+                          className="text-xs p-1 rounded-md border border-muted text-muted-foreground hover:text-warning hover:border-warning/40 transition-colors"
+                          title="设置告警">
+                          <Bell className="h-3.5 w-3.5" />
+                        </button>
+                        <button onClick={() => goAnalyze(item)}
+                          className="text-xs px-2.5 py-1 rounded-md border border-primary/40 text-primary hover:bg-primary/10 transition-colors">
+                          深度分析
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   );

@@ -158,6 +158,20 @@ def _blocked_status(status: str) -> bool:
     return any(k in s for k in ("暂停", "停止", "封闭", "结束"))
 
 
+def _classify_purchase_status(status: str) -> str:
+    """Classify purchase_status into: suspended / limited / open / unknown."""
+    s = (status or "").strip()
+    if not s:
+        return "unknown"
+    if any(k in s for k in ("暂停", "停止", "封闭", "结束")):
+        return "suspended"
+    if any(k in s for k in ("限大额", "限额", "限购", "限制")):
+        return "limited"
+    if "开放" in s:
+        return "open"
+    return "unknown"
+
+
 def _enrich_items(items: list[dict], store: Any, trade_date: str | None) -> None:
     """Add per-item derived fields used by the UI (in place).
 
@@ -190,6 +204,9 @@ def _enrich_items(items: list[dict], store: Any, trade_date: str | None) -> None
         # Placeholders for percentile (filled below if history suffices).
         r["premium_percentile"] = None
         r["amount_percentile"] = None
+        # Purchase status classification (from fund_purchase_em data).
+        r["status_class"] = _classify_purchase_status(r.get("purchase_status"))
+        r["is_limited"] = r["status_class"] == "limited"
 
     # Percentile only when enough history exists (skeleton: auto-enables later).
     if store is None:
@@ -239,7 +256,8 @@ def register_fund_arbitrage_routes(
         sort: str = Query(
             "premium_abs",
             description="排序：premium_abs=|折溢价|降序(默认) / premium_desc=溢价优先 / "
-            "premium_asc=折价优先 / amount_desc=成交额降序(流动性优先)",
+            "premium_asc=折价优先 / amount_desc=成交额降序(流动性优先) / "
+            "limited_premium=限购溢价优先(限购基金按溢价降序)",
         ),
         limit: int | None = Query(None, ge=1, le=200, description="兼容旧前端，等价于 page_size"),
         _=Depends(require_auth),
@@ -282,6 +300,14 @@ def register_fund_arbitrage_routes(
             elif sort == "premium_desc":
                 # 溢价优先（溢价率最正在前）→ 降序
                 filtered.sort(key=lambda r: (_prem(r), abs(_prem(r))), reverse=True)
+            elif sort == "limited_premium":
+                # 限购溢价优先：限购基金排最前，同组内按 |溢价| 降序
+                filtered.sort(
+                    key=lambda r: (
+                        0 if _classify_purchase_status(r.get("purchase_status")) == "limited" else 1,
+                        -abs(_prem(r)),
+                    )
+                )
             else:  # premium_abs (default): |折溢价| 降序，套利空间最大
                 filtered.sort(key=lambda r: abs(_prem(r)), reverse=True)
             total = len(filtered)

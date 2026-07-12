@@ -3276,6 +3276,12 @@ register_alpha_forge_routes(app, require_auth, require_event_stream_auth, _get_s
 from src.api.fund_routes import register_fund_arbitrage_routes  # noqa: E402
 register_fund_arbitrage_routes(app, require_auth, require_event_stream_auth, _get_swarm_runtime)
 
+from src.alert.alert_routes import register_alert_routes  # noqa: E402
+register_alert_routes(app, require_auth)
+
+from src.api.sse_routes import register_sse_routes  # noqa: E402
+register_sse_routes(app, require_auth)
+
 
 # ============================================================================
 # Main Entry Point

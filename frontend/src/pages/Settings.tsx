@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Bell, Database, KeyRound, Loader2, RotateCcw, Save, Send, Server, ShieldCheck, SlidersHorizontal, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { api, isAuthRequiredError, type DataSourceSettings, type DataHealthReport, type SourceHealth, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig } from "@/lib/api";
+import { api, isAuthRequiredError, type DataSourceSettings, type DataHealthReport, type SourceHealth, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig, type AlertRule } from "@/lib/api";
 import { getApiAuthKey, isAdmin, setApiAuthKey } from "@/lib/apiAuth";
 import { cn } from "@/lib/utils";
 
@@ -51,7 +51,7 @@ export function Settings() {
   const [saving, setSaving] = useState(false);
   const [dataSaving, setDataSaving] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"system" | "notify">(isAdmin() ? "system" : "notify");
+  const [tab, setTab] = useState<"system" | "notify" | "alerts">(isAdmin() ? "system" : "notify");
 
   useEffect(() => {
     let alive = true;
@@ -235,6 +235,7 @@ export function Settings() {
         {([
           { id: "system" as const, label: "系统配置", adminOnly: true },
           { id: "notify" as const, label: "通知配置", adminOnly: false },
+          { id: "alerts" as const, label: "🔔 告警规则", adminOnly: false },
         ]).filter(t => !t.adminOnly || isAdmin()).map(t => (
           <button
             key={t.id}
@@ -251,7 +252,9 @@ export function Settings() {
         ))}
       </div>
 
-      {tab === "notify" || !isAdmin() ? (
+      {tab === "alerts" ? (
+        <AlertRulesTab />
+      ) : tab === "notify" || !isAdmin() ? (
         <NotifyTab />
       ) : (
         <>
@@ -806,6 +809,181 @@ function ConfigPath({ label, path }: { label: string; path: string }) {
     <div className="rounded-md border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
       <span className="font-medium text-foreground">{label}：</span>
       <span className="break-all font-mono">{path}</span>
+    </div>
+  );
+}
+
+
+/* ─── Alert Rules tab ─── */
+
+function AlertRulesTab() {
+  const [rules, setRules] = useState<AlertRule[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({
+    fund_code: "", fund_name: "", premium_above: 3, amount_above: 100,
+    webhook_type: "wechat", throttle_minutes: 60,
+  });
+
+  const loadRules = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await api.listAlertRules();
+      setRules(res.rules || []);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadRules(); }, [loadRules]);
+
+  const handleCreate = async () => {
+    if (!createForm.fund_code.trim()) return;
+    try {
+      await api.createAlertRule({
+        fund_code: createForm.fund_code,
+        fund_name: createForm.fund_name,
+        premium_above: createForm.premium_above || undefined,
+        amount_above: createForm.amount_above ? createForm.amount_above * 10000 : undefined,
+        webhook_type: createForm.webhook_type,
+        throttle_minutes: createForm.throttle_minutes,
+      });
+      setShowCreate(false);
+      setCreateForm({ fund_code: "", fund_name: "", premium_above: 3, amount_above: 100, webhook_type: "wechat", throttle_minutes: 60 });
+      toast.success("告警规则创建成功");
+      loadRules();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "创建失败");
+    }
+  };
+
+  const handleToggle = async (ruleId: string) => {
+    try {
+      const res = await api.toggleAlertRule(ruleId);
+      toast.success(res.message);
+      loadRules();
+    } catch { /* ignore */ }
+  };
+
+  const handleDelete = async (ruleId: string) => {
+    if (!confirm("确定删除此规则？")) return;
+    try {
+      await api.deleteAlertRule(ruleId);
+      toast.success("规则已删除");
+      loadRules();
+    } catch { /* ignore */ }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Section icon={Bell} title="告警规则" desc="设定基金溢价/折价阈值，触发时自动推送通知到配置的 Webhook。">
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-sm text-muted-foreground">共 {rules.length} 条规则</p>
+          <button onClick={() => setShowCreate(!showCreate)}
+            className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
+            + 新建规则
+          </button>
+        </div>
+
+        {showCreate && (
+          <div className="rounded-lg border p-4 mb-4 bg-muted/20 space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <label className="grid gap-1">
+                <span className="text-xs font-medium">基金代码</span>
+                <input value={createForm.fund_code} onChange={e => setCreateForm(f => ({ ...f, fund_code: e.target.value }))}
+                  className="px-2.5 py-1.5 rounded-lg border bg-background text-sm" placeholder="161725" />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium">基金名称</span>
+                <input value={createForm.fund_name} onChange={e => setCreateForm(f => ({ ...f, fund_name: e.target.value }))}
+                  className="px-2.5 py-1.5 rounded-lg border bg-background text-sm" placeholder="招商中证白酒" />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium">溢价阈值 (%)</span>
+                <input type="number" step="0.5" value={createForm.premium_above}
+                  onChange={e => setCreateForm(f => ({ ...f, premium_above: parseFloat(e.target.value) || 0 }))}
+                  className="px-2.5 py-1.5 rounded-lg border bg-background text-sm" />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium">最低成交额 (万元)</span>
+                <input type="number" step="10" value={createForm.amount_above}
+                  onChange={e => setCreateForm(f => ({ ...f, amount_above: parseFloat(e.target.value) || 0 }))}
+                  className="px-2.5 py-1.5 rounded-lg border bg-background text-sm" />
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium">通知平台</span>
+                <select value={createForm.webhook_type}
+                  onChange={e => setCreateForm(f => ({ ...f, webhook_type: e.target.value }))}
+                  className="px-2.5 py-1.5 rounded-lg border bg-background text-sm">
+                  <option value="wechat">企业微信</option>
+                  <option value="dingtalk">钉钉</option>
+                  <option value="feishu">飞书</option>
+                </select>
+              </label>
+              <label className="grid gap-1">
+                <span className="text-xs font-medium">节流间隔 (分钟)</span>
+                <input type="number" step="10" value={createForm.throttle_minutes}
+                  onChange={e => setCreateForm(f => ({ ...f, throttle_minutes: parseInt(e.target.value) || 60 }))}
+                  className="px-2.5 py-1.5 rounded-lg border bg-background text-sm" />
+              </label>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setShowCreate(false)}
+                className="px-3 py-1.5 rounded-lg border text-sm">取消</button>
+              <button onClick={handleCreate}
+                className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">创建</button>
+            </div>
+          </div>
+        )}
+
+        {loading ? (
+          <div className="flex items-center justify-center py-10 gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" /> 加载中…
+          </div>
+        ) : rules.length === 0 ? (
+          <div className="text-center py-10 text-muted-foreground">
+            <Bell className="h-10 w-10 mx-auto mb-3 opacity-30" />
+            <p className="text-sm">暂无告警规则</p>
+            <p className="text-xs opacity-60 mt-1">点击"新建规则"开始设置</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {rules.map(rule => (
+              <div key={rule.rule_id} className={cn(
+                "flex items-center justify-between rounded-lg border px-4 py-3",
+                !rule.enabled && "opacity-50",
+              )}>
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-xs text-muted-foreground">{rule.fund_code}</span>
+                  <span className="text-sm font-medium">{rule.fund_name || "—"}</span>
+                  <span className="text-xs text-muted-foreground">
+                    {rule.condition.premium_above != null && `溢价≥${rule.condition.premium_above}%`}
+                    {rule.condition.premium_below != null && `折价≤${rule.condition.premium_below}%`}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {rule.notification.webhook_type} · {rule.notification.throttle_minutes}分钟节流
+                  </span>
+                  {rule.trigger_count > 0 && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                      触发 {rule.trigger_count} 次
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => handleToggle(rule.rule_id)}
+                    className={cn("text-xs px-2 py-1 rounded border",
+                      rule.enabled ? "border-green-500/40 text-green-600" : "border-muted text-muted-foreground")}>
+                    {rule.enabled ? "启用" : "禁用"}
+                  </button>
+                  <button onClick={() => handleDelete(rule.rule_id)}
+                    className="text-xs px-2 py-1 rounded border border-red-500/30 text-red-500 hover:bg-red-500/10">
+                    删除
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
     </div>
   );
 }

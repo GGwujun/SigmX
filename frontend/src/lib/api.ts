@@ -492,6 +492,20 @@ export const api = {
   getFundRun: (runId: string) => request<FundRunDetail>(`/fund/runs/${encodeURIComponent(runId)}`),
   cancelFundRun: (runId: string) =>
     request<{ status: string; run_id: string }>(`/fund/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+
+  // Alert rules
+  listAlertRules: () => request<{ rules: AlertRule[]; total: number }>("/alert/rules"),
+  createAlertRule: (data: {
+    fund_code: string; fund_name?: string; premium_above?: number;
+    premium_below?: number; amount_above?: number; webhook_type?: string; throttle_minutes?: number;
+  }) => request<{ rule: AlertRule; message: string }>("/alert/rules", { method: "POST", body: JSON.stringify(data) }),
+  updateAlertRule: (ruleId: string, data: { condition?: Record<string, unknown>; notification?: Record<string, unknown> }) =>
+    request<{ rule: AlertRule; message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteAlertRule: (ruleId: string) =>
+    request<{ message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" }),
+  toggleAlertRule: (ruleId: string) =>
+    request<{ rule: AlertRule; message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}/toggle`, { method: "POST" }),
+  getAlertHistory: () => request<{ history: AlertHistoryItem[]; total: number }>("/alert/history"),
 };
 
 // --- Swarm types ---
@@ -2047,6 +2061,13 @@ export interface FundScanItem {
   can_trade?: boolean;         // false if 申赎 suspended
   premium_percentile?: number | null;  // only when ≥20 days history
   amount_percentile?: number | null;
+  // Purchase status (from fund_purchase_em)
+  purchase_status?: string;    // e.g. "开放", "限大额", "暂停申购"
+  purchase_limit?: number;
+  daily_limit?: number;
+  fee_rate?: number;
+  status_class?: string;       // "open" | "limited" | "suspended" | "unknown"
+  is_limited?: boolean;
 }
 
 export interface FundScanResponse {
@@ -2059,6 +2080,39 @@ export interface FundScanResponse {
   page_size: number;
   total_pages: number;
   items: FundScanItem[];
+}
+
+// ── Alert Rules ────────────────────────────────────────────────────
+
+export interface AlertRule {
+  rule_id: string;
+  enabled: boolean;
+  created_at: string;
+  last_triggered: string | null;
+  trigger_count: number;
+  fund_code: string;
+  fund_name: string;
+  condition: {
+    premium_above?: number | null;
+    premium_below?: number | null;
+    amount_above?: number | null;
+  };
+  notification: {
+    webhook_type: string;
+    throttle_minutes: number;
+  };
+}
+
+export interface AlertHistoryItem {
+  rule_id: string;
+  fund_code: string;
+  fund_name: string;
+  premium_rate: number;
+  amount: number;
+  price: number;
+  nav: number;
+  webhook_type: string;
+  triggered_at: string;
 }
 
 export interface FundDetail extends FundScanItem {

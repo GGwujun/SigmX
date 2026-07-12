@@ -4445,7 +4445,21 @@ def _sync_fund_premium_snapshot(store: MarketStore, trade_date: str) -> int:
         # to trade_date, i.e. ETF never flags as stale-nav, which is safe).
         if not r.get("trade_date"):
             r["trade_date"] = trade_date
-    return store.upsert_fund_premium(trade_date, rows)
+    count = store.upsert_fund_premium(trade_date, rows)
+
+    # ── Alert rule evaluation ──────────────────────────────────────
+    # After successful upsert, check if any alert rules are triggered.
+    try:
+        from src.alert.alert_engine import check_all_rules, append_history
+        from src.alert.alert_notifier import send_alert_notifications
+        triggered = check_all_rules(rows)
+        if triggered:
+            send_alert_notifications(triggered)
+            append_history(triggered)
+    except Exception as exc:  # noqa: BLE001 — alert check is best-effort
+        logger.debug("fund-premium alert check failed: %s", exc)
+
+    return count
 
 
 # ----------------------------------------------------------------------
