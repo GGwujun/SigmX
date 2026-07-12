@@ -1,0 +1,38 @@
+# 本地部署覆盖配置
+# 用法：docker-compose -f docker-compose.yml -f docker-compose.local.yml up
+
+services:
+  # 数据推送服务（本地 → 服务器）
+  data-sync:
+    build: ./data-sync
+    container_name: sigmx-data-sync
+    restart: unless-stopped
+    volumes:
+      - ./data:/data:rw
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_PATH=/data/market.db
+      - SERVER_URL=${SERVER_URL:-https://sigmx.dsx-family.site}
+      - MARKET_SYNC_PUSH_TOKEN=${MARKET_SYNC_PUSH_TOKEN:-}
+      - SYNC_INTERVAL=${SYNC_INTERVAL:-300}
+    mem_limit: 256m
+    mem_reservation: 128m
+
+  # 本地 Web 服务（端口 8900，包含查询 API /api/v1/*）
+  vibe-trading:
+    ports:
+      - "8900:8900"
+    volumes:
+      - ./data:/data:ro
+    environment:
+      - TZ=Asia/Shanghai
+      - DB_PATH=/data/market.db
+      - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
+
+volumes:
+  data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data

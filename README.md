@@ -126,12 +126,95 @@ python agent/scripts/gen_codes.py --credits 100 --count 50 --days 90
 
 ---
 
+## 🗄️ 本地数据同步
+
+本地部署用于**拉取行情数据并推送到服务器**，适合开发者或需要离线分析的场景。
+
+### 架构
+
+```
+本地 Windows
+├── market-sync（拉数据）→ 写 data/market.db
+├── rsshub（RSS 源）
+├── vibe-trading（本地网站，8900 端口）
+└── data-sync（推送服务器，每 5 分钟）
+
+服务器
+├── vibe-trading（网站，8900 端口，含查询 API /api/v1/*）
+└── 其他服务
+```
+
+### 启动本地环境
+
+```bash
+# 配置环境变量（首次部署）
+cp agent/.env.example agent/.env
+# 编辑 agent/.env，配置 LLM、管理员账号、JWT_SECRET 等
+
+# 启动本地服务栈
+docker-compose -f docker-compose.yml -f docker-compose.local.yml up -d
+
+# 查看状态
+docker-compose ps
+```
+
+### 端口与访问
+
+| 端口 | 服务 | 说明 |
+|------|------|------|
+| 8900 | vibe-trading | 本地网站（含查询 API `/api/v1/*`）|
+| 11200 | rsshub | RSS 数据源（内部使用）|
+
+访问 `http://localhost:8900`，默认管理员 `admin@sigmx.local / admin123`。
+
+### 查询 API（无鉴权）
+
+本地和服务器都提供 `/api/v1/*` 查询接口（公开访问，无需 token）：
+
+```bash
+# 最新交易日
+curl http://localhost:8900/api/v1/market/latest-trade-date
+
+# 指数行情
+curl http://localhost:8900/api/v1/indices/daily
+
+# 盘前三图
+curl http://localhost:8900/api/v1/content/morning-briefing-triptych
+
+# Swagger 文档
+open http://localhost:8900/docs
+```
+
+完整接口列表见 [agent/src/api/sigmx_routes.py](agent/src/api/sigmx_routes.py)。
+
+### 数据推送
+
+`data-sync` 容器每 5 分钟检查本地 `data/market.db` 的新增数据，通过 HTTP POST 推送到服务器：
+
+- **目标**：`https://sigmx.dsx-family.site/market-sync/push`
+- **鉴权**：环境变量 `MARKET_SYNC_PUSH_TOKEN`（服务器端配置）
+- **增量机制**：基于 `sync_meta` 表的 `push:{table}:last_date` 水位线
+
+查看推送日志：
+```bash
+docker logs sigmx-data-sync --tail 20
+```
+
+### 停止本地服务
+
+```bash
+docker-compose -f docker-compose.yml -f docker-compose.local.yml down
+```
+
+---
+
 ## 📂 项目结构
+
 
 ```
 ├── agent/                  后端
 │   ├── src/
-│   │   ├── api/            HTTP 路由（auth/credits/fund/notify/alpha_forge...）
+│   │   ├── api/            HTTP 路由（auth/credits/fund/notify/alpha_forge/sigmx...）
 │   │   ├── auth/           用户认证（JWT + bcrypt + users.db）
 │   │   ├── credits/        积分体系（balance/transactions/redeem）
 │   │   ├── notify/         消息推送（飞书/钉钉/企业微信）
@@ -140,9 +223,17 @@ python agent/scripts/gen_codes.py --credits 100 --count 50 --days 90
 │   │   └── factors/zoo/    452 个 Alpha 因子
 │   ├── api_server.py       FastAPI 入口
 │   └── scripts/            兑换码生成等工具
+├── data-sync/              数据推送服务（本地 → 服务器）
+│   ├── app.py              推送脚本（水位线 + 批量 POST）
+│   └── Dockerfile
 ├── frontend/               前端（React + TS）
 │   └── src/pages/          页面（AlphaForge/FundArbitrage/Account...）
-├── Dockerfile / docker-compose.yml
+├── data/                   本地数据库（.gitignore）
+│   ├── market.db           行情数据（market-sync 写入）
+│   └── sessions.db         用户会话
+├── Dockerfile
+├── docker-compose.yml      服务器默认配置
+├── docker-compose.local.yml 本地部署覆盖配置
 └── pyproject.toml
 ```
 
