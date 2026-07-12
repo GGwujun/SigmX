@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, Wifi, Bell } from "lucide-react";
+import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, Wifi, Bell, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { api, type FundScanItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { fmtYi } from "@/components/dashboard/primitives";
 import { useSSE } from "@/lib/sseProvider";
+import { ProfitCalculator } from "@/components/fund/ProfitCalculator";
 
 const FUND_TYPES = [
   { value: "ETF", label: "ETF" },
@@ -287,6 +288,15 @@ export function FundOpportunity() {
                     <td className="px-3 py-2 text-right font-mono text-xs text-muted-foreground">{fmtYi(item.amount)}</td>
                     <td className="px-3 py-2 text-center">
                       <div className="flex items-center justify-center gap-1.5">
+                        {item.signal_type && (
+                          <span className={cn("text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-0.5",
+                            item.signal_type === "PREMIUM" ? "bg-red-500/15 text-red-500" : "bg-green-500/15 text-green-600 dark:text-green-400")}
+                            title={`Z-score 异常信号: ${item.signal_type === "PREMIUM" ? "溢价" : "折价"}`}>
+                            <Zap className="h-2.5 w-2.5" />
+                            {item.signal_type === "PREMIUM" ? "溢" : "折"}
+                          </span>
+                        )}
+                        <ProfitCalculator nav={item.nav} price={item.price} premiumRate={item.premium_rate} fundType={item.type} />
                         <button onClick={() => navigate("/settings?tab=alerts", { state: { fundCode: item.code, fundName: item.name } })}
                           className="text-xs p-1 rounded-md border border-muted text-muted-foreground hover:text-warning hover:border-warning/40 transition-colors"
                           title="设置告警">

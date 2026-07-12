@@ -4459,6 +4459,16 @@ def _sync_fund_premium_snapshot(store: MarketStore, trade_date: str) -> int:
     except Exception as exc:  # noqa: BLE001 — alert check is best-effort
         logger.debug("fund-premium alert check failed: %s", exc)
 
+    # ── Z-score signal detection ───────────────────────────────────
+    # Detect statistically anomalous premiums and persist as signals.
+    try:
+        from src.alert.signal_detector import detect_signals
+        signals = detect_signals(rows, store, trade_date)
+        if signals:
+            store.upsert_signals(signals)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("fund-premium signal detection failed: %s", exc)
+
     return count
 
 

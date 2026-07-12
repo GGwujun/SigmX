@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -107,3 +107,38 @@ def register_alert_routes(
         history = load_history()
         # Return most recent first
         return {"history": list(reversed(history[-100:])), "total": len(history)}
+
+    # ── Signal endpoints ───────────────────────────────────────────
+
+    @app.get("/signal/active")
+    async def get_active_signals(_=Depends(require_auth)):
+        """Get all active arbitrage signals (Z-score anomalies)."""
+        from src.data.market_store import get_market_store
+        store = get_market_store()
+        if store is None:
+            return {"signals": [], "stats": {}}
+        signals = store.get_active_signals()
+        stats = store.get_signal_stats()
+        return {"signals": signals, "stats": stats}
+
+    @app.get("/signal/history")
+    async def get_signal_history(
+        days: int = Query(7, ge=1, le=90, description="回溯天数"),
+        _=Depends(require_auth),
+    ):
+        """Get recent signal history."""
+        from src.data.market_store import get_market_store
+        store = get_market_store()
+        if store is None:
+            return {"signals": []}
+        signals = store.get_signal_history(days)
+        return {"signals": signals}
+
+    @app.get("/signal/stats")
+    async def get_signal_stats(_=Depends(require_auth)):
+        """Aggregate signal statistics."""
+        from src.data.market_store import get_market_store
+        store = get_market_store()
+        if store is None:
+            return {"active": 0, "latest_count": 0}
+        return store.get_signal_stats()

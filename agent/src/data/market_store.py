@@ -237,6 +237,21 @@ CREATE TABLE IF NOT EXISTS fund_master (
     updated_at TEXT NOT NULL
 );
 
+-- Z-score based arbitrage signals detected from premium anomalies.
+CREATE TABLE IF NOT EXISTS arbitrage_signal (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    name TEXT, type TEXT,
+    signal_type TEXT NOT NULL,      -- PREMIUM / DISCOUNT
+    premium_rate REAL, z_score REAL,
+    historical_mean REAL, historical_std REAL, n_history INTEGER,
+    cost_estimate REAL, net_spread REAL,
+    status TEXT NOT NULL DEFAULT 'ACTIVE',  -- ACTIVE / EXPIRED / EXECUTED
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_signal_status ON arbitrage_signal(status);
+CREATE INDEX IF NOT EXISTS idx_signal_type ON arbitrage_signal(signal_type);
+
 CREATE TABLE IF NOT EXISTS dragon_tiger (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
     name TEXT, close REAL, rise_rate REAL, net_amt REAL, buy_amt REAL, sell_amt REAL,
@@ -2210,6 +2225,69 @@ class MarketStore:
             (code, int(days)),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    # --- arbitrage_signal: Z-score based anomaly detection ---
+
+    @_synchronized
+    def upsert_signals(self, signals: list[dict]) -> int:
+        """Insert or replace arbitrage signals for today."""
+        if not signals:
+            return 0
+        payload = [
+            (
+                s.get("code"), s.get("trade_date"),
+                s.get("name"), s.get("type"),
+                s.get("signal_type"), _f(s.get("premium_rate")),
+                _f(s.get("z_score")), _f(s.get("historical_mean")),
+                _f(s.get("historical_std")), int(s.get("n_history") or 0),
+                _f(s.get("cost_estimate")), _f(s.get("net_spread")),
+                s.get("status", "ACTIVE"), _now_iso(),
+            )
+            for s in signals
+        ]
+        return self._executemany_chunked(
+            "INSERT OR REPLACE INTO arbitrage_signal "
+            "(code, trade_date, name, type, signal_type, premium_rate, z_score, "
+            "historical_mean, historical_std, n_history, cost_estimate, net_spread, "
+            "status, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            payload,
+        )
+
+    @_synchronized
+    def get_active_signals(self) -> list[dict]:
+        """Get all ACTIVE signals, ordered by net_spread desc."""
+        rows = self._conn.execute(
+            "SELECT code, name, type, trade_date, signal_type, premium_rate, "
+            "z_score, historical_mean, historical_std, n_history, "
+            "cost_estimate, net_spread, status, updated_at "
+            "FROM arbitrage_signal WHERE status = 'ACTIVE' "
+            "ORDER BY net_spread DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @_synchronized
+    def get_signal_history(self, days: int = 30) -> list[dict]:
+        """Get recent signals (all statuses) ordered by date desc."""
+        rows = self._conn.execute(
+            "SELECT code, name, type, trade_date, signal_type, premium_rate, "
+            "z_score, net_spread, status "
+            "FROM arbitrage_signal "
+            "ORDER BY trade_date DESC LIMIT ?",
+            (int(days) * 50,),  # ~50 signals per day max
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    @_synchronized
+    def get_signal_stats(self) -> dict:
+        """Aggregate signal counts."""
+        active = self._conn.execute(
+            "SELECT COUNT(*) FROM arbitrage_signal WHERE status = 'ACTIVE'"
+        ).fetchone()[0]
+        today = self._conn.execute(
+            "SELECT COUNT(*) FROM arbitrage_signal WHERE trade_date = "
+            "(SELECT MAX(trade_date) FROM arbitrage_signal)"
+        ).fetchone()[0]
+        return {"active": active, "latest_count": today}
 
     # --- fund_master: daily-refreshed static metadata (name/type) ---
 

@@ -207,6 +207,8 @@ def _enrich_items(items: list[dict], store: Any, trade_date: str | None) -> None
         # Purchase status classification (from fund_purchase_em data).
         r["status_class"] = _classify_purchase_status(r.get("purchase_status"))
         r["is_limited"] = r["status_class"] == "limited"
+        # Signal placeholder (filled below from active signals).
+        r["signal_type"] = None
 
     # Percentile only when enough history exists (skeleton: auto-enables later).
     if store is None:
@@ -352,6 +354,15 @@ def register_fund_arbitrage_routes(
 
         total, total_pages, page_items = _paginate(rows)
         _enrich_items(page_items, store, trade_date)
+        # Overlay active Z-score signals onto scan items
+        if store is not None:
+            try:
+                active = store.get_active_signals()
+                signal_map = {s["code"]: s["signal_type"] for s in active}
+                for item in page_items:
+                    item["signal_type"] = signal_map.get(item.get("code"))
+            except Exception:
+                pass
         return {
             "status": "ok",
             "source": source,
@@ -370,6 +381,22 @@ def register_fund_arbitrage_routes(
         """Probe which data source is currently live (em/ths/mootdx)."""
         from src.data.fund_premium import scan_source_status
         return scan_source_status()
+
+    # ── Premium history (for charts) ───────────────────────────────
+    @app.get("/fund/{code}/premium-history")
+    async def premium_history(
+        code: str,
+        days: int = Query(30, ge=1, le=365, description="回溯天数"),
+        _=Depends(require_auth),
+    ):
+        """Get premium rate time-series for a fund (for chart rendering)."""
+        from src.data.market_store import get_market_store
+        store = get_market_store()
+        if store is None:
+            raise HTTPException(503, "数据服务不可用")
+        history = store.get_fund_premium_history(code, days)
+        # Reverse to chronological order (oldest first for charts)
+        return {"code": code, "history": list(reversed(history))}
 
     # ── Single fund detail ────────────────────────────────────────
     @app.get("/fund/{code}")

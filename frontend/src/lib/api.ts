@@ -506,7 +506,45 @@ export const api = {
   toggleAlertRule: (ruleId: string) =>
     request<{ rule: AlertRule; message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}/toggle`, { method: "POST" }),
   getAlertHistory: () => request<{ history: AlertHistoryItem[]; total: number }>("/alert/history"),
+
+  // Signals (Z-score)
+  getActiveSignals: () => request<{ signals: ArbitrageSignal[]; stats: SignalStats }>("/signal/active"),
+  getSignalHistory: (days = 7) => request<{ signals: ArbitrageSignal[] }>(`/signal/history?days=${days}`),
+  getSignalStats: () => request<SignalStats>("/signal/stats"),
+
+  // Premium history (charts)
+  getPremiumHistory: (code: string, days = 30) =>
+    request<{ code: string; history: PremiumHistoryItem[] }>(`/fund/${encodeURIComponent(code)}/premium-history?days=${days}`),
 };
+
+// --- Signal types ---
+
+export interface ArbitrageSignal {
+  code: string;
+  name: string;
+  type: string;
+  trade_date: string;
+  signal_type: "PREMIUM" | "DISCOUNT";
+  premium_rate: number;
+  z_score: number;
+  historical_mean: number;
+  historical_std: number;
+  n_history: number;
+  cost_estimate: number;
+  net_spread: number;
+  status: string;
+}
+
+export interface SignalStats {
+  active: number;
+  latest_count: number;
+}
+
+export interface PremiumHistoryItem {
+  trade_date: string;
+  premium_rate: number;
+  amount: number;
+}
 
 // --- Swarm types ---
 
@@ -2068,6 +2106,7 @@ export interface FundScanItem {
   fee_rate?: number;
   status_class?: string;       // "open" | "limited" | "suspended" | "unknown"
   is_limited?: boolean;
+  signal_type?: string | null; // "PREMIUM" | "DISCOUNT" | null (from Z-score detection)
 }
 
 export interface FundScanResponse {
