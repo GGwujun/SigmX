@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, Wifi, WifiOff, Bell } from "lucide-react";
+import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, Wifi, Bell } from "lucide-react";
 import { toast } from "sonner";
 import { api, type FundScanItem } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -41,7 +41,7 @@ function premiumClass(p: number): string {
 
 export function FundOpportunity() {
   const navigate = useNavigate();
-  const { prices: ssePrices, connected: sseConnected, lastUpdate: sseLastUpdate } = useSSE();
+  const { prices: ssePrices, connected: sseConnected } = useSSE();
   const [fundType, setFundType] = useState("ETF");
   const [minPremium, setMinPremium] = useState(0.5);
   const [items, setItems] = useState<FundScanItem[]>([]);
