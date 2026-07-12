@@ -15,9 +15,10 @@ logger = logging.getLogger(__name__)
 def _format_alert(alert: dict[str, Any]) -> tuple[str, str]:
     """Return (title, markdown_body) for the notification.
 
-    Tiered severity:
-    - |premium| >= 8%  → 🚨 紧急模板
-    - Otherwise         → 📊 标准模板
+    Tiered severity (3 tiers, inspired by lof-monitor):
+    - |premium| >= 8%  → 🚨 超高溢价/折价（紧急，含操作建议）
+    - |premium| >= 5%  → 🔥 高溢价/折价（重要，含套利空间）
+    - Otherwise         → 📊 套利提醒（标准）
     """
     premium = alert.get("premium_rate", 0.0)
     abs_prem = abs(premium)
@@ -28,21 +29,59 @@ def _format_alert(alert: dict[str, Any]) -> tuple[str, str]:
     amount = alert.get("amount", 0.0)
     triggered_at = alert.get("triggered_at", "")
 
-    if abs_prem >= 8:
-        title = f"🚨 超高溢价套利机会！{fund_name}({fund_code})"
-    else:
-        title = f"📊 套利提醒 — {fund_name}({fund_code})"
-
-    direction = "溢价" if premium > 0 else "折价"
+    is_premium = premium > 0
+    direction = "溢价" if is_premium else "折价"
+    emoji_dir = "📈" if is_premium else "📉"
     amount_wan = amount / 10000 if amount else 0
 
-    lines = [
-        f"**{fund_name}**（{fund_code}）",
-        f"折溢价率：**{premium:+.2f}%**（{direction}）",
-        f"场内价格：{price:.4f} | 净值：{nav:.4f}",
-        f"成交额：{amount_wan:,.0f} 万元",
-        f"触发时间：{triggered_at}",
-    ]
+    # Calculate estimated profit for 10万 investment
+    invest = 100000
+    if nav > 0:
+        shares = invest / nav
+        if is_premium:
+            est_profit = shares * price - invest - invest * 0.012 - shares * price * 0.005
+        else:
+            est_profit = shares * nav - invest - invest * 0.005
+    else:
+        est_profit = 0
+
+    if abs_prem >= 8:
+        title = f"🚨 超高{direction}套利机会！{fund_name}({fund_code})"
+        lines = [
+            f"## 🚨 超高{direction}警报",
+            f"**{fund_name}**（{fund_code}）",
+            f"{emoji_dir} 折溢价率：**{premium:+.2f}%**",
+            f"场内价格：{price:.4f} | 净值：{nav:.4f}",
+            f"成交额：{amount_wan:,.0f} 万元",
+            f"",
+            f"**💰 10万预估利润：{est_profit:+,.0f} 元**",
+            f"",
+            f"**⚡ 操作建议：**",
+            f"{'- 场外申购 → 场内卖出（T+2交割）' if is_premium else '- 场内买入 → 赎回（T+2交割）'}",
+            f"- 注意：持有<7天赎回费1.5%，≥7天降为0.5%",
+            f"- 关注限购状态，限购基金溢价更持久",
+        ]
+    elif abs_prem >= 5:
+        title = f"🔥 高{direction}提醒 — {fund_name}({fund_code})"
+        lines = [
+            f"## 🔥 高{direction}提醒",
+            f"**{fund_name}**（{fund_code}）",
+            f"{emoji_dir} 折溢价率：**{premium:+.2f}%**",
+            f"场内价格：{price:.4f} | 净值：{nav:.4f}",
+            f"成交额：{amount_wan:,.0f} 万元",
+            f"",
+            f"**💰 10万预估利润：{est_profit:+,.0f} 元**",
+        ]
+    else:
+        title = f"📊 套利提醒 — {fund_name}({fund_code})"
+        lines = [
+            f"**{fund_name}**（{fund_code}）",
+            f"{emoji_dir} 折溢价率：**{premium:+.2f}%**（{direction}）",
+            f"场内价格：{price:.4f} | 净值：{nav:.4f}",
+            f"成交额：{amount_wan:,.0f} 万元",
+        ]
+
+    lines.append(f"触发时间：{triggered_at}")
     body = "\n\n".join(lines)
     return title, body
 

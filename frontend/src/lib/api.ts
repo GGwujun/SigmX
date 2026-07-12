@@ -478,8 +478,8 @@ export const api = {
   alphaForgeEventsUrl: (runId: string) => withAuthQuery(`${BASE}/alpha-forge/runs/${encodeURIComponent(runId)}/events`),
 
   // Fund arbitrage
-  scanFunds: (type = "ETF", minPremium = 0.5, page = 1, pageSize = 20, sort = "premium_abs") =>
-    request<FundScanResponse>(`/fund/scan?type=${encodeURIComponent(type)}&min_premium=${minPremium}&page=${page}&page_size=${pageSize}&sort=${sort}`),
+  scanFunds: (type = "ETF", minPremium = 0.5, page = 1, pageSize = 20, sort = "premium_abs", keyword = "") =>
+    request<FundScanResponse>(`/fund/scan?type=${encodeURIComponent(type)}&min_premium=${minPremium}&page=${page}&page_size=${pageSize}&sort=${sort}&keyword=${encodeURIComponent(keyword)}`),
   getFundDetail: (code: string) => request<FundDetail>(`/fund/${encodeURIComponent(code)}`),
   getFundSourceStatus: () => request<FundSourceStatus>("/fund/source-status"),
   analyzeFund: (fund_code: string, fund_type = "ETF") =>

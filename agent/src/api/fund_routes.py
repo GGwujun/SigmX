@@ -262,6 +262,7 @@ def register_fund_arbitrage_routes(
             "limited_premium=限购溢价优先(限购基金按溢价降序)",
         ),
         limit: int | None = Query(None, ge=1, le=200, description="兼容旧前端，等价于 page_size"),
+        keyword: str = Query("", description="搜索关键词（匹配基金代码或名称）"),
         _=Depends(require_auth),
     ):
         """Scan funds for premium/discount arbitrage opportunities.
@@ -283,13 +284,15 @@ def register_fund_arbitrage_routes(
         want_all = fund_type_upper in ("ALL", "全部")
 
         def _paginate(rows: list[dict]) -> tuple[int, int, list[dict]]:
-            # Filter: type (ALL skips) + min premium. scan_fund_premium already
-            # dropped |premium|>50 (stale-NAV noise), so we only apply the
-            # caller's lower bound here.
+            # Filter: type (ALL skips) + min premium + keyword search.
+            # scan_fund_premium already dropped |premium|>50 (stale-NAV noise).
+            kw = keyword.strip().lower()
             filtered = [
                 r for r in rows
                 if (want_all or r.get("type", "").upper() == fund_type_upper)
                 and abs(float(r.get("premium_rate") or 0.0)) >= min_premium
+                and (not kw or kw in str(r.get("code", "")).lower()
+                     or kw in str(r.get("name", "")).lower())
             ]
             # Sort by the requested key (stable tiebreak: |premium| desc).
             _prem = lambda r: float(r.get("premium_rate") or 0.0)

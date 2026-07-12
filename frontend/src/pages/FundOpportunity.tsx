@@ -32,11 +32,16 @@ function fmtTime(value?: string | null): string {
   return date.toLocaleTimeString("zh-CN", { hour12: false });
 }
 
+/** 6-tier premium/discount color gradient (inspired by lof-monitor). */
 function premiumClass(p: number): string {
-  if (p > 1.5) return "text-danger font-semibold";
-  if (p > 0.5) return "text-warning";
-  if (p < -1.5) return "text-success font-semibold";
-  if (p < -0.5) return "text-success";
+  if (p >= 10) return "text-danger font-bold bg-danger/10 rounded px-1";          // 🔥 超高溢价
+  if (p >= 5)  return "text-danger font-semibold bg-danger/5 rounded px-1";       // 🔥 高溢价
+  if (p >= 2)  return "text-warning font-medium";                                  // ⚠️ 中溢价
+  if (p > 0)   return "text-muted-foreground";                                     // 微溢价
+  if (p <= -8) return "text-success font-bold bg-success/10 rounded px-1";        // 💎 超高折价
+  if (p <= -5) return "text-success font-semibold bg-success/5 rounded px-1";     // 💎 高折价
+  if (p <= -2) return "text-success font-medium";                                  // 中折价
+  if (p < 0)   return "text-muted-foreground";                                     // 微折价
   return "text-muted-foreground";
 }
 
@@ -55,11 +60,12 @@ export function FundOpportunity() {
   const [serverUpdatedAt, setServerUpdatedAt] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>("premium_abs");
   const [limitedOnly, setLimitedOnly] = useState(false);
+  const [keyword, setKeyword] = useState("");
 
-  const doScan = useCallback(async (targetPage: number, targetSize: number, typeVal: string, minVal: number, sortVal: SortKey, showToast = false) => {
+  const doScan = useCallback(async (targetPage: number, targetSize: number, typeVal: string, minVal: number, sortVal: SortKey, kw: string = "", showToast = false) => {
     setLoading(true);
     try {
-      const res = await api.scanFunds(typeVal, minVal, targetPage, targetSize, sortVal);
+      const res = await api.scanFunds(typeVal, minVal, targetPage, targetSize, sortVal, kw);
       setItems(res.items || []);
       setTotal(res.count || 0);
       setTotalPages(res.total_pages || 1);
@@ -74,7 +80,7 @@ export function FundOpportunity() {
   }, []);
 
   useEffect(() => {
-    doScan(page, pageSize, fundType, minPremium, sort); // auto-scan on mount
+    doScan(page, pageSize, fundType, minPremium, sort, keyword); // auto-scan on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -86,28 +92,33 @@ export function FundOpportunity() {
   const onTypeChange = (v: string) => {
     setFundType(v);
     setPage(1);
-    doScan(1, pageSize, v, minPremium, sort, true);
+    doScan(1, pageSize, v, minPremium, sort, keyword, true);
   };
   const onMinChange = (v: number) => {
     setMinPremium(v);
     setPage(1);
-    doScan(1, pageSize, fundType, v, sort, true);
+    doScan(1, pageSize, fundType, v, sort, keyword, true);
   };
   const onSortChange = (v: SortKey) => {
     setSort(v);
     setPage(1);
-    doScan(1, pageSize, fundType, minPremium, v, true);
+    doScan(1, pageSize, fundType, minPremium, v, keyword, true);
   };
   const onPageSizeChange = (v: number) => {
     setPageSize(v);
     setPage(1);
-    doScan(1, v, fundType, minPremium, sort, true);
+    doScan(1, v, fundType, minPremium, sort, keyword, true);
   };
   const onPageChange = (p: number) => {
     setPage(p);
-    doScan(p, pageSize, fundType, minPremium, sort);
+    doScan(p, pageSize, fundType, minPremium, sort, keyword);
   };
-  const onRefresh = () => doScan(page, pageSize, fundType, minPremium, sort, true);
+  const onKeywordSearch = (kw: string) => {
+    setKeyword(kw);
+    setPage(1);
+    doScan(1, pageSize, fundType, minPremium, sort, kw, true);
+  };
+  const onRefresh = () => doScan(page, pageSize, fundType, minPremium, sort, keyword, true);
 
   // Merge SSE real-time prices onto scanned items
   const displayItems = useMemo(() => {
@@ -166,6 +177,13 @@ export function FundOpportunity() {
           <input type="number" step="0.1" value={minPremium} onChange={e => onMinChange(parseFloat(e.target.value) || 0)}
             className="w-20 px-2 py-1.5 rounded-lg border bg-background text-sm" />
           <span className="text-xs text-muted-foreground">%</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Search className="h-3.5 w-3.5 text-muted-foreground" />
+          <input type="text" value={keyword} placeholder="代码或名称搜索…"
+            onChange={e => setKeyword(e.target.value)}
+            onKeyDown={e => e.key === "Enter" && onKeywordSearch(keyword)}
+            className="w-36 px-2.5 py-1.5 rounded-lg border bg-background text-sm" />
         </div>
         <div className="flex items-center gap-1.5">
           <ArrowUpDown className="h-3.5 w-3.5 text-muted-foreground" />
