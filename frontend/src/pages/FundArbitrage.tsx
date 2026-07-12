@@ -9,9 +9,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import {
-  api, type FundReportDetail, type FundReportItem, type FundRunDetail,
+  api, type FundReportDetail, type FundReportItem, type FundRunDetail, type PremiumHistoryItem,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { PremiumHistoryChart } from "@/components/fund/PremiumHistoryChart";
 
 const FUND_TYPES = [
   { value: "ETF", label: "ETF" },
@@ -47,6 +48,16 @@ function ReportViewer({
   report: FundReportDetail;
   onDownload: (format: "md" | "pdf") => void;
 }) {
+  const [premiumHistory, setPremiumHistory] = useState<PremiumHistoryItem[]>([]);
+
+  useEffect(() => {
+    const code = report.fund_code;
+    if (!code) return;
+    api.getPremiumHistory(code, 60)
+      .then(res => setPremiumHistory(res.history || []))
+      .catch(() => setPremiumHistory([]));
+  }, [report.fund_code]);
+
   return (
     <div className="max-w-4xl mx-auto p-6">
       <div className="flex items-start justify-between mb-6">
@@ -73,6 +84,15 @@ function ReportViewer({
           </button>
         </div>
       </div>
+      {/* Premium history chart */}
+      {premiumHistory.length > 0 && (
+        <div className="mb-6 rounded-lg border bg-card p-4">
+          <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+            <Zap className="h-4 w-4 text-primary" /> 溢价率走势（近60日）
+          </h3>
+          <PremiumHistoryChart data={premiumHistory} height={200} />
+        </div>
+      )}
       <article className="prose prose-sm dark:prose-invert max-w-none prose-headings:border-b prose-headings:pb-2 prose-headings:mt-8 prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-table:text-xs prose-th:bg-muted/50 prose-th:font-semibold prose-td:px-3 prose-td:py-2 prose-blockquote:border-l-primary prose-blockquote:bg-muted/20 prose-blockquote:px-4 prose-blockquote:py-1 prose-li:text-sm prose-p:text-sm [&_pre]:bg-muted/40 [&_pre]:p-4 [&_pre]:rounded-lg [&_pre]:overflow-x-auto [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_pre_code]:font-mono [&_pre_code]:whitespace-pre">
         <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
           {report.content_md}
