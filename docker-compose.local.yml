@@ -9,7 +9,7 @@ services:
     container_name: sigmx-data-sync
     restart: unless-stopped
     volumes:
-      - ../sigmx-local/data:/data:rw
+      - E:\gwj\sigmx-local\data:/data:rw
     environment:
       - TZ=Asia/Shanghai
       - DB_PATH=/data/market.db
@@ -24,7 +24,7 @@ services:
     ports:
       - "8900:8900"
     volumes:
-      - ../sigmx-local/data:/data:ro
+      - E:\gwj\sigmx-local\data:/data:ro
     environment:
       - TZ=Asia/Shanghai
       - DB_PATH=/data/market.db
@@ -36,4 +36,4 @@ volumes:
     driver_opts:
       type: none
       o: bind
-      device: ../sigmx-local/data
+      device: E:\gwj\sigmx-local\data
