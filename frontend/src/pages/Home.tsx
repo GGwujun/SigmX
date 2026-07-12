@@ -167,7 +167,7 @@ export function Home() {
   return (
     <div className="min-h-full bg-background">
       <header className="border-b bg-card/80">
-        <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-5 md:px-6">
+        <div className="mx-auto flex flex-col gap-4 px-4 py-5 md:px-6">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
@@ -206,7 +206,7 @@ export function Home() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 md:px-6">
+      <main className="mx-auto space-y-6 px-4 py-6 md:px-6">
         {loading ? (
           <div className="flex min-h-64 items-center justify-center rounded-md border bg-card text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

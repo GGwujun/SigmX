@@ -207,7 +207,7 @@ function BrowseView() {
   const visible = filtered.slice(0, visibleCount);
 
   return (
-    <div className="p-4 md:p-8 max-w-6xl mx-auto space-y-8">
+    <div className="p-4 md:p-8 mx-auto space-y-8">
       {/* Hero */}
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-xs text-muted-foreground uppercase tracking-wide">
@@ -496,7 +496,7 @@ function DetailView({ alphaId }: DetailProps) {
 
   if (error || !detail) {
     return (
-      <div className="p-8 max-w-3xl mx-auto space-y-4">
+      <div className="p-8 mx-auto space-y-4">
         <Link to="/alpha-zoo" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" /> 返回因子工厂
         </Link>
@@ -523,7 +523,7 @@ function DetailView({ alphaId }: DetailProps) {
     : `/alpha-zoo/bench?zoo=${encodeURIComponent(a.zoo)}&period=2020-2025`;
 
   return (
-    <div className="p-4 md:p-8 max-w-4xl mx-auto space-y-6">
+    <div className="p-4 md:p-8 mx-auto space-y-6">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <Link
           to="/alpha-zoo"
@@ -745,7 +745,7 @@ function BenchView() {
   const busy = status === "submitting" || status === "streaming";
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 md:p-8 mx-auto space-y-6">
       <Link
         to="/alpha-zoo"
         className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
@@ -1201,7 +1201,7 @@ function CompareView() {
   const busy = status === "submitting" || status === "streaming";
 
   return (
-    <div className="p-4 md:p-8 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 md:p-8 mx-auto space-y-6">
       <Link
         to="/alpha-zoo"
         className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1"

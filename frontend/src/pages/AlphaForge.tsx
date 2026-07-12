@@ -1018,7 +1018,7 @@ function ReportViewer({
   onDownload: (format: "md" | "pdf") => void | Promise<void>;
 }) {
   return (
-    <div className="mx-auto max-w-5xl p-6">
+    <div className="mx-auto p-6">
       <div className="mb-6 flex flex-col gap-4 border-b pb-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="mb-2 flex flex-wrap items-center gap-3">

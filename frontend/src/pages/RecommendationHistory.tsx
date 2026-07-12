@@ -176,7 +176,7 @@ export function RecommendationHistory() {
         ) : !data || data.items.length === 0 ? (
           <Empty />
         ) : (
-          <div className="mx-auto max-w-7xl space-y-4">
+          <div className="mx-auto space-y-4">
             <Summary data={data} />
             <Filters
               dateOptions={dateOptions}

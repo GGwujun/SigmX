@@ -148,7 +148,7 @@ function StageShell({
         ) : error ? (
           <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
         ) : (
-          <div className="mx-auto max-w-7xl space-y-4">
+          <div className="mx-auto space-y-4">
             <DataStatus data={data} errors={payload?.errors ?? []} />
             {stage === "morning-brief" && <MorningBriefView data={data} />}
             {stage === "intraday-monitor" && <IntradayView data={data} />}

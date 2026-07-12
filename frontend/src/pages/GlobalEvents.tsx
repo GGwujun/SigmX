@@ -206,7 +206,7 @@ export function GlobalEvents() {
 
       {/* Main content */}
       <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="mx-auto max-w-7xl">
+        <div className="mx-auto">
           {loading ? (
             <div className="flex min-h-[360px] items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-5 w-5 animate-spin" />

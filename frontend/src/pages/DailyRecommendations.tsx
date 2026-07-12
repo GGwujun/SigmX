@@ -220,7 +220,7 @@ export function DailyRecommendations() {
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto p-4 md:p-6">
-        <div className="mx-auto max-w-7xl space-y-4">
+        <div className="mx-auto space-y-4">
           <SummaryBar
             count={sorted.length}
             risingCount={risingCount}
