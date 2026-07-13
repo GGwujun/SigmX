@@ -159,6 +159,9 @@ PUSH_TABLES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
     # B 类 per-code（专用 upsert，不删当日）
     "bars_daily": ("per_code", (), ()),
     "index_daily": ("per_code", (), ()),
+    # 阶段快照（早盘内参/盘中监控/尾盘策略/收盘复盘）
+    "market_stage_snapshot": ("wide", ("trade_date", "stage"),
+     ("payload_json", "source_tables", "updated_at")),
 }
 
 

@@ -6,6 +6,13 @@ SigmX data-sync 推送服务（替代 rsync 文件覆盖）。
 增量：按 trade_date 水位线推进（存本地 sync_meta 表，key=push:{table}:last_date）。
 只推 trade_date > 水位线 的日期。历史已收盘数据不变，水位线设到最新日-1 即可。
 """
+# 禁用系统代理（避免推送请求走代理失败）
+import os as _os
+for _k in list(_os.environ.keys()):
+    if "proxy" in _k.lower():
+        _os.environ.pop(_k, None)
+_os.environ.setdefault("NO_PROXY", "*")
+
 import json
 import os
 import sqlite3

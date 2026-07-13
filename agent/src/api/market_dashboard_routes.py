@@ -538,16 +538,20 @@ def _compute_sentiment(
     adv = int(breadth.get("advancers") or 0)
     dec = int(breadth.get("decliners") or 0)
     limit_up = int((pools or {}).get("limit_up_count") or breadth.get("limit_up") or 0)
+    limit_down = int((pools or {}).get("limit_down_count") or breadth.get("limit_down") or 0)
     max_height = int((pools or {}).get("max_limit_up_height") or 0)
 
     adv_ratio = (adv / total) if total else 0.5
     breadth_strength = ((adv - dec) / total) if total else 0.0  # -1..+1
 
     # Temperature components (each 0..100):
-    #   breadth heat: adv_ratio scaled; limit-up heat: sqrt-scaled count capped;
+    #   breadth heat: adv_ratio scaled; limit heat: net of limit-up vs limit-down;
     #   capital heat: sign + magnitude of sector TOP5 main-force net flow.
     breadth_heat = adv_ratio * 100.0
-    limit_heat = min(100.0, (limit_up ** 0.6) * 18.0)  # 5 涨停≈50, 20 涨停≈80
+    # limit_heat: 以 50 为中性基准，涨停推高、跌停拉低，避免只看涨停忽略跌停
+    _lu_heat = (limit_up ** 0.6) * 18.0
+    _ld_penalty = (limit_down ** 0.6) * 18.0
+    limit_heat = max(0.0, min(100.0, 50.0 + _lu_heat - _ld_penalty))
     sector_net = 0.0
     if capital and capital.get("sector_top5"):
         sector_net = sum(s.get("main_net", 0) for s in capital["sector_top5"]) / 1e8  # →亿
@@ -1427,11 +1431,14 @@ def _compute_sentiment(
     adv = int(breadth.get("advancers") or 0)
     dec = int(breadth.get("decliners") or 0)
     limit_up = int((pools or {}).get("limit_up_count") or breadth.get("limit_up") or 0)
+    limit_down = int((pools or {}).get("limit_down_count") or breadth.get("limit_down") or 0)
     max_height = int((pools or {}).get("max_limit_up_height") or 0)
     adv_ratio = adv / total if total else 0.5
     breadth_strength = (adv - dec) / total if total else 0.0
     breadth_heat = adv_ratio * 100.0
-    limit_heat = min(100.0, (limit_up ** 0.6) * 18.0)
+    _lu_heat = (limit_up ** 0.6) * 18.0
+    _ld_penalty = (limit_down ** 0.6) * 18.0
+    limit_heat = max(0.0, min(100.0, 50.0 + _lu_heat - _ld_penalty))
     sector_net = 0.0
     if capital and capital.get("sector_top5"):
         sector_net = sum(s.get("main_net", 0) for s in capital["sector_top5"]) / 1e8
@@ -1527,11 +1534,14 @@ def _compute_sentiment(
     adv = int(breadth.get("advancers") or 0)
     dec = int(breadth.get("decliners") or 0)
     limit_up = int((pools or {}).get("limit_up_count") or breadth.get("limit_up") or 0)
+    limit_down = int((pools or {}).get("limit_down_count") or breadth.get("limit_down") or 0)
     max_height = int((pools or {}).get("max_limit_up_height") or 0)
     adv_ratio = adv / total if total else 0.5
     breadth_strength = (adv - dec) / total if total else 0.0
     breadth_heat = adv_ratio * 100.0
-    limit_heat = min(100.0, (limit_up ** 0.6) * 18.0)
+    _lu_heat = (limit_up ** 0.6) * 18.0
+    _ld_penalty = (limit_down ** 0.6) * 18.0
+    limit_heat = max(0.0, min(100.0, 50.0 + _lu_heat - _ld_penalty))
     sector_net = 0.0
     if capital and capital.get("sector_top5"):
         sector_net = sum(s.get("main_net", 0) for s in capital["sector_top5"]) / 1e8

@@ -6,6 +6,13 @@ V5: ReAct Agent + async /run + CORS env + SSE tool events.
 
 from __future__ import annotations
 
+# 禁用系统代理（akshare 走代理会导致连接失败）
+import os as _os
+for _k in list(_os.environ.keys()):
+    if "proxy" in _k.lower():
+        _os.environ.pop(_k, None)
+_os.environ.setdefault("NO_PROXY", "*")
+
 import asyncio
 import hmac
 import ipaddress
