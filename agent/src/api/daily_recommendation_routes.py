@@ -75,6 +75,10 @@ _RECOMMENDATION_FACTOR_POLARITY = {
     "qlib158_std60": -1,
     "qlib158_ma5": -1,
 }
+_RECOMMENDATION_MODEL_VERSION = "daily-v2"
+_MIN_DETERMINISTIC_SCORE = 0.62
+_MAX_CATEGORY_PICKS = 3
+_MAX_AFTERNOON_REPEATS = 2
 
 
 class GenerateRecommendationsRequest(BaseModel):
@@ -885,6 +889,107 @@ def _apply_attribution_guardrails(
     return item
 
 
+def _deterministic_score(
+    item: dict[str, Any],
+    market_regime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_score = float(item.get("score", item.get("confidence", 0.5)) or 0.5)
+    realtime_score = float((item.get("realtime_confirmation") or {}).get("score", 0.5) or 0.5)
+    factor_score = float((item.get("factor_review") or {}).get("score", 0.5) or 0.5)
+    regime = str((market_regime or {}).get("regime") or "neutral")
+    regime_adjustment = -0.05 if regime == "risk_off" else 0.03 if regime == "risk_on" else 0.0
+    deterministic = max(
+        0.01,
+        min(
+            0.99,
+            base_score * 0.45
+            + realtime_score * 0.30
+            + factor_score * 0.20
+            + regime_adjustment,
+        ),
+    )
+    enriched = dict(item)
+    enriched["deterministic_score"] = round(deterministic, 3)
+    enriched["eligible"] = deterministic >= _MIN_DETERMINISTIC_SCORE
+    enriched["score"] = round(deterministic, 3)
+    enriched["market_regime"] = market_regime or {"regime": "neutral"}
+    enriched["scoring"] = {
+        "base_score": round(base_score, 3),
+        "realtime_score": round(realtime_score, 3),
+        "factor_score": round(factor_score, 3),
+        "regime_adjustment": round(regime_adjustment, 3),
+        "deterministic_score": round(deterministic, 3),
+        "ai_adjustment": 0.0,
+        "final_score": round(deterministic, 3),
+        "model_version": _RECOMMENDATION_MODEL_VERSION,
+    }
+    return enriched
+
+
+def _apply_ai_adjustment(item: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(item)
+    ai = enriched.get("ai_review") or {}
+    decision = str(ai.get("decision") or "watch").lower()
+    try:
+        ai_score = float(ai.get("score", 0.5))
+    except (TypeError, ValueError):
+        ai_score = 0.5
+    adjustment = max(-0.02, min(0.02, (ai_score - 0.5) * 0.04))
+    deterministic = float(enriched.get("deterministic_score", enriched.get("score", 0.5)) or 0.5)
+    final_score = max(0.01, min(0.99, deterministic + adjustment))
+    enriched["eligible"] = bool(enriched.get("eligible")) and decision == "recommend"
+    enriched["score"] = round(final_score, 3)
+    scoring = dict(enriched.get("scoring") or {})
+    scoring.update(
+        {
+            "ai_adjustment": round(adjustment, 3),
+            "final_score": round(final_score, 3),
+            "model_version": _RECOMMENDATION_MODEL_VERSION,
+        }
+    )
+    enriched["scoring"] = scoring
+    return enriched
+
+
+def _select_final_candidates(
+    candidates: list[dict[str, Any]],
+    phase: RecommendationPhase,
+    limit: int,
+    existing_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    morning_symbols: set[str] = set()
+    if phase.id == "afternoon_final":
+        today = _today_cst()
+        morning_symbols = {
+            str(record.get("symbol") or "").upper()
+            for record in existing_records
+            if record.get("status", "final") == "final"
+            and record.get("slot") == "morning"
+            and str(record.get("target_date", record.get("date"))) == today
+        }
+
+    selected: list[dict[str, Any]] = []
+    category_counts: dict[str, int] = {}
+    repeat_count = 0
+    for item in sorted(candidates, key=lambda row: float(row.get("score", 0) or 0), reverse=True):
+        if not item.get("eligible", True):
+            continue
+        category = str(item.get("category_id") or item.get("category") or "unknown")
+        if category_counts.get(category, 0) >= _MAX_CATEGORY_PICKS:
+            continue
+        symbol = str(item.get("symbol") or "").upper()
+        is_repeat = phase.id == "afternoon_final" and symbol in morning_symbols
+        if is_repeat and repeat_count >= _MAX_AFTERNOON_REPEATS:
+            continue
+        selected.append(item)
+        category_counts[category] = category_counts.get(category, 0) + 1
+        if is_repeat:
+            repeat_count += 1
+        if len(selected) >= min(limit, _MAX_GENERATED):
+            break
+    return selected
+
+
 def _ai_review_candidates(candidates: list[dict[str, Any]], slot: str, limit: int) -> dict[str, dict[str, Any]]:
     if not candidates:
         return {}
@@ -963,28 +1068,28 @@ def _reviewed_candidates(slot: str, limit: int) -> list[dict[str, Any]]:
         return []
 
     shortlist = candidates[: max(limit * 3, 8)]
+    market_regime = _current_market_regime()
     for item in shortlist:
         factor = _factor_review(item)
         item["factor_review"] = factor
-        base = float(item.get("score", item.get("confidence", 0.5)) or 0.5)
-        factor_score = float(factor.get("score", 0.5) or 0.5)
-        item["pre_ai_score"] = round(max(0.01, min(0.99, base * 0.70 + factor_score * 0.30)), 3)
+        scored = _deterministic_score(item, market_regime)
+        item.clear()
+        item.update(scored)
 
-    ai_reviews = _ai_review_candidates(shortlist, slot, limit)
-    market_regime = _current_market_regime()
+    eligible = [item for item in shortlist if item.get("eligible")]
+    if not eligible:
+        raise HTTPException(status_code=503, detail="没有达到确定性评分门槛的推荐标的")
+    eligible.sort(key=lambda item: float(item.get("deterministic_score", 0) or 0), reverse=True)
+    ai_reviews = _ai_review_candidates(eligible, slot, limit)
     reviewed: list[dict[str, Any]] = []
-    for item in shortlist:
+    for item in eligible:
         symbol = str(item.get("symbol", "")).upper()
         ai = ai_reviews.get(symbol)
         if not ai:
             continue
         item["ai_review"] = ai
-        item["score"] = round(
-            max(0.01, min(0.99, float(item.get("pre_ai_score", 0.5)) * 0.45 + float(ai.get("score", 0.5)) * 0.55)),
-            3,
-        )
-        item = _apply_attribution_guardrails(item, slot, market_regime)
-        if ai.get("decision") == "recommend" and float(item.get("score", 0) or 0) >= 0.58:
+        item = _apply_ai_adjustment(item)
+        if item.get("eligible"):
             reviewed.append(item)
 
     if not reviewed:
@@ -1478,9 +1583,11 @@ def _generate_for_phase(phase_id: str, limit: int, *, target_date: str | None = 
     if not candidates:
         return []
 
-    selected = candidates[: min(limit, _MAX_GENERATED)]
     with _STORE_LOCK:
         records = _load_records()
+        selected = _select_final_candidates(candidates, phase, limit, records)
+        if not selected:
+            return []
         version = _next_phase_version(records, target, phase.id)
         new_records = [
             _make_record(item, phase.id, target, rank + 1, version)

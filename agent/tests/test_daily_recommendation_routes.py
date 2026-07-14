@@ -492,6 +492,115 @@ def test_market_regime_guardrail_penalizes_hot_signal_in_risk_off() -> None:
     assert "risk_off_chase_high_penalty" in adjusted["attribution_adjustments"]
 
 
+def _scored(symbol: str, category: str, score: float) -> dict:
+    return {
+        "symbol": symbol,
+        "category_id": category,
+        "score": score,
+        "deterministic_score": score,
+        "eligible": True,
+        "ai_review": {"score": 0.7, "decision": "recommend"},
+    }
+
+
+def _final_record(symbol: str, *, slot: str = "morning") -> dict:
+    return {
+        "symbol": symbol,
+        "slot": slot,
+        "target_date": "2026-07-14",
+        "status": "final",
+    }
+
+
+def test_ai_cannot_rescue_candidate_below_deterministic_floor() -> None:
+    item = _candidate() | {
+        "score": 0.50,
+        "realtime_confirmation": {"score": 0.50},
+        "factor_review": {"score": 0.50},
+        "ai_review": {"score": 0.99, "decision": "recommend"},
+    }
+
+    deterministic = routes._deterministic_score(item, {"regime": "neutral"})
+    scored = routes._apply_ai_adjustment(deterministic)
+
+    assert deterministic["eligible"] is False
+    assert scored["eligible"] is False
+    assert scored["score"] < 0.62
+    assert scored["scoring"]["ai_adjustment"] <= 0.02
+
+
+def test_selection_caps_each_category_at_three() -> None:
+    candidates = [_scored(f"60000{i}.SH", "breakout", 0.90 - i / 100) for i in range(5)]
+    candidates.append(_scored("000001.SZ", "trend", 0.70))
+
+    selected = routes._select_final_candidates(
+        candidates,
+        routes._PHASES["morning_final"],
+        5,
+        [],
+    )
+
+    assert sum(item["category_id"] == "breakout" for item in selected) == 3
+    assert any(item["category_id"] == "trend" for item in selected)
+    assert len(selected) == 4
+
+
+def test_afternoon_selection_caps_morning_repeats_at_two(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes, "_today_cst", lambda: "2026-07-14")
+    morning_symbols = {"600001.SH", "600002.SH", "600003.SH"}
+    existing = [_final_record(symbol) for symbol in morning_symbols]
+    candidates = [_scored(symbol, "trend", 0.90) for symbol in sorted(morning_symbols)]
+    candidates.extend(
+        [
+            _scored("000001.SZ", "oversold", 0.80),
+            _scored("000002.SZ", "breakout", 0.79),
+        ]
+    )
+
+    selected = routes._select_final_candidates(
+        candidates,
+        routes._PHASES["afternoon_final"],
+        5,
+        existing,
+    )
+
+    selected_symbols = {item["symbol"] for item in selected}
+    assert len(selected_symbols & morning_symbols) == 2
+    assert len(selected) == 4
+
+
+def test_reviewed_candidates_rejects_low_deterministic_score_before_ai(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        routes,
+        "_candidate_pool",
+        lambda slot: [
+            _candidate()
+            | {
+                "score": 0.50,
+                "realtime_confirmation": {"score": 0.50},
+            }
+        ],
+    )
+    monkeypatch.setattr(routes, "_factor_review", lambda item: {"score": 0.50, "status": "ok"})
+    monkeypatch.setattr(routes, "_current_market_regime", lambda: {"regime": "neutral"})
+    ai_called = False
+
+    def ai_review(candidates: list[dict], slot: str, limit: int) -> dict:
+        nonlocal ai_called
+        ai_called = True
+        return {"600000.SH": {"score": 0.99, "decision": "recommend"}}
+
+    monkeypatch.setattr(routes, "_ai_review_candidates", ai_review)
+
+    with pytest.raises(HTTPException) as exc:
+        routes._reviewed_candidates("morning", 5)
+
+    assert exc.value.status_code == 503
+    assert ai_called is False
+
+
 def _candidate(symbol: str = "600000.SH") -> dict:
     return {
         "symbol": symbol,
@@ -539,6 +648,27 @@ def test_generate_for_phase_versions_and_supersedes(monkeypatch: pytest.MonkeyPa
     draft = next(record for record in storage if record["id"] == second[0]["id"])
     assert final[0]["status"] == "final"
     assert draft["status"] == "superseded"
+
+
+def test_generate_for_phase_applies_portfolio_constraints(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage: list[dict] = []
+    candidates = [
+        _candidate(f"60000{idx}.SH") | _scored(f"60000{idx}.SH", "breakout", 0.90 - idx / 100)
+        for idx in range(5)
+    ]
+    candidates.append(_candidate("000001.SZ") | _scored("000001.SZ", "trend", 0.70))
+
+    monkeypatch.setattr(routes, "_now_cst", lambda: datetime(2026, 7, 14, 9, 27, tzinfo=routes._CST))
+    monkeypatch.setattr(routes, "_today_cst", lambda: "2026-07-14")
+    monkeypatch.setattr(routes, "_reviewed_candidates", lambda slot, limit: candidates)
+    monkeypatch.setattr(routes, "_load_records", lambda: list(storage))
+    monkeypatch.setattr(routes, "_save_records", lambda records: storage.__setitem__(slice(None), records))
+
+    generated = routes._generate_for_phase("morning_final", 5, target_date="2026-07-14")
+
+    assert len(generated) == 4
+    assert sum(record["category"] == "breakout" for record in generated) == 3
+    assert any(record["category"] == "trend" for record in generated)
 
 
 def test_generate_final_supersedes_legacy_same_slot_final(monkeypatch: pytest.MonkeyPatch) -> None:
