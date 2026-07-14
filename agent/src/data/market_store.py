@@ -604,6 +604,51 @@ CREATE TABLE IF NOT EXISTS popularity_rank (
     PRIMARY KEY (trade_date, code)
 );
 CREATE INDEX IF NOT EXISTS idx_popularity_date ON popularity_rank(trade_date);
+
+-- 北向资金（同花顺分钟级）
+CREATE TABLE IF NOT EXISTS northbound_flow (
+    trade_date TEXT NOT NULL, time TEXT NOT NULL,
+    hgt_yi REAL, sgt_yi REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, time)
+);
+CREATE INDEX IF NOT EXISTS idx_northbound_date ON northbound_flow(trade_date);
+
+-- 互动易问答（巨潮）
+CREATE TABLE IF NOT EXISTS irm_qa (
+    code TEXT NOT NULL, ask_time TEXT NOT NULL, question TEXT NOT NULL,
+    company TEXT, answer TEXT, answerer TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, ask_time, question)
+);
+CREATE INDEX IF NOT EXISTS idx_irm_qa_code ON irm_qa(code, ask_time DESC);
+
+-- 财联社电报
+CREATE TABLE IF NOT EXISTS cls_telegraph (
+    trade_date TEXT NOT NULL, title TEXT NOT NULL,
+    content TEXT, time TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, title)
+);
+CREATE INDEX IF NOT EXISTS idx_cls_telegraph_date ON cls_telegraph(trade_date);
+
+-- 个股新闻（东财+新浪）
+CREATE TABLE IF NOT EXISTS stock_news (
+    code TEXT NOT NULL, title TEXT NOT NULL, trade_date TEXT NOT NULL,
+    url TEXT, source TEXT, summary TEXT, news_date TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, title, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_news_code ON stock_news(code, trade_date DESC);
+
+-- 限售解禁日历
+CREATE TABLE IF NOT EXISTS lockup_expiry (
+    code TEXT NOT NULL, free_date TEXT NOT NULL,
+    free_shares REAL, free_ratio REAL, lift_type TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, free_date)
+);
+CREATE INDEX IF NOT EXISTS idx_lockup_code ON lockup_expiry(code, free_date DESC);
 """
 
 # Tables that carry a per-(date) market-wide snapshot.
@@ -3221,6 +3266,83 @@ class MarketStore:
                     (code, r.get("date", ""), _f(r.get("bonus_rmb")),
                      _f(r.get("transfer_ratio")), _f(r.get("bonus_ratio")),
                      r.get("plan", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_northbound_flow(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM northbound_flow WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO northbound_flow "
+                    "(trade_date, time, hgt_yi, sgt_yi, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (trade_date, r.get("time", ""), _f(r.get("hgt_yi")),
+                     _f(r.get("sgt_yi")), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_irm_qa(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO irm_qa "
+                    "(code, ask_time, question, company, answer, answerer, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("ask_time", ""), r.get("question", ""),
+                     r.get("company", ""), r.get("answer"),
+                     r.get("answerer", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_cls_telegraph(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM cls_telegraph WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO cls_telegraph "
+                    "(trade_date, title, content, time, updated_at) VALUES (?, ?, ?, ?, ?)",
+                    (trade_date, r.get("title", ""), r.get("content", ""),
+                     r.get("time", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_stock_news(self, code: str, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO stock_news "
+                    "(code, title, trade_date, url, source, summary, news_date, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("title", ""), trade_date,
+                     r.get("url", ""), r.get("source", ""),
+                     r.get("summary", ""), r.get("date", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_lockup_expiry(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO lockup_expiry "
+                    "(code, free_date, free_shares, free_ratio, lift_type, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), _f(r.get("shares")),
+                     _f(r.get("pct")), r.get("type", ""), _now_iso()),
                 )
         return len(rows)
 

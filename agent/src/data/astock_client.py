@@ -1165,3 +1165,217 @@ def ths_eps_forecast(code: str) -> list[dict]:
         })
 
     return rows
+
+
+# ── Layer 3: 信号 — 同花顺北向资金 ────────────────────────────────
+
+
+def hsgt_realtime() -> list[dict]:
+    """同花顺沪深股通当日实时分钟流向（不封 IP）。
+    返回: [{time, hgt_yi(沪股通累计净买入亿), sgt_yi(深股通累计净买入亿)}]
+    ⚠️ 深股通近期上游披露收紧，sgt 仅供参考；沪股通 hgt 可靠。
+    """
+    url = "https://data.hexin.cn/market/hsgtApi/method/dayChart/"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA, "Host": "data.hexin.cn",
+        "Referer": "https://data.hexin.cn/"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+    except Exception as e:
+        logger.warning("同花顺北向资金请求失败: %s", e)
+        return []
+    times = d.get("time", [])
+    hgt = d.get("hgt", [])
+    sgt = d.get("sgt", [])
+    return [
+        {
+            "time": t,
+            "hgt_yi": hgt[i] if i < len(hgt) else None,
+            "sgt_yi": sgt[i] if i < len(sgt) else None,
+        }
+        for i, t in enumerate(times)
+    ]
+
+
+# ── Layer 1: 行情 — 百度 K 线（自带 MA5/10/20）─────────────────────
+
+
+def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
+    """百度股市通 K 线 — 自带 ma5/ma10/ma20 均价（不封 IP）。
+    返回: {keys: [...], rows: [[...], ...]}
+    """
+    url = "https://finance.pae.baidu.com/selfselect/getstockquotation"
+    params = {
+        "all": "1", "isIndex": "false", "isBk": "false", "isBlock": "false",
+        "isFutures": "false", "isStock": "true", "newFormat": "1",
+        "group": "quotation_kline_ab", "finClientType": "pc",
+        "code": code, "start_time": start_time, "ktype": "1",
+    }
+    qs = "&".join(f"{k}={v}" for k, v in params.items())
+    req = urllib.request.Request(url + "?" + qs, headers={
+        "User-Agent": UA,
+        "Accept": "application/vnd.finance-web.v1+json",
+        "Origin": "https://gushitong.baidu.com",
+        "Referer": "https://gushitong.baidu.com/",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+    except Exception as e:
+        logger.warning("百度K线请求失败: %s", e)
+        return {"keys": [], "rows": []}
+    result = d.get("Result", {})
+    md = result.get("newMarketData", {})
+    keys = md.get("keys", [])
+    rows_raw = md.get("marketData", [])
+    rows = [r.split(";") if isinstance(r, str) else r for r in rows_raw]
+    return {"keys": keys, "rows": rows}
+
+
+# ── Layer 10: 舆情 — 互动易问答（巨潮官方）────────────────────────
+
+
+def cninfo_irm(code: str, page_size: int = 30) -> list[dict]:
+    """互动易问答（深沪统一走巨潮，不封 IP）。
+    返回: [{code, company, question, answer, answerer, ask_time}]
+    """
+    from datetime import datetime as _dt
+    try:
+        body = f"keyWord={code}".encode()
+        req = urllib.request.Request(
+            "https://irm.cninfo.com.cn/newircs/index/queryKeyboardInfo",
+            data=body, method="POST",
+            headers={"User-Agent": UA,
+                     "Content-Type": "application/x-www-form-urlencoded"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d1 = json.loads(r.read()).get("data") or []
+        if not d1:
+            return []
+        org_id = d1[0].get("secid")
+    except Exception as e:
+        logger.warning("互动易 orgId 查询失败: %s", e)
+        return []
+    try:
+        qs = (f"_t=1&stockcode={code}&orgId={org_id}&pageSize={page_size}"
+              f"&pageNum=1&keyWord=&startDay=&endDay=")
+        req = urllib.request.Request(
+            f"https://irm.cninfo.com.cn/newircs/company/question?{qs}",
+            method="POST",
+            headers={"User-Agent": UA, "Content-Length": "0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            rows = json.loads(r.read()).get("rows") or []
+    except Exception as e:
+        logger.warning("互动易问答请求失败: %s", e)
+        return []
+    out = []
+    for it in rows:
+        pd = it.get("pubDate")
+        out.append({
+            "code": it.get("stockCode"),
+            "company": it.get("companyShortName", ""),
+            "question": it.get("mainContent", ""),
+            "answer": it.get("attachedContent"),
+            "answerer": it.get("attachedAuthor", ""),
+            "ask_time": _dt.fromtimestamp(pd / 1000).strftime("%Y-%m-%d %H:%M") if pd else "",
+        })
+    return out
+
+
+# ── Layer 5: 新闻 — 财联社电报（修复版 v1 API + 签名）─────────────
+
+
+def cls_telegraph(page_size: int = 50) -> list[dict]:
+    """财联社电报（全市场实时快讯，v1 API + 本地签名零 key）。
+    返回: [{title, content, time}]
+    """
+    import hashlib
+    params = {
+        "appName": "CailianpressWeb", "os": "web", "sv": "7.7.5",
+        "last_time": "", "refresh_type": "1", "rn": str(page_size),
+    }
+    qs = "&".join(f"{k}={params[k]}" for k in sorted(params))
+    sign = hashlib.md5(hashlib.sha1(qs.encode()).hexdigest().encode()).hexdigest()
+    url = f"https://www.cls.cn/v1/roll/get_roll_list?{qs}&sign={sign}"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA, "Referer": "https://www.cls.cn/"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+    except Exception as e:
+        logger.warning("财联社电报请求失败: %s", e)
+        return []
+    if d.get("errno") and d["errno"] != 0:
+        logger.warning("财联社返回错误: errno=%s", d.get("errno"))
+        return []
+    from datetime import datetime as _dt
+    rows = []
+    for item in (d.get("data") or {}).get("roll_data") or []:
+        ts = item.get("ctime")
+        t = _dt.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M:%S") if ts else ""
+        rows.append({
+            "title": item.get("title", "") or item.get("brief", ""),
+            "content": item.get("content", "") or item.get("brief", ""),
+            "time": t,
+        })
+    return rows
+
+
+# ── Layer 5: 新闻 — 东财全球资讯（7×24 修复版）───────────────────
+
+
+def eastmoney_global_news(page_size: int = 50) -> list[dict]:
+    """东财全球财经资讯（7×24 滚动，走 em_get 限流）。"""
+    url = "https://np-weblist.eastmoney.com/comm/web/getFastNewsList"
+    params = {
+        "client": "web", "biz": "web_724",
+        "fastColumn": "102", "sortEnd": "",
+        "pageSize": str(page_size),
+    }
+    try:
+        r = em_get(url, params=params, headers={
+            "User-Agent": UA, "Referer": "https://kuaixun.eastmoney.com/"}, timeout=10)
+        d = r.json()
+    except Exception as e:
+        logger.warning("东财全球资讯请求失败: %s", e)
+        return []
+    return [{
+        "title": a.get("title", ""),
+        "summary": (a.get("summary") or "")[:200],
+        "time": a.get("showTime", ""),
+    } for a in (d.get("data") or {}).get("fastNewsList") or []]
+
+
+# ── Layer 5: 新闻 — 东财个股新闻 ──────────────────────────────────
+
+
+def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
+    """东财个股新闻流（走 em_get 限流）。"""
+    url = "https://search-api-web.eastmoney.com/search/jsonp"
+    inner = json.dumps({
+        "uid": "", "keyword": code, "type": ["cmsArticleWebOld"],
+        "client": "web", "clientType": "web",
+        "clientVersion": "curr",
+        "param": {"cmsArticleWebOld": {
+            "searchScope": "default", "sort": "default",
+            "pageIndex": 1, "pageSize": page_size,
+            "preTag": "", "postTag": ""}},
+    })
+    params = {"cb": "jQuery", "param": inner}
+    try:
+        r = em_get(url, params=params, timeout=10)
+        text = r.text
+        start = text.index("(") + 1
+        end = text.rindex(")")
+        d = json.loads(text[start:end])
+    except Exception as e:
+        logger.warning("东财个股新闻请求失败: %s", e)
+        return []
+    articles = (d.get("result") or {}).get("cmsArticleWebOld") or {}
+    return [{
+        "title": a.get("title", ""),
+        "date": a.get("date", ""),
+        "url": a.get("url", ""),
+        "source": a.get("mediaName", ""),
+        "summary": (a.get("content") or "")[:200],
+    } for a in (articles.get("list") or [])]

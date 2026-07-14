@@ -87,6 +87,11 @@ _POST_CLOSE_DATASETS = {
     "block_trade",
     "holder_num",
     "dividend_history",
+    "northbound",
+    "cls_telegraph",
+    "irm_qa",
+    "stock_news",
+    "lockup_expiry",
 }
 
 

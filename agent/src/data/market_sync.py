@@ -4907,6 +4907,100 @@ def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
     return total
 
 
+def _sync_northbound(store: MarketStore, trade_date: str) -> int:
+    """同花顺北向资金分钟流向（不封 IP）。"""
+    from src.data.astock_client import hsgt_realtime
+    try:
+        rows = hsgt_realtime()
+    except Exception as exc:
+        logger.debug("hsgt_realtime failed: %s", exc)
+        return 0
+    if not rows:
+        return 0
+    return store.upsert_northbound_flow(trade_date, rows)
+
+
+def _sync_cls_telegraph(store: MarketStore, trade_date: str) -> int:
+    """财联社电报（全市场实时快讯）。"""
+    from src.data.astock_client import cls_telegraph
+    try:
+        rows = cls_telegraph()
+    except Exception as exc:
+        logger.debug("cls_telegraph failed: %s", exc)
+        return 0
+    if not rows:
+        return 0
+    return store.upsert_cls_telegraph(trade_date, rows)
+
+
+def _sync_irm_qa(store: MarketStore, trade_date: str) -> int:
+    """互动易问答（巨潮官方，不封 IP）。"""
+    from src.data.astock_client import cninfo_irm
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 100",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            qas = cninfo_irm(code, page_size=10)
+            if qas:
+                total += store.upsert_irm_qa(row["code"], qas)
+        except Exception:
+            continue
+        time.sleep(0.3)
+    return total
+
+
+def _sync_stock_news(store: MarketStore, trade_date: str) -> int:
+    """个股新闻（东财，IP 解封后生效）。"""
+    from src.data.astock_client import eastmoney_stock_news
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 50",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            news = eastmoney_stock_news(code, page_size=5)
+            if news:
+                total += store.upsert_stock_news(row["code"], trade_date, news)
+        except Exception:
+            continue
+    return total
+
+
+def _sync_lockup_expiry(store: MarketStore, trade_date: str) -> int:
+    """限售解禁日历（东财，IP 解封后生效）。"""
+    from src.data.astock_client import lockup_expiry
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 100",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            data = lockup_expiry(code, trade_date)
+            all_items = data.get("history", []) + data.get("upcoming", [])
+            if all_items:
+                total += store.upsert_lockup_expiry(row["code"], all_items)
+        except Exception:
+            continue
+    return total
+
+
 # ----------------------------------------------------------------------
 # run_daily_sync — the engine
 # ----------------------------------------------------------------------
@@ -5101,6 +5195,11 @@ def run_daily_sync(
     _run("block_trade", lambda: _sync_block_trade(store, trade_date))
     _run("holder_num", lambda: _sync_holder_num(store, trade_date))
     _run("dividend_history", lambda: _sync_dividend_history(store, trade_date))
+    _run("northbound", lambda: _sync_northbound(store, trade_date))
+    _run("cls_telegraph", lambda: _sync_cls_telegraph(store, trade_date))
+    _run("irm_qa", lambda: _sync_irm_qa(store, trade_date))
+    _run("stock_news", lambda: _sync_stock_news(store, trade_date))
+    _run("lockup_expiry", lambda: _sync_lockup_expiry(store, trade_date))
 
     return result
 
