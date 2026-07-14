@@ -121,28 +121,35 @@ python agent/scripts/gen_codes.py --credits 100 --count 50 --days 90
 - **后端**：Python 3.11+ / FastAPI / SQLite（users.db / credits.db / sessions.db）
 - **前端**：React + TypeScript + Vite + Tailwind
 - **多智能体**：自研 swarm DAG 编排框架（YAML 预设）
-- **数据源**：mootdx / akshare / tushare（自动回退）
+- **数据源**：Tushare（规范日线）/ TPDog（补缺与交叉校验）/ mootdx / akshare
 - **LLM**：OpenAI 兼容接口（智谱 GLM / DeepSeek / OpenAI / Moonshot 等）
 
 ---
 
 ## 🗄️ 本地数据同步
 
-本地部署用于**拉取行情数据并推送到服务器**，适合开发者或需要离线分析的场景。
+行情拉取与业务查询严格分进程运行。`market-sync` 是唯一允许访问外部行情源并写入规范市场库的服务；`vibe-trading` 只读取已经发布的数据。
 
 ### 架构
 
 ```
-本地 Windows
-├── market-sync（拉数据）→ 写 data/market.db
-├── rsshub（RSS 源）
-├── vibe-trading（本地网站，8900 端口）
-└── data-sync（推送服务器，每 5 分钟）
+外部数据源
+└── market-sync（唯一写入者）
+    ├── 写 shadow DB
+    ├── 校验交易日、覆盖率、OHLC、停牌、来源与跨源样本
+    └── 仅 verified 后发布到 market.db
 
-服务器
-├── vibe-trading（网站，8900 端口，含查询 API /api/v1/*）
-└── 其他服务
+market.db（规范库）
+└── vibe-trading（只读查询与推荐）
 ```
+
+严格模式遵循以下规则：
+
+- 缺数据优于错数据；实时快照永远不能转换成规范日线。
+- 每次同步都有 `run_id`、来源、质量状态和阻断原因。
+- `partial`、`failed`、`quarantined` 不发布，也不写每日成功标记，Worker 会继续重试。
+- 每日推荐只接受目标交易日状态为 `verified` 或 `published` 的数据。
+- `/market-sync/daily`、`/market-sync/code`、`/market-sync/backfill`、`/market-sync/push` 均为只读服务禁用接口，返回 `SYNC_WORKER_REQUIRED`。
 
 ### 启动本地环境
 
@@ -187,18 +194,22 @@ open http://localhost:8900/docs
 
 完整接口列表见 [agent/src/api/sigmx_routes.py](agent/src/api/sigmx_routes.py)。
 
-### 数据推送
+### 同步运维
 
-`data-sync` 容器每 5 分钟检查本地 `data/market.db` 的新增数据，通过 HTTP POST 推送到服务器：
+生产环境只运行独立 Worker：
 
-- **目标**：`https://sigmx.dsx-family.site/market-sync/push`
-- **鉴权**：环境变量 `MARKET_SYNC_PUSH_TOKEN`（服务器端配置）
-- **增量机制**：基于 `sync_meta` 表的 `push:{table}:last_date` 水位线
-
-查看推送日志：
 ```bash
-docker logs sigmx-data-sync --tail 20
+# 持续同步
+vibe-trading-sync worker --interval 60
+
+# 手工恢复指定交易日（强制 shadow 校验与发布）
+vibe-trading-sync once --date 2026-07-14
+
+# 查看容器日志
+docker compose logs market-sync --tail 100
 ```
+
+`--no-shadow` 已移除。质量校验失败时，旧的 `market.db` 保持不变；通过 `GET /market-sync/status` 查看 `daily_readiness`、`run_id` 和阻断原因。
 
 ### 停止本地服务
 
@@ -223,9 +234,6 @@ docker-compose -f docker-compose.yml -f docker-compose.local.yml down
 │   │   └── factors/zoo/    452 个 Alpha 因子
 │   ├── api_server.py       FastAPI 入口
 │   └── scripts/            兑换码生成等工具
-├── data-sync/              数据推送服务（本地 → 服务器）
-│   ├── app.py              推送脚本（水位线 + 批量 POST）
-│   └── Dockerfile
 ├── frontend/               前端（React + TS）
 │   └── src/pages/          页面（AlphaForge/FundArbitrage/Account...）
 ├── Dockerfile

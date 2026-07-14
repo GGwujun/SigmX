@@ -7,7 +7,12 @@ from pathlib import Path
 import pytest
 
 from src.data import market_sync_worker as worker
-from src.data.market_quality import DatasetQualityReport, QualityStatus
+from src.data.market_quality import (
+    DatasetQualityReport,
+    QualityStatus,
+    ReferenceResult,
+    SuspensionResult,
+)
 from src.data.market_store import MarketStore
 
 
@@ -38,8 +43,8 @@ def test_partial_daily_dataset_is_not_published(tmp_path: Path, monkeypatch: pyt
     shadow = tmp_path / "shadow.db"
     _seed_live(live)
     monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"daily": 0})
-    monkeypatch.setattr(worker, "fetch_suspended_codes", lambda *args, **kwargs: worker.SuspensionResult.success(set()))
-    monkeypatch.setattr(worker, "fetch_daily_reference_closes", lambda *args, **kwargs: worker.ReferenceResult.success({}))
+    monkeypatch.setattr(worker, "fetch_suspended_codes", lambda *args, **kwargs: SuspensionResult.success(set()))
+    monkeypatch.setattr(worker, "fetch_daily_reference_closes", lambda *args, **kwargs: ReferenceResult.success({}))
     monkeypatch.setattr(worker, "validate_daily_dataset", lambda *args, **kwargs: _report(QualityStatus.PARTIAL))
     published = False
 
@@ -68,8 +73,8 @@ def test_verified_daily_dataset_publishes_and_marks_ready(tmp_path: Path, monkey
     shadow = tmp_path / "shadow.db"
     _seed_live(live)
     monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"daily": 1})
-    monkeypatch.setattr(worker, "fetch_suspended_codes", lambda *args, **kwargs: worker.SuspensionResult.success(set()))
-    monkeypatch.setattr(worker, "fetch_daily_reference_closes", lambda *args, **kwargs: worker.ReferenceResult.success({}))
+    monkeypatch.setattr(worker, "fetch_suspended_codes", lambda *args, **kwargs: SuspensionResult.success(set()))
+    monkeypatch.setattr(worker, "fetch_daily_reference_closes", lambda *args, **kwargs: ReferenceResult.success({}))
     monkeypatch.setattr(worker, "validate_daily_dataset", lambda *args, **kwargs: _report(QualityStatus.VERIFIED))
 
     result = worker._run_post_close_shadow_sync(

@@ -12,7 +12,7 @@ shutdown() {
 
 trap shutdown INT TERM
 
-start_worker="${VIBE_TRADING_START_MARKET_SYNC_WORKER:-1}"
+start_worker="${VIBE_TRADING_START_MARKET_SYNC_WORKER:-0}"
 case "$start_worker" in
   0|false|False|FALSE|no|No|NO)
     ;;

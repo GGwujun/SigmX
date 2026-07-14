@@ -8,13 +8,6 @@ back to the live DB with SQLite's backup API.
 
 from __future__ import annotations
 
-# 禁用系统代理（akshare 走代理会导致连接失败）
-import os as _os
-for _k in list(_os.environ.keys()):
-    if "proxy" in _k.lower():
-        _os.environ.pop(_k, None)
-_os.environ.setdefault("NO_PROXY", "*")
-
 import argparse
 import logging
 import os
@@ -29,7 +22,6 @@ from src.data.market_quality import (
     DatasetQualityReport,
     QualityStatus,
     ReferenceResult,
-    SuspensionResult,
     validate_daily_dataset,
 )
 from src.data.market_sync import (
@@ -45,6 +37,12 @@ from src.data.market_sync import (
     select_daily_reference_sample,
 )
 from src.data.rate_limiter import mark_background, reset_background
+
+# Provider calls from this worker must bypass system proxies.
+for _key in list(os.environ):
+    if "proxy" in _key.lower():
+        os.environ.pop(_key, None)
+os.environ.setdefault("NO_PROXY", "*")
 
 logger = logging.getLogger(__name__)
 

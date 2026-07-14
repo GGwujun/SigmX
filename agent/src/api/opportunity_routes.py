@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable
 
 import numpy as np
 import pandas as pd
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,6 @@ def _fetch_stocks_akshare(limit: int = 200) -> list[dict[str, Any]]:
     """Top A-share stocks by volume via akshare (sina backend, ~27s)."""
     try:
         import akshare as ak
-        import re
         df = ak.stock_zh_a_spot()  # sina backend, works on Aliyun
     except Exception:
         return []
