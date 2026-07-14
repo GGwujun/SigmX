@@ -281,6 +281,7 @@ def test_attach_intraday_history_metrics_uses_synthetic_current_bar(
     assert item["daily_volume_avg_5"] == 100.0
     assert item["synthetic_ma20"] > 10.0
     assert item["distance_ma20"] > 0
+    assert item["market_context"]["daily_as_of"] == "2026-07-10"
 
 
 def test_candidate_pool_attaches_intraday_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -398,6 +399,8 @@ def _record(
         "change_pct_at_pick": change_pct,
         "ai_review": {"score": ai_score},
         "factor_review": {"score": factor_score},
+        "market_context": {"valid": True},
+        "scoring": {"model_version": "daily-v2"},
         "performance": {"t1": {"return_pct": t1_return}},
     }
 
@@ -626,6 +629,97 @@ def test_make_record_uses_explicit_phase_target_and_version(monkeypatch: pytest.
     assert record["generation_phase"] == "post_close_base"
     assert record["status"] == "draft"
     assert record["version"] == 2
+
+
+def test_make_record_persists_market_context_and_scoring(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes, "_now_cst", lambda: datetime(2026, 7, 14, 9, 27, tzinfo=routes._CST))
+    item = _candidate() | {
+        "market_context": {
+            "trade_date": "2026-07-14",
+            "snapshot_at": "2026-07-14T09:27:00+08:00",
+            "snapshot_age_seconds": 0.0,
+            "quote_source": "test.realtime",
+            "daily_as_of": "2026-07-13",
+            "valid": True,
+        },
+        "scoring": {
+            "base_score": 0.70,
+            "realtime_score": 0.65,
+            "factor_score": 0.60,
+            "ai_adjustment": 0.01,
+            "final_score": 0.70,
+            "model_version": "daily-v2",
+        },
+    }
+
+    record = routes._make_record(item, "morning_final", "2026-07-14", 1, 1)
+
+    assert record["market_context"]["valid"] is True
+    assert record["market_context"]["daily_as_of"] == "2026-07-13"
+    assert record["scoring"]["model_version"] == "daily-v2"
+    assert record["scoring"]["final_score"] == 0.70
+
+
+def test_summary_excludes_legacy_and_invalid_records() -> None:
+    valid = _record(
+        slot="morning",
+        category="trend",
+        score=0.7,
+        change_pct=1.0,
+        t1_return=2.0,
+    )
+    invalid = {
+        **_record(
+            slot="morning",
+            category="trend",
+            score=0.7,
+            change_pct=1.0,
+            t1_return=-10.0,
+        ),
+        "market_context": {"valid": False},
+    }
+    legacy = {
+        key: value
+        for key, value in _record(
+            slot="morning",
+            category="trend",
+            score=0.7,
+            change_pct=1.0,
+            t1_return=-20.0,
+        ).items()
+        if key not in {"market_context", "scoring"}
+    }
+
+    summary = routes._summary([valid, invalid, legacy])
+
+    assert summary["count"] == 1
+    assert summary["t1_count"] == 1
+    assert summary["t1_avg_return"] == 2.0
+
+
+def test_attribution_excludes_invalid_model_records() -> None:
+    valid = _record(
+        slot="morning",
+        category="trend",
+        score=0.7,
+        change_pct=1.0,
+        t1_return=2.0,
+    )
+    invalid = {
+        **_record(
+            slot="morning",
+            category="breakout",
+            score=0.9,
+            change_pct=7.0,
+            t1_return=-10.0,
+        ),
+        "market_context": {"valid": False},
+    }
+
+    report = routes._recommendation_attribution([valid, invalid], "t1")
+
+    assert report["summary"]["count"] == 1
+    assert report["summary"]["avg_return"] == 2.0
 
 
 def test_generate_for_phase_versions_and_supersedes(monkeypatch: pytest.MonkeyPatch) -> None:

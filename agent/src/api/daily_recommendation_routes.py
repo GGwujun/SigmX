@@ -540,6 +540,9 @@ def _attach_intraday_history_metrics(item: dict[str, Any]) -> dict[str, Any]:
             "daily_volume_avg_5": avg_volume,
         }
     )
+    market_context = dict(enriched.get("market_context") or {})
+    market_context["daily_as_of"] = _bar_date(ordered.index[-1])
+    enriched["market_context"] = market_context
     return enriched
 
 
@@ -1144,6 +1147,8 @@ def _make_record(
         "factor_review": factor_review,
         "attribution_adjustments": item.get("attribution_adjustments", []),
         "market_regime": item.get("market_regime", {"regime": "unknown"}),
+        "market_context": dict(item.get("market_context") or {}),
+        "scoring": dict(item.get("scoring") or {}),
         "evidence_snapshot": _evidence_snapshot(item, slot, reason, risk_note, now),
         "recommendation_method": "ai_factor_review",
         "created_at": now.isoformat(),
@@ -1331,7 +1336,17 @@ def _with_performance(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return enriched
 
 
+def _is_valid_model_record(record: dict[str, Any]) -> bool:
+    market_context = record.get("market_context") or {}
+    scoring = record.get("scoring") or {}
+    return (
+        market_context.get("valid") is True
+        and scoring.get("model_version") == _RECOMMENDATION_MODEL_VERSION
+    )
+
+
 def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    records = [record for record in records if _is_valid_model_record(record)]
     completed = [r for r in records if r.get("performance", {}).get("t1")]
     if not completed:
         return {"count": len(records), "t1_count": 0, "t1_win_rate": None, "t1_avg_return": None}
@@ -1476,6 +1491,7 @@ def _attribution_rows(
 def _recommendation_attribution(records: list[dict[str, Any]], horizon: str = "t1") -> dict[str, Any]:
     if horizon not in {"t0", "t1", "t3", "t5"}:
         raise HTTPException(status_code=400, detail="horizon must be one of t0, t1, t3, or t5")
+    records = [record for record in records if _is_valid_model_record(record)]
     dimensions = [
         "slot",
         "generation_phase",
