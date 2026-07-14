@@ -95,6 +95,26 @@ _POST_CLOSE_DATASETS = {
     "lockup_expiry",
 }
 
+# A zero row count from these market-wide datasets is not a legitimate
+# successful sync on a trading day.  They directly feed ranking and today's
+# recommendation, so publishing yesterday's values under a fresh run marker
+# would be worse than withholding the new snapshot.
+_BLOCKING_DATASET_MIN_ROWS = {
+    "calendar": 1,
+    "master": 1,
+    "daily_basic": 1,
+    "index": 1,
+    "capital_rank": 1,
+    "sector_capital": 1,
+    "sector_snapshot": 1,
+    "market_breadth": 1,
+    "stage_snapshot": 1,
+    "ths_hot": 1,
+    "zt_pool": 1,
+    "hot_list": 1,
+    "cls_telegraph": 1,
+}
+
 
 class MarketDataQualityError(RuntimeError):
     """Raised when a sync attempt cannot be proven safe to publish."""
@@ -207,6 +227,40 @@ def _run_post_close_shadow_sync(
         if missing_results:
             raise MarketDataQualityError(
                 f"missing dataset results after sync: {', '.join(missing_results)}"
+            )
+
+        failed_contracts: list[str] = []
+        for dataset in sorted(datasets - {"daily"}):
+            received = max(int(rows.get(dataset, 0)), 0)
+            minimum = _BLOCKING_DATASET_MIN_ROWS.get(dataset, 0)
+            reasons = ["row_count_below_minimum"] if received < minimum else []
+            status = QualityStatus.PARTIAL if reasons else QualityStatus.VERIFIED
+            shadow_store.record_dataset_result(
+                run_id,
+                DatasetQualityReport(
+                    dataset=dataset,
+                    trade_date=trade_date,
+                    status=status,
+                    expected_rows=minimum,
+                    received_rows=received,
+                    valid_rows=received,
+                    blocking_reasons=reasons,
+                    source="configured-provider-chain",
+                ),
+            )
+            if reasons:
+                failed_contracts.append(
+                    f"{dataset} received={received} minimum={minimum}"
+                )
+
+        if failed_contracts:
+            shadow_store.finish_sync_run(
+                run_id,
+                QualityStatus.PARTIAL,
+                error_summary="; ".join(failed_contracts),
+            )
+            raise MarketDataQualityError(
+                "blocking dataset quality contracts failed: " + "; ".join(failed_contracts)
             )
 
         if "daily" in datasets:

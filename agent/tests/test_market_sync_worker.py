@@ -20,6 +20,48 @@ def test_post_close_worker_includes_long_horizon_fund_flow() -> None:
     assert "fund_flow_120d" in worker._POST_CLOSE_DATASETS
 
 
+def test_empty_recommendation_dataset_blocks_shadow_publication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = tmp_path / "live.db"
+    shadow = tmp_path / "shadow.db"
+    _seed_live(live)
+    monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"hot_list": 0})
+    monkeypatch.setattr(worker, "_publish_shadow", lambda *args, **kwargs: pytest.fail("published"))
+
+    with pytest.raises(worker.MarketDataQualityError, match="hot_list"):
+        worker._run_post_close_shadow_sync(
+            "2026-07-14",
+            live_db=live,
+            shadow_db=shadow,
+            datasets={"hot_list"},
+            deadline_seconds=60,
+            lookback_days=30,
+        )
+
+
+def test_nonempty_extended_dataset_gets_published_readiness(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    live = tmp_path / "live.db"
+    shadow = tmp_path / "shadow.db"
+    _seed_live(live)
+    monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"hot_list": 12})
+
+    worker._run_post_close_shadow_sync(
+        "2026-07-14",
+        live_db=live,
+        shadow_db=shadow,
+        datasets={"hot_list"},
+        deadline_seconds=60,
+        lookback_days=30,
+    )
+
+    readiness = MarketStore(live).get_data_readiness("hot_list", "2026-07-14")
+    assert readiness.status is QualityStatus.PUBLISHED
+    assert readiness.published_rows == 12
+
+
 def _report(status: QualityStatus) -> DatasetQualityReport:
     return DatasetQualityReport(
         dataset="bars_daily",
