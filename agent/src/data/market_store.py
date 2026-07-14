@@ -23,6 +23,7 @@ import logging
 import os
 import sqlite3
 import threading
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
@@ -30,6 +31,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
 
 import pandas as pd
+
+from src.data.market_quality import DataReadiness, DatasetQualityReport, QualityStatus
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +69,11 @@ CREATE TABLE IF NOT EXISTS bars_daily (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
     open REAL, high REAL, low REAL, close REAL,
     volume REAL, total_amt REAL, rise_rate REAL, t_rate REAL,
-    name TEXT, updated_at TEXT NOT NULL,
+    name TEXT, source TEXT NOT NULL DEFAULT 'unknown',
+    sync_run_id TEXT NOT NULL DEFAULT '',
+    quality_status TEXT NOT NULL DEFAULT 'unverified',
+    ingested_at TEXT,
+    updated_at TEXT NOT NULL,
     PRIMARY KEY (code, trade_date)
 );
 CREATE INDEX IF NOT EXISTS idx_bars_daily_date ON bars_daily(trade_date);
@@ -367,6 +374,49 @@ CREATE INDEX IF NOT EXISTS idx_pool_date ON stock_pool(trade_date);
 CREATE TABLE IF NOT EXISTS sync_meta (
     key TEXT PRIMARY KEY, value TEXT, updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sync_runs (
+    run_id TEXT PRIMARY KEY,
+    trade_date TEXT NOT NULL,
+    worker_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    error_summary TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_sync_runs_date ON sync_runs(trade_date, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS sync_dataset_runs (
+    run_id TEXT NOT NULL,
+    dataset TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    status TEXT NOT NULL,
+    expected_rows INTEGER NOT NULL DEFAULT 0,
+    received_rows INTEGER NOT NULL DEFAULT 0,
+    valid_rows INTEGER NOT NULL DEFAULT 0,
+    published_rows INTEGER NOT NULL DEFAULT 0,
+    source TEXT NOT NULL DEFAULT '',
+    missing_codes_json TEXT NOT NULL DEFAULT '[]',
+    invalid_rows_json TEXT NOT NULL DEFAULT '[]',
+    blocking_reasons_json TEXT NOT NULL DEFAULT '[]',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, dataset),
+    FOREIGN KEY (run_id) REFERENCES sync_runs(run_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sync_dataset_readiness
+ON sync_dataset_runs(dataset, trade_date, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS data_quarantine (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    dataset TEXT NOT NULL,
+    trade_date TEXT NOT NULL,
+    code TEXT,
+    reason TEXT NOT NULL,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_data_quarantine_run ON data_quarantine(run_id, dataset);
 """
 
 # Tables that carry a per-(date) market-wide snapshot.
@@ -434,6 +484,10 @@ class MarketStore:
             self._ensure_column("fund_premium_snapshot", "purchase_limit", "REAL DEFAULT 0")
             self._ensure_column("fund_premium_snapshot", "daily_limit", "REAL DEFAULT 0")
             self._ensure_column("fund_premium_snapshot", "fee_rate", "REAL DEFAULT 0")
+            self._ensure_column("bars_daily", "source", "TEXT NOT NULL DEFAULT 'unknown'")
+            self._ensure_column("bars_daily", "sync_run_id", "TEXT NOT NULL DEFAULT ''")
+            self._ensure_column("bars_daily", "quality_status", "TEXT NOT NULL DEFAULT 'unverified'")
+            self._ensure_column("bars_daily", "ingested_at", "TEXT")
             self._conn.commit()
 
     @contextmanager
@@ -492,11 +546,20 @@ class MarketStore:
     # ------------------------------------------------------------------
 
     @_synchronized
-    def upsert_daily_bars(self, code: str, rows: list[dict]) -> int:
+    def upsert_daily_bars(
+        self,
+        code: str,
+        rows: list[dict],
+        *,
+        source: str = "unknown",
+        sync_run_id: str = "",
+        quality_status: str = "unverified",
+    ) -> int:
         """Upsert daily-K rows for one code. Each row needs a ``date`` key."""
         if not rows:
             return 0
         payload = []
+        ingested_at = _now_iso()
         for r in rows:
             payload.append(
                 (
@@ -511,14 +574,18 @@ class MarketStore:
                     _f(r.get("rise_rate")),
                     _f(r.get("t_rate")),
                     r.get("name"),
-                    _now_iso(),
+                    source,
+                    sync_run_id,
+                    quality_status,
+                    ingested_at,
+                    ingested_at,
                 )
             )
         return self._executemany_chunked(
             "INSERT OR REPLACE INTO bars_daily "
             "(code, trade_date, open, high, low, close, volume, total_amt, "
-            "rise_rate, t_rate, name, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "rise_rate, t_rate, name, source, sync_run_id, quality_status, ingested_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             payload,
         )
 
@@ -2360,6 +2427,119 @@ class MarketStore:
             params.append(int(limit))
         rows = self._conn.execute(sql, params).fetchall()
         return [r["code"] for r in rows if r["code"]]
+
+    # ------------------------------------------------------------------
+    # Strict sync lifecycle and data readiness
+    # ------------------------------------------------------------------
+
+    @_synchronized
+    def create_sync_run(self, trade_date: str, *, worker_id: str) -> str:
+        """Create a durable sync attempt and return its opaque run ID."""
+        run_id = str(uuid.uuid4())
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT INTO sync_runs "
+                "(run_id, trade_date, worker_id, status, started_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (run_id, trade_date, worker_id, QualityStatus.PENDING.value, _now_iso()),
+            )
+        return run_id
+
+    @_synchronized
+    def finish_sync_run(
+        self,
+        run_id: str,
+        status: QualityStatus | str,
+        *,
+        error_summary: str = "",
+    ) -> None:
+        """Finish a sync attempt without turning failures into success markers."""
+        normalized = QualityStatus(status)
+        now = _now_iso()
+        with self._write_transaction():
+            cursor = self._conn.execute(
+                "UPDATE sync_runs SET status = ?, finished_at = ?, error_summary = ? "
+                "WHERE run_id = ?",
+                (normalized.value, now, error_summary, run_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(f"unknown sync run: {run_id}")
+            if normalized is QualityStatus.PUBLISHED:
+                self._conn.execute(
+                    "UPDATE sync_dataset_runs SET status = ?, published_rows = valid_rows, updated_at = ? "
+                    "WHERE run_id = ? AND status = ?",
+                    (
+                        QualityStatus.PUBLISHED.value,
+                        now,
+                        run_id,
+                        QualityStatus.VERIFIED.value,
+                    ),
+                )
+
+    @_synchronized
+    def record_dataset_result(self, run_id: str, report: DatasetQualityReport) -> None:
+        """Persist the complete quality report for one run and dataset."""
+        with self._write_transaction():
+            exists = self._conn.execute(
+                "SELECT 1 FROM sync_runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if exists is None:
+                raise KeyError(f"unknown sync run: {run_id}")
+            self._conn.execute(
+                "INSERT OR REPLACE INTO sync_dataset_runs "
+                "(run_id, dataset, trade_date, status, expected_rows, received_rows, "
+                "valid_rows, published_rows, source, missing_codes_json, invalid_rows_json, "
+                "blocking_reasons_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    report.dataset,
+                    report.trade_date,
+                    QualityStatus(report.status).value,
+                    report.expected_rows,
+                    report.received_rows,
+                    report.valid_rows,
+                    report.published_rows,
+                    report.source,
+                    json.dumps(report.missing_codes, ensure_ascii=False),
+                    json.dumps(report.invalid_rows, ensure_ascii=False, default=str),
+                    json.dumps(report.blocking_reasons, ensure_ascii=False),
+                    _now_iso(),
+                ),
+            )
+
+    @_synchronized
+    def get_data_readiness(self, dataset: str, as_of: str) -> DataReadiness:
+        """Return the latest exact-date dataset result; stale dates never qualify."""
+        row = self._conn.execute(
+            "SELECT run_id, status, expected_rows, valid_rows, published_rows, source, "
+            "blocking_reasons_json FROM sync_dataset_runs "
+            "WHERE dataset = ? AND trade_date = ? ORDER BY updated_at DESC LIMIT 1",
+            (dataset, as_of),
+        ).fetchone()
+        if row is None:
+            return DataReadiness(
+                dataset=dataset,
+                as_of=as_of,
+                status=QualityStatus.FAILED,
+                expected_rows=0,
+                valid_rows=0,
+                published_rows=0,
+                source="",
+                run_id="",
+                blocking_reasons=["no_quality_result_for_exact_date"],
+            )
+        return DataReadiness(
+            dataset=dataset,
+            as_of=as_of,
+            status=QualityStatus(row["status"]),
+            expected_rows=int(row["expected_rows"]),
+            valid_rows=int(row["valid_rows"]),
+            published_rows=int(row["published_rows"]),
+            source=str(row["source"] or ""),
+            run_id=str(row["run_id"]),
+            blocking_reasons=list(json.loads(row["blocking_reasons_json"] or "[]")),
+        )
 
     # ------------------------------------------------------------------
     # sync_meta

@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+from src.data.market_quality import DatasetQualityReport, QualityStatus
 from src.data.market_store import MarketStore
 
 
@@ -43,6 +44,25 @@ def test_upsert_replaces_on_pk_conflict(store: MarketStore) -> None:
     store.upsert_daily_bars("600206.SH", [_row("2026-06-10", close=99.99)])
     df = store.get_daily_bars("600206.SH", start="2026-06-10", end="2026-06-10")
     assert df is not None and df["close"].iloc[0] == 99.99
+
+
+def test_daily_bar_provenance_round_trip(store: MarketStore) -> None:
+    store.upsert_daily_bars(
+        "600206.SH",
+        [_row("2026-06-10")],
+        source="tushare.daily",
+        sync_run_id="run-1",
+        quality_status="verified",
+    )
+    row = store._conn.execute(
+        "SELECT source, sync_run_id, quality_status, ingested_at "
+        "FROM bars_daily WHERE code = ? AND trade_date = ?",
+        ("600206.SH", "2026-06-10"),
+    ).fetchone()
+
+    assert row is not None
+    assert tuple(row[:3]) == ("tushare.daily", "run-1", "verified")
+    assert row["ingested_at"]
 
 
 def test_get_daily_returns_none_when_empty(store: MarketStore) -> None:
@@ -92,6 +112,52 @@ def test_meta_round_trip(store: MarketStore) -> None:
     assert store.get_meta("k") is None
     store.set_meta("daemon:2026-06-11", "ts")
     assert store.get_meta("daemon:2026-06-11") == "ts"
+
+
+def test_sync_run_and_dataset_result_round_trip(store: MarketStore) -> None:
+    run_id = store.create_sync_run("2026-07-14", worker_id="test-worker")
+    report = DatasetQualityReport(
+        dataset="bars_daily",
+        trade_date="2026-07-14",
+        status=QualityStatus.VERIFIED,
+        expected_rows=2,
+        received_rows=2,
+        valid_rows=2,
+        published_rows=2,
+        source="tushare.daily",
+    )
+
+    store.record_dataset_result(run_id, report)
+    store.finish_sync_run(run_id, QualityStatus.PUBLISHED)
+
+    readiness = store.get_data_readiness("bars_daily", "2026-07-14")
+    assert readiness.ready is True
+    assert readiness.status == QualityStatus.PUBLISHED
+    assert readiness.run_id == run_id
+    assert readiness.valid_rows == 2
+    assert readiness.published_rows == 2
+
+
+def test_partial_dataset_is_never_ready(store: MarketStore) -> None:
+    run_id = store.create_sync_run("2026-07-14", worker_id="test-worker")
+    report = DatasetQualityReport(
+        dataset="bars_daily",
+        trade_date="2026-07-14",
+        status=QualityStatus.PARTIAL,
+        expected_rows=2,
+        received_rows=1,
+        valid_rows=1,
+        missing_codes=["000001.SZ"],
+        blocking_reasons=["unexplained_missing_codes"],
+        source="tushare.daily",
+    )
+    store.record_dataset_result(run_id, report)
+    store.finish_sync_run(run_id, QualityStatus.PARTIAL, error_summary="missing row")
+
+    readiness = store.get_data_readiness("bars_daily", "2026-07-14")
+    assert readiness.ready is False
+    assert readiness.status == QualityStatus.PARTIAL
+    assert readiness.blocking_reasons == ["unexplained_missing_codes"]
 
 
 def test_table_counts_and_range(store: MarketStore) -> None:
