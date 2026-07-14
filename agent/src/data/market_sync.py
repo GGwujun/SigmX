@@ -4589,6 +4589,72 @@ def _sync_fund_premium_snapshot(store: MarketStore, trade_date: str) -> int:
     return count
 
 
+# ── a-stock-data 扩展 sync 函数 ───────────────────────────────────
+
+
+def _sync_ths_hot_reason(store: MarketStore, trade_date: str) -> int:
+    """同花顺强势股题材归因（不封 IP）。"""
+    try:
+        from src.data.astock_client import ths_hot_reason
+        rows = ths_hot_reason(trade_date)
+    except Exception as exc:
+        logger.debug("ths_hot_reason failed: %s", exc)
+        return 0
+    if not rows:
+        return 0
+    return store.upsert_ths_hot_reason(trade_date, rows)
+
+
+def _sync_zt_pool(store: MarketStore, trade_date: str) -> int:
+    """涨停池 + 炸板 + 跌停 + 昨日涨停 + 同花顺涨停揭秘。"""
+    from src.data.astock_client import em_zt_pool, em_zb_pool, em_dt_pool, em_yzt_pool, ths_limit_up_pool
+    date_str = trade_date.replace("-", "")
+    total = 0
+    try:
+        zt = em_zt_pool(date_str)
+        total += store.upsert_zt_pool(trade_date, zt, source="eastmoney")
+    except Exception as exc:
+        logger.debug("em_zt_pool failed: %s", exc)
+    try:
+        zb = em_zb_pool(date_str)
+        total += store.upsert_zb_pool(trade_date, zb)
+    except Exception as exc:
+        logger.debug("em_zb_pool failed: %s", exc)
+    try:
+        dt = em_dt_pool(date_str)
+        total += store.upsert_dt_pool(trade_date, dt)
+    except Exception as exc:
+        logger.debug("em_dt_pool failed: %s", exc)
+    try:
+        yzt = em_yzt_pool(date_str)
+        total += store.upsert_yzt_pool(trade_date, yzt)
+    except Exception as exc:
+        logger.debug("em_yzt_pool failed: %s", exc)
+    try:
+        ths = ths_limit_up_pool(date_str)
+        total += store.upsert_zt_pool(trade_date, ths, source="ths")
+    except Exception as exc:
+        logger.debug("ths_limit_up_pool failed: %s", exc)
+    return total
+
+
+def _sync_hot_list(store: MarketStore, trade_date: str) -> int:
+    """同花顺热榜 + 东财人气榜。"""
+    from src.data.astock_client import ths_hot_list, eastmoney_popularity
+    total = 0
+    try:
+        ths = ths_hot_list()
+        total += store.upsert_hot_list(trade_date, ths, source="ths")
+    except Exception as exc:
+        logger.debug("ths_hot_list failed: %s", exc)
+    try:
+        em = eastmoney_popularity()
+        total += store.upsert_popularity_rank(trade_date, em)
+    except Exception as exc:
+        logger.debug("eastmoney_popularity failed: %s", exc)
+    return total
+
+
 # ----------------------------------------------------------------------
 # run_daily_sync — the engine
 # ----------------------------------------------------------------------
@@ -4769,6 +4835,10 @@ def run_daily_sync(
     _run("premarket_news", lambda: _sync_premarket_news(store, trade_date))
     _run("stage_snapshot", lambda: _sync_stage_snapshots(store, trade_date))
     _run("premium", lambda: _sync_fund_premium_snapshot(store, trade_date))
+    # a-stock-data 扩展数据源
+    _run("ths_hot", lambda: _sync_ths_hot_reason(store, trade_date))
+    _run("zt_pool", lambda: _sync_zt_pool(store, trade_date))
+    _run("hot_list", lambda: _sync_hot_list(store, trade_date))
 
     return result
 

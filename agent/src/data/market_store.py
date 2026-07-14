@@ -417,6 +417,193 @@ CREATE TABLE IF NOT EXISTS data_quarantine (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_data_quarantine_run ON data_quarantine(run_id, dataset);
+
+-- ── a-stock-data 扩展表 ─────────────────────────────────────────
+
+-- 研报层: 同花顺一致预期 EPS
+CREATE TABLE IF NOT EXISTS eps_forecast (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    year TEXT NOT NULL, count INTEGER, min_eps REAL, mean_eps REAL, max_eps REAL,
+    net_profit REAL, source TEXT NOT NULL DEFAULT 'ths',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date, year)
+);
+CREATE INDEX IF NOT EXISTS idx_eps_forecast_code ON eps_forecast(code, trade_date DESC);
+
+-- 信号层: 同花顺热点题材归因
+CREATE TABLE IF NOT EXISTS ths_hot_reason (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, reason TEXT, change_pct REAL, turnover REAL,
+    amount REAL, close REAL, market TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_ths_hot_date ON ths_hot_reason(trade_date);
+
+-- 信号层: 个股资金流（日级 120 日）
+CREATE TABLE IF NOT EXISTS fund_flow_daily (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    main_net REAL, small_net REAL, mid_net REAL, large_net REAL, super_net REAL,
+    source TEXT NOT NULL DEFAULT 'sina',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fund_flow_daily_date ON fund_flow_daily(trade_date);
+
+-- 资金面: 融资融券
+CREATE TABLE IF NOT EXISTS margin_trading (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    rzye REAL, rzmre REAL, rzche REAL, rqye REAL,
+    rqmcl REAL, rqchl REAL, rzrqye REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_margin_date ON margin_trading(trade_date);
+
+-- 资金面: 大宗交易
+CREATE TABLE IF NOT EXISTS block_trade (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    price REAL, close REAL, premium_pct REAL, vol REAL, amount REAL,
+    buyer TEXT, seller TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_block_trade_date ON block_trade(trade_date);
+
+-- 资金面: 股东户数
+CREATE TABLE IF NOT EXISTS holder_num (
+    code TEXT NOT NULL, end_date TEXT NOT NULL,
+    holder_num INTEGER, change_num INTEGER, change_ratio REAL, avg_shares REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, end_date)
+);
+CREATE INDEX IF NOT EXISTS idx_holder_num_code ON holder_num(code, end_date DESC);
+
+-- 资金面: 分红送转
+CREATE TABLE IF NOT EXISTS dividend_history (
+    code TEXT NOT NULL, ex_date TEXT NOT NULL,
+    bonus_rmb REAL, transfer_ratio REAL, bonus_ratio REAL, plan TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, ex_date)
+);
+CREATE INDEX IF NOT EXISTS idx_dividend_code ON dividend_history(code, ex_date DESC);
+
+-- 基础数据: 财务快照（mootdx 37 字段）
+CREATE TABLE IF NOT EXISTS financial_snapshot (
+    code TEXT PRIMARY KEY,
+    trade_date TEXT NOT NULL,
+    liutongguben REAL, zongguben REAL, eps REAL, bvps REAL, roe REAL,
+    profit REAL, income REAL,
+    extra_json TEXT,
+    updated_at TEXT NOT NULL
+);
+
+-- 基础数据: 财报三表（新浪）
+CREATE TABLE IF NOT EXISTS financial_statement (
+    code TEXT NOT NULL, report_date TEXT NOT NULL, report_type TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, report_date, report_type)
+);
+CREATE INDEX IF NOT EXISTS idx_fin_stmt_code ON financial_statement(code, report_date DESC);
+
+-- 公告: 巨潮公告
+CREATE TABLE IF NOT EXISTS announcement (
+    code TEXT NOT NULL, ann_date TEXT NOT NULL, title TEXT NOT NULL,
+    ann_type TEXT, url TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, ann_date, title)
+);
+CREATE INDEX IF NOT EXISTS idx_announcement_code ON announcement(code, ann_date DESC);
+
+-- 打板: 涨停池
+CREATE TABLE IF NOT EXISTS zt_pool (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, price REAL, pct REAL, amount REAL, float_cap REAL,
+    turnover REAL, limit_days INTEGER,
+    first_seal TEXT, last_seal TEXT, seal_fund REAL, break_times INTEGER,
+    industry TEXT, zt_stat TEXT,
+    source TEXT NOT NULL DEFAULT 'eastmoney',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_zt_pool_date ON zt_pool(trade_date);
+
+-- 打板: 同花顺涨停揭秘
+CREATE TABLE IF NOT EXISTS ths_limit_up (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, price REAL, pct REAL,
+    reason TEXT, board_type TEXT, seal_rate REAL, break_times INTEGER,
+    seal_amount REAL, high_days TEXT, first_time TEXT, is_again INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_ths_limit_up_date ON ths_limit_up(trade_date);
+
+-- 打板: 炸板池
+CREATE TABLE IF NOT EXISTS zb_pool (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, price REAL, limit_price REAL, pct REAL, turnover REAL,
+    first_seal TEXT, break_times INTEGER, amplitude REAL, speed REAL,
+    industry TEXT, zt_stat TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_zb_pool_date ON zb_pool(trade_date);
+
+-- 打板: 跌停池
+CREATE TABLE IF NOT EXISTS dt_pool (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, price REAL, pct REAL, turnover REAL, pe REAL,
+    seal_fund REAL, board_amount REAL, dt_days INTEGER, open_times INTEGER,
+    industry TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_dt_pool_date ON dt_pool(trade_date);
+
+-- 打板: 昨日涨停池
+CREATE TABLE IF NOT EXISTS yzt_pool (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, price REAL, pct REAL, turnover REAL,
+    amplitude REAL, speed REAL, y_first_seal TEXT, y_limit_days INTEGER,
+    industry TEXT, zt_stat TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_yzt_pool_date ON yzt_pool(trade_date);
+
+-- 期权: ETF 期权合约
+CREATE TABLE IF NOT EXISTS option_chain (
+    underlying TEXT NOT NULL, trade_date TEXT NOT NULL,
+    month TEXT NOT NULL, code TEXT NOT NULL,
+    call_put TEXT NOT NULL,
+    bid REAL, ask REAL, last REAL, strike REAL,
+    open_interest REAL, volume REAL, amount REAL,
+    delta REAL, gamma REAL, theta REAL, vega REAL, iv REAL, theory REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (underlying, trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_option_chain_date ON option_chain(underlying, trade_date);
+
+-- 舆情: 同花顺热榜
+CREATE TABLE IF NOT EXISTS hot_list (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    name TEXT, rank INTEGER, hot_value REAL, change_pct REAL, tags TEXT,
+    source TEXT NOT NULL DEFAULT 'ths',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code, source)
+);
+CREATE INDEX IF NOT EXISTS idx_hot_list_date ON hot_list(trade_date);
+
+-- 舆情: 东财人气榜
+CREATE TABLE IF NOT EXISTS popularity_rank (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL,
+    market TEXT, rank INTEGER, rank_change INTEGER, history_rank_change INTEGER,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code)
+);
+CREATE INDEX IF NOT EXISTS idx_popularity_date ON popularity_rank(trade_date);
 """
 
 # Tables that carry a per-(date) market-wide snapshot.
@@ -2712,6 +2899,330 @@ class MarketStore:
         if not row or not row["lo"]:
             return (None, None)
         return (row["lo"], row["hi"])
+
+    # ── a-stock-data 扩展 upsert 方法 ─────────────────────────────
+
+    @_synchronized
+    def upsert_eps_forecast(self, code: str, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO eps_forecast "
+                    "(code, trade_date, year, count, min_eps, mean_eps, max_eps, net_profit, source, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (code, trade_date, str(r.get("year", "")),
+                     int(_f(r.get("count")) or 0),
+                     _f(r.get("min_eps")), _f(r.get("mean_eps")), _f(r.get("max_eps")),
+                     _f(r.get("net_profit")), r.get("source", "ths"), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_ths_hot_reason(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM ths_hot_reason WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO ths_hot_reason "
+                    "(trade_date, code, name, reason, change_pct, turnover, amount, close, market, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (trade_date, r.get("code", ""), r.get("name", ""), r.get("reason", ""),
+                     _f(r.get("change_pct")), _f(r.get("turnover")), _f(r.get("amount")),
+                     _f(r.get("close")), r.get("market", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_fund_flow_daily(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO fund_flow_daily "
+                    "(code, trade_date, main_net, small_net, mid_net, large_net, super_net, source, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), _f(r.get("main_net")), _f(r.get("small_net")),
+                     _f(r.get("mid_net")), _f(r.get("large_net")), _f(r.get("super_net")),
+                     r.get("source", "sina"), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_financial_snapshot(self, code: str, data: dict) -> int:
+        if not data:
+            return 0
+        import json as _json
+        extra = {k: v for k, v in data.items()
+                 if k not in ("liutongguben", "zongguben", "eps", "bvps", "roe", "profit", "income")}
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO financial_snapshot "
+                "(code, trade_date, liutongguben, zongguben, eps, bvps, roe, profit, income, extra_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (code, _now_iso()[:10],
+                 _f(data.get("liutongguben")), _f(data.get("zongguben")),
+                 _f(data.get("eps")), _f(data.get("bvps")), _f(data.get("roe")),
+                 _f(data.get("profit")), _f(data.get("income")),
+                 _json.dumps(extra, ensure_ascii=False) if extra else None,
+                 _now_iso()),
+            )
+        return 1
+
+    @_synchronized
+    def upsert_financial_statement(self, code: str, report_type: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        import json as _json
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO financial_statement "
+                    "(code, report_date, report_type, payload_json, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (code, r.get("报告期", ""), report_type,
+                     _json.dumps(r, ensure_ascii=False), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_announcements(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO announcement "
+                    "(code, ann_date, title, ann_type, url, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), r.get("title", ""),
+                     r.get("type", ""), r.get("url", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_zt_pool(self, trade_date: str, rows: list[dict], *, source: str = "eastmoney") -> int:
+        if not rows:
+            return 0
+        table = "zt_pool" if source == "eastmoney" else "ths_limit_up"
+        with self._write_transaction():
+            self._conn.execute(f"DELETE FROM {table} WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                if table == "zt_pool":
+                    self._conn.execute(
+                        "INSERT INTO zt_pool "
+                        "(trade_date, code, name, price, pct, amount, float_cap, turnover, "
+                        "limit_days, first_seal, last_seal, seal_fund, break_times, industry, zt_stat, source, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (trade_date, r.get("code", ""), r.get("name", ""),
+                         _f(r.get("price")), _f(r.get("pct")), _f(r.get("amount")),
+                         _f(r.get("float_cap")), _f(r.get("turnover")),
+                         int(_f(r.get("limit_days")) or 0),
+                         r.get("first_seal", ""), r.get("last_seal", ""),
+                         _f(r.get("seal_fund")), int(_f(r.get("break_times")) or 0),
+                         r.get("industry", ""), r.get("zt_stat", ""), source, _now_iso()),
+                    )
+                else:
+                    self._conn.execute(
+                        "INSERT INTO ths_limit_up "
+                        "(trade_date, code, name, price, pct, reason, board_type, seal_rate, "
+                        "break_times, seal_amount, high_days, first_time, is_again, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (trade_date, r.get("code", ""), r.get("name", ""),
+                         _f(r.get("price")), _f(r.get("pct")),
+                         r.get("reason", ""), r.get("board_type", ""),
+                         _f(r.get("seal_rate")), int(_f(r.get("break_times")) or 0),
+                         _f(r.get("seal_amount")), r.get("high_days", ""),
+                         r.get("first_time", ""), int(_f(r.get("is_again")) or 0), _now_iso()),
+                    )
+        return len(rows)
+
+    @_synchronized
+    def upsert_zb_pool(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM zb_pool WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO zb_pool "
+                    "(trade_date, code, name, price, limit_price, pct, turnover, "
+                    "first_seal, break_times, amplitude, speed, industry, zt_stat, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (trade_date, r.get("code", ""), r.get("name", ""),
+                     _f(r.get("price")), _f(r.get("limit_price")), _f(r.get("pct")),
+                     _f(r.get("turnover")), r.get("first_seal", ""),
+                     int(_f(r.get("break_times")) or 0),
+                     _f(r.get("amplitude")), _f(r.get("speed")),
+                     r.get("industry", ""), r.get("zt_stat", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_dt_pool(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM dt_pool WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO dt_pool "
+                    "(trade_date, code, name, price, pct, turnover, pe, seal_fund, "
+                    "board_amount, dt_days, open_times, industry, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (trade_date, r.get("code", ""), r.get("name", ""),
+                     _f(r.get("price")), _f(r.get("pct")), _f(r.get("turnover")),
+                     _f(r.get("pe")), _f(r.get("seal_fund")), _f(r.get("board_amount")),
+                     int(_f(r.get("dt_days")) or 0), int(_f(r.get("open_times")) or 0),
+                     r.get("industry", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_yzt_pool(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM yzt_pool WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO yzt_pool "
+                    "(trade_date, code, name, price, pct, turnover, amplitude, speed, "
+                    "y_first_seal, y_limit_days, industry, zt_stat, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (trade_date, r.get("code", ""), r.get("name", ""),
+                     _f(r.get("price")), _f(r.get("pct")), _f(r.get("turnover")),
+                     _f(r.get("amplitude")), _f(r.get("speed")),
+                     r.get("y_first_seal", ""), int(_f(r.get("y_limit_days")) or 0),
+                     r.get("industry", ""), r.get("zt_stat", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_hot_list(self, trade_date: str, rows: list[dict], *, source: str = "ths") -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM hot_list WHERE trade_date = ? AND source = ?",
+                               (trade_date, source))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO hot_list "
+                    "(trade_date, code, name, rank, hot_value, change_pct, tags, source, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (trade_date, r.get("code", ""), r.get("name", ""),
+                     int(_f(r.get("rank")) or 0), _f(r.get("hot_value")),
+                     _f(r.get("change_pct")), r.get("tags", ""), source, _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_popularity_rank(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute("DELETE FROM popularity_rank WHERE trade_date = ?", (trade_date,))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO popularity_rank "
+                    "(trade_date, code, market, rank, rank_change, history_rank_change, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (trade_date, r.get("code", ""), r.get("market", ""),
+                     int(_f(r.get("rank")) or 0), int(_f(r.get("rank_change")) or 0),
+                     int(_f(r.get("history_rank_change")) or 0), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_option_chain(self, underlying: str, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.execute(
+                "DELETE FROM option_chain WHERE underlying = ? AND trade_date = ?",
+                (underlying, trade_date))
+            for r in rows:
+                self._conn.execute(
+                    "INSERT INTO option_chain "
+                    "(underlying, trade_date, month, code, call_put, bid, ask, last, strike, "
+                    "open_interest, volume, amount, delta, gamma, theta, vega, iv, theory, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (underlying, trade_date, r.get("month", ""), r.get("code", ""),
+                     r.get("call_put", ""), _f(r.get("bid")), _f(r.get("ask")),
+                     _f(r.get("last")), _f(r.get("strike")),
+                     _f(r.get("open_interest")), _f(r.get("volume")), _f(r.get("amount")),
+                     _f(r.get("delta")), _f(r.get("gamma")), _f(r.get("theta")),
+                     _f(r.get("vega")), _f(r.get("iv")), _f(r.get("theory")), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_margin_trading(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO margin_trading "
+                    "(code, trade_date, rzye, rzmre, rzche, rqye, rqmcl, rqchl, rzrqye, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), _f(r.get("rzye")), _f(r.get("rzmre")),
+                     _f(r.get("rzche")), _f(r.get("rqye")), _f(r.get("rqmcl")),
+                     _f(r.get("rqchl")), _f(r.get("rzrqye")), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_block_trade(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO block_trade "
+                    "(code, trade_date, price, close, premium_pct, vol, amount, buyer, seller, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), _f(r.get("price")), _f(r.get("close")),
+                     _f(r.get("premium_pct")), _f(r.get("vol")), _f(r.get("amount")),
+                     r.get("buyer", ""), r.get("seller", ""), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_holder_num(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO holder_num "
+                    "(code, end_date, holder_num, change_num, change_ratio, avg_shares, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), int(_f(r.get("holder_num")) or 0),
+                     int(_f(r.get("change_num")) or 0),
+                     _f(r.get("change_ratio")), _f(r.get("avg_shares")), _now_iso()),
+                )
+        return len(rows)
+
+    @_synchronized
+    def upsert_dividend_history(self, code: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            for r in rows:
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO dividend_history "
+                    "(code, ex_date, bonus_rmb, transfer_ratio, bonus_ratio, plan, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (code, r.get("date", ""), _f(r.get("bonus_rmb")),
+                     _f(r.get("transfer_ratio")), _f(r.get("bonus_ratio")),
+                     r.get("plan", ""), _now_iso()),
+                )
+        return len(rows)
 
 
 # ----------------------------------------------------------------------

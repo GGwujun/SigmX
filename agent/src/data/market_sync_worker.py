@@ -73,6 +73,10 @@ _POST_CLOSE_DATASETS = {
     "premarket_news",
     "stage_snapshot",
     "premium",
+    # a-stock-data 扩展
+    "ths_hot",
+    "zt_pool",
+    "hot_list",
 }
 
 
