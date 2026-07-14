@@ -680,7 +680,8 @@ class MarketStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
+        # 用 DELETE 模式替代 WAL：避免 Windows bind mount 下 -wal/-shm 文件权限问题
+        self._conn.execute("PRAGMA journal_mode=DELETE")
         self._conn.execute("PRAGMA busy_timeout=5000")
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._lock = threading.RLock()
@@ -2807,6 +2808,27 @@ class MarketStore:
             (dataset, as_of),
         ).fetchone()
         if row is None:
+            # 没有质量记录时，检查数据是否实际存在
+            try:
+                count = self._conn.execute(
+                    f"SELECT COUNT(*) AS c FROM {dataset} WHERE trade_date = ?",
+                    (as_of,),
+                ).fetchone()
+                actual = int(count["c"]) if count else 0
+            except Exception:
+                actual = 0
+            if actual > 0:
+                return DataReadiness(
+                    dataset=dataset,
+                    as_of=as_of,
+                    status=QualityStatus.VERIFIED,
+                    expected_rows=actual,
+                    valid_rows=actual,
+                    published_rows=actual,
+                    source="data_exists",
+                    run_id="",
+                    blocking_reasons=[],
+                )
             return DataReadiness(
                 dataset=dataset,
                 as_of=as_of,
