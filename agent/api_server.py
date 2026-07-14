@@ -604,13 +604,6 @@ async def _run_startup_preflight() -> None:
     from src.preflight import run_preflight
 
     run_preflight(console)
-    # Start the market-data sync daemon (auto close-of-day backfill into the
-    # market SQLite DB). Idempotent; no-op if tpdog is unconfigured.
-    try:
-        # Canonical market writes are owned by the standalone sync worker.
-        pass
-    except Exception:  # noqa: BLE001 — daemon must never block startup
-        console.print("[yellow]market-sync daemon failed to start[/yellow]")
 
     # Start the scheduled-analysis background loop (daily per-stock analysis
     # at a configured Beijing HH:MM). Runs for the lifetime of the server.
