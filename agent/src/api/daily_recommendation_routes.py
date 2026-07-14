@@ -45,8 +45,8 @@ _PHASES: dict[str, RecommendationPhase] = {
     "post_close_base": RecommendationPhase("post_close_base", "收盘基线", "afternoon", 1, "draft", 15, 45),
     "evening_review": RecommendationPhase("evening_review", "晚间复核", "afternoon", 1, "draft", 21, 0),
     "premarket_review": RecommendationPhase("premarket_review", "盘前复核", "morning", 0, "draft", 8, 15),
-    "morning_final": RecommendationPhase("morning_final", "早盘最终", "morning", 0, "final", 9, 24, "morning"),
-    "afternoon_final": RecommendationPhase("afternoon_final", "午盘最终", "afternoon", 0, "final", 14, 20, "afternoon"),
+    "morning_final": RecommendationPhase("morning_final", "早盘最终", "morning", 0, "final", 9, 27, "morning"),
+    "afternoon_final": RecommendationPhase("afternoon_final", "午盘最终", "afternoon", 0, "final", 14, 30, "afternoon"),
     "manual": RecommendationPhase("manual", "手动生成", "manual", 0, "final", 0, 0),
 }
 _SLOT_ALIASES = {
@@ -62,6 +62,8 @@ _SLOT_ALIASES = {
     "now": "manual",
 }
 _FINAL_PHASES = {phase.id for phase in _PHASES.values() if phase.status == "final"}
+_AUTORUN_PHASES = ("morning_final", "afternoon_final")
+_MAX_QUOTE_AGE_SECONDS = 180.0
 
 
 class GenerateRecommendationsRequest(BaseModel):
@@ -407,6 +409,92 @@ def _refresh_candidate_quote(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _quote_age_seconds(snapshot_at: str, now: datetime) -> float:
+    parsed = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_CST)
+    return (now - parsed.astimezone(now.tzinfo or _CST)).total_seconds()
+
+
+def _validated_realtime_quote(
+    item: dict[str, Any],
+    slot: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    from src.data.market_data_service import normalize_code
+    from src.data.market_store import get_market_store
+
+    current = now or _now_cst()
+    trade_date = current.strftime("%Y-%m-%d")
+    symbol = str(item.get("symbol", "")).upper()
+    store = get_market_store()
+    quote = None if store is None or not symbol else store.get_latest_realtime_quote(
+        normalize_code(symbol),
+        trade_date,
+    )
+    if not quote:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "slot": slot,
+                "trade_date": trade_date,
+                "blocking_reasons": ["realtime_snapshot_missing"],
+            },
+        )
+
+    snapshot_at = str(quote.get("snapshot_at") or "")
+    try:
+        age_seconds = _quote_age_seconds(snapshot_at, current)
+    except (TypeError, ValueError):
+        age_seconds = _MAX_QUOTE_AGE_SECONDS + 1
+    blocking_reasons: list[str] = []
+    if age_seconds < 0:
+        blocking_reasons.append("realtime_snapshot_from_future")
+    elif age_seconds > _MAX_QUOTE_AGE_SECONDS:
+        blocking_reasons.append("realtime_snapshot_stale")
+    if str(quote.get("trade_date") or "")[:10] != trade_date:
+        blocking_reasons.append("realtime_trade_date_mismatch")
+    if float(quote.get("price") or 0) <= 0:
+        blocking_reasons.append("realtime_price_invalid")
+    if float(quote.get("pre_close") or 0) <= 0:
+        blocking_reasons.append("realtime_pre_close_invalid")
+    if float(quote.get("volume") or 0) <= 0:
+        blocking_reasons.append("realtime_volume_invalid")
+    if blocking_reasons:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "slot": slot,
+                "trade_date": trade_date,
+                "blocking_reasons": blocking_reasons,
+            },
+        )
+
+    enriched = dict(item)
+    enriched.update(
+        {
+            "price": float(quote.get("price") or 0),
+            "change_pct": float(quote.get("rise_rate") or 0),
+            "pre_close": float(quote.get("pre_close") or 0),
+            "high": float(quote.get("high") or 0),
+            "low": float(quote.get("low") or 0),
+            "volume": float(quote.get("volume") or 0),
+            "quote_date": str(quote.get("trade_date") or "")[:10],
+            "quote_source": quote.get("source"),
+            "market_context": {
+                "trade_date": str(quote.get("trade_date") or "")[:10],
+                "snapshot_at": snapshot_at,
+                "snapshot_age_seconds": round(age_seconds, 3),
+                "quote_source": quote.get("source"),
+                "valid": True,
+            },
+        }
+    )
+    return enriched
+
+
 def _candidate_pool(slot: str) -> list[dict[str, Any]]:
     from src.api.opportunity_routes import _build_opportunities
 
@@ -423,7 +511,7 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
             item = dict(raw)
             item["category_id"] = category_id
             item["category_label"] = category_label
-            item = _refresh_candidate_quote(item)
+            item = _validated_realtime_quote(item, slot)
             item["score"] = round(_slot_adjusted_score(item, slot), 3)
             items.append(item)
 
@@ -1411,13 +1499,7 @@ def register_daily_recommendation_routes(
             while True:
                 try:
                     now = _now_cst()
-                    checks = [
-                        _PHASES["post_close_base"],
-                        _PHASES["evening_review"],
-                        _PHASES["premarket_review"],
-                        _PHASES["morning_final"],
-                        _PHASES["afternoon_final"],
-                    ]
+                    checks = [_PHASES[phase_id] for phase_id in _AUTORUN_PHASES]
                     with _STORE_LOCK:
                         records = _load_records()
                     for phase in checks:

@@ -72,6 +72,140 @@ def test_refresh_candidate_quote_uses_today_realtime_price(monkeypatch: pytest.M
     assert item["quote_source"] == "test"
 
 
+class _QuoteStore(_FakeStore):
+    def __init__(self, quote):
+        super().__init__()
+        self.quote = quote
+
+    def get_latest_realtime_quote(self, code: str, trade_date: str | None = None):
+        return self.quote
+
+
+def _at(hour: int, minute: int) -> datetime:
+    return datetime(2026, 7, 14, hour, minute, tzinfo=routes._CST)
+
+
+def _quote(*, snapshot_at: str = "2026-07-14T09:27:00+08:00") -> dict:
+    return {
+        "trade_date": "2026-07-14",
+        "code": "600000.SH",
+        "price": 12.34,
+        "pre_close": 12.0,
+        "high": 12.5,
+        "low": 11.9,
+        "volume": 1000.0,
+        "rise_rate": 2.833,
+        "snapshot_at": snapshot_at,
+        "source": "test.realtime",
+    }
+
+
+def test_validated_realtime_quote_rejects_missing_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.data.market_store as market_store
+
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _QuoteStore(None))
+
+    with pytest.raises(HTTPException) as exc:
+        routes._validated_realtime_quote(_candidate(), "morning", _at(9, 27))
+
+    assert exc.value.status_code == 503
+    assert exc.value.detail["code"] == "DATA_NOT_READY"
+    assert exc.value.detail["blocking_reasons"] == ["realtime_snapshot_missing"]
+
+
+def test_validated_realtime_quote_rejects_stale_snapshot(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.data.market_store as market_store
+
+    monkeypatch.setattr(
+        market_store,
+        "get_market_store",
+        lambda: _QuoteStore(_quote(snapshot_at="2026-07-14T09:20:00+08:00")),
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        routes._validated_realtime_quote(_candidate(), "morning", _at(9, 27))
+
+    assert exc.value.status_code == 503
+    assert "realtime_snapshot_stale" in exc.value.detail["blocking_reasons"]
+
+
+@pytest.mark.parametrize(
+    ("quote", "reason"),
+    [
+        (_quote(snapshot_at="2026-07-14T09:28:00+08:00"), "realtime_snapshot_from_future"),
+        ({**_quote(), "trade_date": "2026-07-13"}, "realtime_trade_date_mismatch"),
+        ({**_quote(), "price": 0.0}, "realtime_price_invalid"),
+        ({**_quote(), "pre_close": 0.0}, "realtime_pre_close_invalid"),
+        ({**_quote(), "volume": 0.0}, "realtime_volume_invalid"),
+    ],
+)
+def test_validated_realtime_quote_rejects_invalid_fields(
+    monkeypatch: pytest.MonkeyPatch,
+    quote: dict,
+    reason: str,
+) -> None:
+    import src.data.market_store as market_store
+
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _QuoteStore(quote))
+
+    with pytest.raises(HTTPException) as exc:
+        routes._validated_realtime_quote(_candidate(), "morning", _at(9, 27))
+
+    assert reason in exc.value.detail["blocking_reasons"]
+
+
+def test_validated_realtime_quote_returns_auditable_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.data.market_store as market_store
+
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _QuoteStore(_quote()))
+
+    item = routes._validated_realtime_quote(_candidate(), "morning", _at(9, 27))
+
+    assert item["price"] == 12.34
+    assert item["high"] == 12.5
+    assert item["low"] == 11.9
+    assert item["volume"] == 1000.0
+    assert item["market_context"] == {
+        "trade_date": "2026-07-14",
+        "snapshot_at": "2026-07-14T09:27:00+08:00",
+        "snapshot_age_seconds": 0.0,
+        "quote_source": "test.realtime",
+        "valid": True,
+    }
+
+
+def test_candidate_pool_does_not_fall_back_to_daily_close(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.api.opportunity_routes as opportunity_routes
+    import src.data.market_store as market_store
+
+    monkeypatch.setattr(routes, "_assert_candidate_market_data_fresh", lambda: None)
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _QuoteStore(None))
+    monkeypatch.setattr(
+        opportunity_routes,
+        "_build_opportunities",
+        lambda: {
+            "categories": [
+                {
+                    "id": "trend",
+                    "label": "趋势",
+                    "opportunities": [_candidate()],
+                }
+            ]
+        },
+    )
+
+    with pytest.raises(HTTPException) as exc:
+        routes._candidate_pool("morning")
+
+    assert exc.value.detail["blocking_reasons"] == ["realtime_snapshot_missing"]
+
+
+def test_final_phase_times_are_exact() -> None:
+    assert (routes._PHASES["morning_final"].hour, routes._PHASES["morning_final"].minute) == (9, 27)
+    assert (routes._PHASES["afternoon_final"].hour, routes._PHASES["afternoon_final"].minute) == (14, 30)
+    assert routes._AUTORUN_PHASES == ("morning_final", "afternoon_final")
+
+
 def _record(
     *,
     slot: str,
