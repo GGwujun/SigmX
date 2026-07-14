@@ -64,6 +64,17 @@ _SLOT_ALIASES = {
 _FINAL_PHASES = {phase.id for phase in _PHASES.values() if phase.status == "final"}
 _AUTORUN_PHASES = ("morning_final", "afternoon_final")
 _MAX_QUOTE_AGE_SECONDS = 180.0
+_RECOMMENDATION_FACTOR_POLARITY = {
+    "alpha101_006": 1,
+    "alpha101_013": 1,
+    "alpha101_043": 1,
+    "qlib158_roc20": 1,
+    "alpha101_050": 1,
+    "alpha101_044": 1,
+    "academic_rmw": 1,
+    "qlib158_std60": -1,
+    "qlib158_ma5": -1,
+}
 
 
 class GenerateRecommendationsRequest(BaseModel):
@@ -495,6 +506,77 @@ def _validated_realtime_quote(
     return enriched
 
 
+def _attach_intraday_history_metrics(item: dict[str, Any]) -> dict[str, Any]:
+    from src.data.market_data_service import latest_daily_bars
+
+    symbol = str(item.get("symbol") or "").upper()
+    history = latest_daily_bars(symbol, days=30)
+    if history is None or history.empty or len(history) < 19:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "dataset": "bars_daily",
+                "symbol": symbol,
+                "blocking_reasons": ["daily_history_insufficient"],
+            },
+        )
+    ordered = history.sort_index()
+    closes = [float(value) for value in ordered["close"].tail(19)]
+    volumes = [float(value) for value in ordered["volume"].tail(5)]
+    price = float(item.get("price") or 0)
+    synthetic_closes = closes + [price]
+    ma20 = sum(synthetic_closes) / len(synthetic_closes)
+    avg_volume = sum(volumes) / len(volumes) if volumes else 0.0
+    enriched = dict(item)
+    enriched.update(
+        {
+            "synthetic_ma20": ma20,
+            "distance_ma20": price / ma20 - 1.0 if ma20 > 0 else 0.0,
+            "daily_volume_avg_5": avg_volume,
+        }
+    )
+    return enriched
+
+
+def _intraday_confirmation(item: dict[str, Any]) -> dict[str, Any]:
+    price = float(item.get("price") or 0)
+    high = float(item.get("high") or price)
+    low = float(item.get("low") or price)
+    change = float(item.get("change_pct") or 0)
+    volume = float(item.get("volume") or 0)
+    avg_volume = float(item.get("daily_volume_avg_5") or 0)
+    distance_ma20 = float(item.get("distance_ma20") or 0)
+    position = (price - low) / (high - low) if high > low else 0.5
+    position = max(0.0, min(1.0, position))
+    volume_ratio = volume / avg_volume if avg_volume > 0 else 0.0
+    score = 0.5 + (position - 0.5) * 0.2
+    adjustments: list[str] = []
+    if position < 0.35:
+        adjustments.append("weak_intraday_close")
+    elif position > 0.7:
+        adjustments.append("strong_intraday_close")
+    if 0 <= change < 3:
+        score += 0.08
+        adjustments.append("moderate_move")
+    if change >= 6:
+        score -= 0.20
+        adjustments.append("chase_risk")
+    if distance_ma20 > 0.12:
+        score -= 0.10
+        adjustments.append("extended_from_ma20")
+    if volume_ratio > 3:
+        score -= 0.08
+        adjustments.append("abnormal_volume")
+    return {
+        "score": round(max(0.01, min(0.99, score)), 3),
+        "intraday_position": round(position, 3),
+        "volume_ratio_proxy": round(volume_ratio, 3),
+        "distance_ma20": round(distance_ma20, 4),
+        "adjustments": adjustments,
+    }
+
+
 def _candidate_pool(slot: str) -> list[dict[str, Any]]:
     from src.api.opportunity_routes import _build_opportunities
 
@@ -504,6 +586,7 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=503, detail=str(payload["error"]))
 
     items: list[dict[str, Any]] = []
+    data_errors: list[HTTPException] = []
     for category in payload.get("categories", []):
         category_id = category.get("id", "")
         category_label = category.get("label", category_id)
@@ -511,7 +594,15 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
             item = dict(raw)
             item["category_id"] = category_id
             item["category_label"] = category_label
-            item = _validated_realtime_quote(item, slot)
+            try:
+                item = _validated_realtime_quote(item, slot)
+                item = _attach_intraday_history_metrics(item)
+                item["realtime_confirmation"] = _intraday_confirmation(item)
+            except HTTPException as exc:
+                if exc.status_code != 503 or not isinstance(exc.detail, dict) or exc.detail.get("code") != "DATA_NOT_READY":
+                    raise
+                data_errors.append(exc)
+                continue
             item["score"] = round(_slot_adjusted_score(item, slot), 3)
             items.append(item)
 
@@ -523,6 +614,8 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
             continue
         seen.add(symbol)
         unique.append(item)
+    if not unique and data_errors:
+        raise data_errors[0]
     return unique
 
 
@@ -545,6 +638,66 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return data
 
 
+def _normalize_recommendation_factors(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized: list[dict[str, Any]] = []
+    for signal in raw.get("signals", []):
+        factor_id = str(signal.get("id") or "")
+        polarity = _RECOMMENDATION_FACTOR_POLARITY.get(factor_id)
+        if polarity is None or signal.get("status") != "ok":
+            continue
+        try:
+            rank_pct = float(signal.get("rank_pct", 0.5))
+        except (TypeError, ValueError):
+            continue
+        rank_pct = max(0.01, min(0.99, rank_pct))
+        directional_rank = rank_pct if polarity > 0 else 1.0 - rank_pct
+        if directional_rank >= 0.7:
+            direction = "bullish"
+            contribution = directional_rank
+        elif directional_rank <= 0.3:
+            direction = "bearish"
+            contribution = directional_rank
+        else:
+            direction = "neutral"
+            contribution = 0.5
+        normalized.append(
+            {
+                **signal,
+                "rank_pct": round(rank_pct, 3),
+                "direction": direction,
+                "contribution": round(contribution, 3),
+            }
+        )
+
+    valid_count = len(normalized)
+    if valid_count < 4:
+        return {
+            "status": "limited",
+            "score": 0.5,
+            "top_bullish": [],
+            "top_bearish": [],
+            "signals": normalized,
+            "valid_signal_count": valid_count,
+        }
+    bullish = sorted(
+        (signal for signal in normalized if signal["direction"] == "bullish"),
+        key=lambda signal: float(signal["contribution"]),
+        reverse=True,
+    )
+    bearish = sorted(
+        (signal for signal in normalized if signal["direction"] == "bearish"),
+        key=lambda signal: float(signal["contribution"]),
+    )
+    return {
+        "status": "ok",
+        "score": round(sum(float(signal["contribution"]) for signal in normalized) / valid_count, 3),
+        "top_bullish": bullish[:3],
+        "top_bearish": bearish[:3],
+        "signals": normalized,
+        "valid_signal_count": valid_count,
+    }
+
+
 def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
     symbol = str(item.get("symbol", "")).upper()
     review: dict[str, Any] = {
@@ -561,6 +714,7 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
         from src.data.alpha_signals import compute_alpha_signals
 
         raw = compute_alpha_signals(symbol)
+        normalized = _normalize_recommendation_factors(raw)
         top_bullish = [
             {
                 "label": s.get("label", ""),
@@ -568,7 +722,7 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
                 "rank_pct": s.get("rank_pct", 0.5),
                 "direction": s.get("direction", "neutral"),
             }
-            for s in raw.get("top_bullish", [])[:3]
+            for s in normalized.get("top_bullish", [])[:3]
         ]
         top_bearish = [
             {
@@ -577,11 +731,14 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
                 "rank_pct": s.get("rank_pct", 0.5),
                 "direction": s.get("direction", "neutral"),
             }
-            for s in raw.get("top_bearish", [])[:3]
+            for s in normalized.get("top_bearish", [])[:3]
         ]
-        score = float(raw.get("score", 0.5) or 0.5)
+        score = float(normalized.get("score", 0.5) or 0.5)
         if raw.get("error"):
             summary = str(raw["error"])
+            status = "limited"
+        elif normalized.get("status") == "limited":
+            summary = "可用短周期 Alpha 因子不足"
             status = "limited"
         elif score >= 0.60:
             summary = "Alpha因子偏多"
@@ -599,6 +756,7 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
             "top_bullish": top_bullish,
             "top_bearish": top_bearish,
             "peer_count": int(raw.get("peer_count", 0) or 0),
+            "valid_signal_count": int(normalized.get("valid_signal_count", 0) or 0),
         }
     except Exception as exc:
         logger.info("factor review failed for %s: %s", symbol, exc)

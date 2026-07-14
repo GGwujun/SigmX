@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pandas as pd
 import pytest
 from fastapi import HTTPException
 
@@ -204,6 +205,178 @@ def test_final_phase_times_are_exact() -> None:
     assert (routes._PHASES["morning_final"].hour, routes._PHASES["morning_final"].minute) == (9, 27)
     assert (routes._PHASES["afternoon_final"].hour, routes._PHASES["afternoon_final"].minute) == (14, 30)
     assert routes._AUTORUN_PHASES == ("morning_final", "afternoon_final")
+
+
+def test_normalize_factors_never_labels_bearish_as_bullish() -> None:
+    raw = {
+        "signals": [
+            {"id": "qlib158_roc20", "label": "20日动量", "rank_pct": 0.9, "status": "ok"},
+            {"id": "qlib158_std60", "label": "60日波动", "rank_pct": 0.9, "status": "ok"},
+            {"id": "alpha101_006", "label": "量价背离", "rank_pct": 0.2, "status": "ok"},
+            {"id": "academic_rmw", "label": "低波质量", "rank_pct": 0.8, "status": "ok"},
+        ]
+    }
+
+    result = routes._normalize_recommendation_factors(raw)
+
+    assert result["status"] == "ok"
+    assert all(row["direction"] == "bullish" for row in result["top_bullish"])
+    assert all(row["direction"] == "bearish" for row in result["top_bearish"])
+    assert {row["id"] for row in result["top_bullish"]} == {"qlib158_roc20", "academic_rmw"}
+    assert {row["id"] for row in result["top_bearish"]} == {"qlib158_std60", "alpha101_006"}
+
+
+def test_normalize_factors_is_limited_below_four_valid_signals() -> None:
+    result = routes._normalize_recommendation_factors(
+        {
+            "signals": [
+                {"id": "qlib158_roc20", "rank_pct": 0.8, "status": "ok"},
+                {"id": "academic_smb", "rank_pct": 0.9, "status": "ok"},
+            ]
+        }
+    )
+
+    assert result["status"] == "limited"
+    assert result["score"] == 0.5
+    assert result["valid_signal_count"] == 1
+
+
+def test_intraday_confirmation_penalizes_chasing_and_weak_close() -> None:
+    item = _candidate() | {
+        "change_pct": 7.5,
+        "high": 10.8,
+        "low": 9.8,
+        "price": 10.0,
+        "volume": 200.0,
+        "daily_volume_avg_5": 100.0,
+        "distance_ma20": 0.14,
+    }
+
+    result = routes._intraday_confirmation(item)
+
+    assert result["score"] < 0.5
+    assert "chase_risk" in result["adjustments"]
+    assert "weak_intraday_close" in result["adjustments"]
+
+
+def test_attach_intraday_history_metrics_uses_synthetic_current_bar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.data.market_data_service as market_data_service
+
+    dates = pd.date_range("2026-06-15", periods=20, freq="B")
+    history = pd.DataFrame(
+        {
+            "close": [10.0] * 20,
+            "volume": [100.0] * 20,
+        },
+        index=dates,
+    )
+    monkeypatch.setattr(market_data_service, "latest_daily_bars", lambda symbol, days: history)
+
+    item = routes._attach_intraday_history_metrics(
+        _candidate() | {"price": 10.5, "volume": 60.0, "high": 10.6, "low": 9.9}
+    )
+
+    assert item["daily_volume_avg_5"] == 100.0
+    assert item["synthetic_ma20"] > 10.0
+    assert item["distance_ma20"] > 0
+
+
+def test_candidate_pool_attaches_intraday_confirmation(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.api.opportunity_routes as opportunity_routes
+    import src.data.market_data_service as market_data_service
+
+    history = pd.DataFrame(
+        {"close": [10.0] * 20, "volume": [100.0] * 20},
+        index=pd.date_range("2026-06-15", periods=20, freq="B"),
+    )
+    monkeypatch.setattr(routes, "_assert_candidate_market_data_fresh", lambda: None)
+    monkeypatch.setattr(
+        routes,
+        "_validated_realtime_quote",
+        lambda item, slot: item
+        | {"price": 10.5, "change_pct": 1.0, "high": 10.6, "low": 9.9, "volume": 60.0},
+    )
+    monkeypatch.setattr(market_data_service, "latest_daily_bars", lambda symbol, days: history)
+    monkeypatch.setattr(
+        opportunity_routes,
+        "_build_opportunities",
+        lambda: {
+            "categories": [
+                {"id": "trend", "label": "趋势", "opportunities": [_candidate()]},
+            ]
+        },
+    )
+
+    candidates = routes._candidate_pool("morning")
+
+    assert candidates[0]["realtime_confirmation"]["score"] > 0.5
+
+
+def test_candidate_pool_skips_invalid_quote_when_other_candidates_are_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import src.api.opportunity_routes as opportunity_routes
+
+    monkeypatch.setattr(routes, "_assert_candidate_market_data_fresh", lambda: None)
+
+    def validate(item: dict, slot: str) -> dict:
+        if item["symbol"] == "600001.SH":
+            raise HTTPException(
+                status_code=503,
+                detail={"code": "DATA_NOT_READY", "blocking_reasons": ["realtime_snapshot_missing"]},
+            )
+        return item | {"price": 10.5, "change_pct": 1.0}
+
+    monkeypatch.setattr(routes, "_validated_realtime_quote", validate)
+    monkeypatch.setattr(routes, "_attach_intraday_history_metrics", lambda item: item)
+    monkeypatch.setattr(routes, "_intraday_confirmation", lambda item: {"score": 0.6})
+    monkeypatch.setattr(
+        opportunity_routes,
+        "_build_opportunities",
+        lambda: {
+            "categories": [
+                {
+                    "id": "trend",
+                    "label": "趋势",
+                    "opportunities": [_candidate("600001.SH"), _candidate("600002.SH")],
+                }
+            ]
+        },
+    )
+
+    candidates = routes._candidate_pool("morning")
+
+    assert [item["symbol"] for item in candidates] == ["600002.SH"]
+
+
+def test_factor_review_uses_recommendation_local_normalization(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.data.alpha_signals as alpha_signals
+
+    raw = {
+        "signals": [
+            {"id": "qlib158_roc20", "label": "20日动量", "rank_pct": 0.9, "status": "ok"},
+            {"id": "qlib158_std60", "label": "60日波动", "rank_pct": 0.9, "status": "ok"},
+            {"id": "alpha101_006", "label": "量价背离", "rank_pct": 0.2, "status": "ok"},
+            {"id": "academic_rmw", "label": "低波质量", "rank_pct": 0.8, "status": "ok"},
+        ],
+        "score": 0.99,
+        "top_bullish": [
+            {"id": "qlib158_std60", "label": "60日波动", "rank_pct": 0.9, "direction": "bearish"}
+        ],
+        "top_bearish": [],
+        "peer_count": 20,
+        "error": None,
+    }
+    monkeypatch.setattr(alpha_signals, "compute_alpha_signals", lambda symbol: raw)
+
+    review = routes._factor_review(_candidate())
+
+    assert review["score"] == 0.5
+    assert review["valid_signal_count"] == 4
+    assert {row["label"] for row in review["top_bullish"]} == {"20日动量", "低波质量"}
+    assert all(row["direction"] == "bullish" for row in review["top_bullish"])
 
 
 def _record(
