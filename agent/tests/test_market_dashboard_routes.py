@@ -338,6 +338,8 @@ def test_db_market_overview_uses_sector_snapshot_and_marks_stale_indices(
                     "name": "浦发银行",
                 }
             ],
+            source="test.fixture",
+            sync_run_id="test-run",
         )
         store.upsert_sector_snapshot(
             "2026-07-02",

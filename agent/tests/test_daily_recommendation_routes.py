@@ -6,19 +6,25 @@ import pytest
 from fastapi import HTTPException
 
 from src.api import daily_recommendation_routes as routes
+from src.data.market_quality import DataReadiness, QualityStatus
 
 
 class _FakeStore:
-    def __init__(self, daily_latest: str | None, realtime_latest: str | None):
-        self._daily_latest = daily_latest
-        self._realtime_latest = realtime_latest
+    def __init__(self, status: QualityStatus = QualityStatus.PUBLISHED):
+        self.status = status
 
-    def date_range(self, table: str):
-        if table == "bars_daily":
-            return (None, self._daily_latest)
-        if table == "realtime_quote_snapshot":
-            return (None, self._realtime_latest)
-        return (None, None)
+    def get_data_readiness(self, dataset: str, as_of: str) -> DataReadiness:
+        return DataReadiness(
+            dataset=dataset,
+            as_of=as_of,
+            status=self.status,
+            expected_rows=1,
+            valid_rows=1 if self.status is QualityStatus.PUBLISHED else 0,
+            published_rows=1 if self.status is QualityStatus.PUBLISHED else 0,
+            source="tushare.daily",
+            run_id="run-1",
+            blocking_reasons=[] if self.status is QualityStatus.PUBLISHED else ["unexplained_missing_codes"],
+        )
 
     def get_latest_realtime_quote(self, code: str, trade_date: str | None = None):
         return {
@@ -30,22 +36,25 @@ class _FakeStore:
         }
 
 
-def test_candidate_market_data_freshness_rejects_stale_daily(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_candidate_market_data_freshness_rejects_unverified_daily(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.data.market_store as market_store
 
-    monkeypatch.setattr(market_store, "get_market_store", lambda: _FakeStore("2026-06-26", "2026-07-02"))
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _FakeStore(QualityStatus.PARTIAL))
+    monkeypatch.setattr(routes, "_expected_settled_date", lambda store: "2026-07-14")
 
     with pytest.raises(HTTPException) as exc:
         routes._assert_candidate_market_data_fresh()
 
     assert exc.value.status_code == 503
-    assert "latest daily=2026-06-26" in str(exc.value.detail)
+    assert exc.value.detail["code"] == "DATA_NOT_READY"
+    assert exc.value.detail["status"] == "partial"
 
 
-def test_candidate_market_data_freshness_allows_weekend_gap(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_candidate_market_data_freshness_allows_published_exact_date(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.data.market_store as market_store
 
-    monkeypatch.setattr(market_store, "get_market_store", lambda: _FakeStore("2026-06-26", "2026-06-29"))
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _FakeStore(QualityStatus.PUBLISHED))
+    monkeypatch.setattr(routes, "_expected_settled_date", lambda store: "2026-07-14")
 
     routes._assert_candidate_market_data_fresh()
 
@@ -53,7 +62,7 @@ def test_candidate_market_data_freshness_allows_weekend_gap(monkeypatch: pytest.
 def test_refresh_candidate_quote_uses_today_realtime_price(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.data.market_store as market_store
 
-    monkeypatch.setattr(market_store, "get_market_store", lambda: _FakeStore("2026-07-01", "2026-07-02"))
+    monkeypatch.setattr(market_store, "get_market_store", lambda: _FakeStore())
     monkeypatch.setattr(routes, "_today_cst", lambda: "2026-07-02")
 
     item = routes._refresh_candidate_quote({"symbol": "600000.SH", "price": 10.0, "change_pct": -1.0})

@@ -765,16 +765,16 @@ def test_maybe_run_sync_skips_before_close(store: MarketStore) -> None:
     assert m_run.call_count == 0
 
 
-def test_maybe_run_sync_runs_at_post_close(store: MarketStore) -> None:
+def test_maybe_run_sync_never_runs_inside_business_process(store: MarketStore) -> None:
     """post_close + not yet synced today → run_daily_sync fires."""
     today = "2026-06-11"
     with mock.patch("src.data.trade_calendar.cn_market_phase", return_value="post_close"), \
          mock.patch.object(ms, "_today_cst_str", return_value=today), \
          mock.patch.object(ms, "run_daily_sync", return_value={"dragon": 1}) as m_run:
         ms._maybe_run_daily_sync(store)
-    assert m_run.call_count == 1
+    assert m_run.call_count == 0
     # daemon:<today> meta should now be set.
-    assert store.get_meta(f"daemon:{today}") is not None
+    assert store.get_meta(f"daemon:{today}") is None
 
 
 def test_premarket_sync_slot_boundaries() -> None:

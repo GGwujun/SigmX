@@ -151,8 +151,12 @@ def _fetch_top_stocks(limit: int = 200) -> list[dict[str, Any]]:
     Fallback: mootdx (native TDX TCP, may not work on all cloud hosts).
     """
     local = _fetch_stocks_from_local_db(limit)
-    if local:
-        return local
+    if not local:
+        logger.warning("Opportunity scan blocked: canonical daily universe is empty")
+    return local
+
+    # Provider fallbacks below are deliberately unreachable. Business-query
+    # processes must consume canonical storage and never fetch market data.
     stocks = _fetch_stocks_akshare(limit)
     if stocks:
         return stocks

@@ -4711,6 +4711,9 @@ def _maybe_run_daily_sync(store: MarketStore) -> None:
     raw weekday check; ``cn_market_phase()=="post_close"`` captures both
     correctly and handles holiday/makeup-trading days automatically.
     """
+    logger.info("in-process post-close sync is disabled; use vibe-trading-sync worker")
+    return
+
     from src.data.trade_calendar import cn_market_phase
 
     if cn_market_phase() != "post_close":
@@ -4873,15 +4876,5 @@ def _loop() -> None:
 
 
 def start_market_sync_daemon() -> None:
-    """Start the background market-sync daemon thread (idempotent)."""
-    if os.getenv("MARKET_SYNC_DAEMON_ENABLED", "0").strip().lower() not in {"1", "true", "yes"}:
-        logger.info("market-sync daemon disabled; use vibe-trading-sync worker")
-        return
-    global _daemon_started
-    with _daemon_lock:
-        if _daemon_started:
-            return
-        _daemon_started = True
-    thread = threading.Thread(target=_loop, name="market-sync", daemon=True)
-    thread.start()
-    logger.info("market-sync daemon started")
+    """Refuse in-process synchronization; the standalone worker owns writes."""
+    logger.info("in-process market-sync is disabled; use vibe-trading-sync worker")

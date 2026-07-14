@@ -23,6 +23,8 @@ def test_daily_bars_batch_reads_db_only(tmp_path: Path) -> None:
             [
                 {"date": "2026-06-24", "open": 1, "high": 2, "low": 1, "close": 2, "volume": 10},
             ],
+            source="test.fixture",
+            sync_run_id="test-run",
         )
         with mock.patch.object(svc, "get_market_store", return_value=store):
             out = svc.daily_bars_batch(["000001"], days=5)

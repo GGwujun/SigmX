@@ -1,51 +1,37 @@
-"""Manual market-sync API — admin-gated endpoints over :mod:`market_sync`.
+"""Read-only market-sync status API.
 
-Exposes ``run_daily_sync`` for ad-hoc triggers (a past trade date, a single
-code, a backfill run) and a status/health surface so the operator can see what
-the daemon has done. Long-running backfill runs in a daemon thread; status is
-polled via ``GET /market-sync/status``.
-
-Mounted under ``/market-sync`` and proxied by Vite (``API_ONLY_PATHS``).
+Canonical synchronization is owned exclusively by the standalone
+``vibe-trading-sync`` process.  These routes expose operational state to the
+business API but never fetch or mutate market data.
 """
 
 from __future__ import annotations
 
-import logging
 import os
-import threading
-from datetime import datetime, timezone
+from datetime import timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from src.api.auth_routes import require_admin
 
-logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/market-sync", tags=["market-sync"])
-
-# Single-flight guard for the background backfill thread.
-_backfill_lock = threading.Lock()
-_backfill_running = {"active": False, "started_at": None, "last_result": None}
-
-
-# ----------------------------------------------------------------------
-# Models
-# ----------------------------------------------------------------------
 
 
 class StatusResponse(BaseModel):
-    daemon_enabled: bool
-    backfill_running: bool
-    last_synced: dict[str, str]  # date → iso ts, from sync_meta daemon:* keys
+    daemon_enabled: bool = False
+    backfill_running: bool = False
+    sync_worker_required: bool = True
+    last_synced: dict[str, str]
     tables: dict[str, int]
     date_ranges: dict[str, list[str | None]]
     coverage: dict[str, Any] = {}
+    daily_readiness: dict[str, Any] = {}
 
 
 class DailySyncRequest(BaseModel):
-    trade_date: Optional[str] = None  # default: latest settled trading day
+    trade_date: Optional[str] = None
     codes: Optional[list[str]] = None
     datasets: Optional[list[str]] = None
     lookback_days: int = 90
@@ -60,22 +46,8 @@ class SyncResultResponse(BaseModel):
 
 class BackfillRequest(BaseModel):
     years: int = 2
-    datasets: list[str] = [
-        "calendar",
-        "master",
-        "index_master",
-        "board_master",
-        "daily",
-        "daily_basic",
-        "index",
-        "board",
-        "dragon",
-        "pool",
-        "etf",
-        "fund_daily",
-        "premium",
-    ]
-    universe: str = "default"  # "default" | "all"
+    datasets: list[str] = ["daily"]
+    universe: str = "default"
     etf_codes: Optional[list[str]] = None
     codes: Optional[list[str]] = None
     lookback_days: Optional[int] = None
@@ -88,6 +60,12 @@ class CodeSyncRequest(BaseModel):
     end: Optional[str] = None
 
 
+class PushRequest(BaseModel):
+    table: str
+    trade_date: str
+    rows: list[dict]
+
+
 class HealthResponse(BaseModel):
     tpdog_configured: bool
     tpdog_ok: bool
@@ -95,277 +73,127 @@ class HealthResponse(BaseModel):
     detail: str
 
 
-# ----------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------
-
-
 def _store():
     from src.data.market_store import get_market_store
+
     return get_market_store()
 
 
-def _sync_store():
-    from src.data.market_store import MarketStore
-    return MarketStore()
-
-
-# ----------------------------------------------------------------------
-# Data push (本地 data-sync 推送增量数据，替代 rsync 文件覆盖)
-# 鉴权：固定 token（环境变量 MARKET_SYNC_PUSH_TOKEN）。不配则放开（方便测试）。
-# ----------------------------------------------------------------------
-
-
-def _check_push_token(x_push_token: str = Header(default="")) -> None:
-    expected = os.getenv("MARKET_SYNC_PUSH_TOKEN", "").strip()
-    if expected and x_push_token.strip() != expected:
-        raise HTTPException(status_code=401, detail="invalid push token")
-
-
-class PushRequest(BaseModel):
-    table: str
-    trade_date: str
-    rows: list[dict]
-
-
-# table -> (kind, pk_cols, value_cols)
-#   kind="wide"     : A类 market-wide，用 _upsert_market_wide（删当日再插，整日覆盖）
-#   kind="per_code" : B类 per-code，按 code 分组调专用 upsert（不删当日）
-PUSH_TABLES: dict[str, tuple[str, tuple[str, ...], tuple[str, ...]]] = {
-    "sector_capital_flow": ("wide", ("trade_date", "sector"),
-     ("main_net", "change_pct", "extra_json")),
-    "stock_capital_rank": ("wide", ("trade_date", "rank_type", "code"),
-     ("name", "main_net", "change_pct", "extra_json")),
-    "market_breadth_snapshot": ("wide", ("trade_date",),
-     ("total", "advancers", "decliners", "unchanged", "limit_up", "limit_down",
-      "max_limit_up_height", "turnover_billion", "source")),
-    "sector_snapshot": ("wide", ("trade_date", "board_type", "name"),
-     ("change_pct", "advancers", "decliners", "leader", "extra_json")),
-    "global_market_index_daily": ("wide", ("trade_date", "symbol"),
-     ("name", "open", "high", "low", "close", "prev_close", "change_pct",
-      "currency", "source", "history_json")),
-    "us_theme_snapshot": ("wide", ("trade_date", "theme_id"),
-     ("theme_name", "proxy_symbol", "proxy_name", "close", "change_pct",
-      "a_share_mapping_json", "source")),
-    "us_a_share_transmission": ("wide", ("trade_date", "theme_id"),
-     ("us_theme", "a_share_themes_json", "signal_strength", "direction",
-      "reason", "source_data_json")),
-    "premarket_news": ("wide", ("trade_date", "category", "title"),
-     ("summary", "url", "source", "published_at")),
-    "dragon_tiger": ("wide", ("code", "trade_date"),
-     ("name", "close", "rise_rate", "net_amt", "buy_amt", "sell_amt", "extra_json")),
-    "stock_pool": ("wide", ("pool_type", "trade_date", "code"),
-     ("extra_json",)),
-    # B 类 per-code（专用 upsert，不删当日）
-    "bars_daily": ("per_code", (), ()),
-    "index_daily": ("per_code", (), ()),
-    # 阶段快照（早盘内参/盘中监控/尾盘策略/收盘复盘）
-    "market_stage_snapshot": ("wide", ("trade_date", "stage"),
-     ("payload_json", "source_tables", "updated_at")),
-}
-
-
-def _push_per_code(store, table: str, rows: list[dict]) -> int:
-    """B 类：按 code 分组调专用 upsert（不删当日，避免误删其他 code）。"""
-    from src.data import market_store as ms
-    by_code: dict[str, list[dict]] = {}
-    for r in rows:
-        code = r.get("code")
-        if not code:
-            continue
-        by_code.setdefault(code, []).append(r)
-    total = 0
-    for code, group in by_code.items():
-        if table == "bars_daily":
-            total += store.upsert_daily_bars(code, group)
-        elif table == "index_daily":
-            total += store.upsert_index_daily(code, group)
-    return total
-
-
 def _latest_synced() -> dict[str, str]:
-    """Return {date: iso_ts} for every daemon:<date> sync_meta key."""
     store = _store()
     if store is None:
         return {}
-    out: dict[str, str] = {}
-    try:
-        rows = store._conn.execute(
-            "SELECT key, value FROM sync_meta WHERE key LIKE 'daemon:%' ORDER BY key DESC LIMIT 30"
-        ).fetchall()
-        for r in rows:
-            out[r["key"].split(":", 1)[1]] = r["value"]
-    except Exception:  # noqa: BLE001
-        pass
-    return out
+    rows = store._conn.execute(
+        "SELECT key, value FROM sync_meta "
+        "WHERE key LIKE 'daemon:____-__-__' ORDER BY key DESC LIMIT 30"
+    ).fetchall()
+    return {str(row["key"]).split(":", 1)[1]: str(row["value"]) for row in rows}
 
 
-def _resolve_trade_date(trade_date: Optional[str]) -> str:
-    """Default to today (CST); callers that need a settled date pass one."""
-    from src.data.market_sync import _today_cst_str
-    return trade_date or _today_cst_str()
+def _expected_settled_date(store) -> str | None:
+    """Resolve the expected date from the local canonical calendar only."""
+    from src.data.market_sync import _now_cst
+
+    now = _now_cst()
+    cutoff = now.date().isoformat()
+    if now.hour < 15 or (now.hour == 15 and now.minute < 5):
+        cutoff = (now.date() - timedelta(days=1)).isoformat()
+    row = store._conn.execute(
+        "SELECT MAX(trade_date) AS d FROM trade_calendar "
+        "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
+        (cutoff,),
+    ).fetchone()
+    return str(row["d"]) if row and row["d"] else None
 
 
-# ----------------------------------------------------------------------
-# Endpoints
-# ----------------------------------------------------------------------
+def _readiness_payload(store) -> dict[str, Any]:
+    expected_date = _expected_settled_date(store)
+    if not expected_date:
+        return {
+            "dataset": "bars_daily",
+            "ready": False,
+            "status": "failed",
+            "blocking_reasons": ["canonical_trade_calendar_unavailable"],
+        }
+    readiness = store.get_data_readiness("bars_daily", expected_date)
+    return {
+        "dataset": readiness.dataset,
+        "as_of": readiness.as_of,
+        "ready": readiness.ready,
+        "status": readiness.status.value,
+        "expected_rows": readiness.expected_rows,
+        "valid_rows": readiness.valid_rows,
+        "published_rows": readiness.published_rows,
+        "source": readiness.source,
+        "run_id": readiness.run_id,
+        "blocking_reasons": readiness.blocking_reasons,
+    }
+
+
+def _raise_worker_required() -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "code": "SYNC_WORKER_REQUIRED",
+            "message": "The business API is read-only; run synchronization through vibe-trading-sync.",
+        },
+    )
 
 
 @router.get("/status", response_model=StatusResponse, dependencies=[Depends(require_admin)])
 async def status() -> StatusResponse:
     store = _store()
     if store is None:
-        raise HTTPException(503, "market store unavailable")
-    from src.data.market_sync import _daemon_started
+        raise HTTPException(status_code=503, detail="market store unavailable")
     counts = store.table_counts()
-    ranges = {t: list(store.date_range(t)) for t in counts}
     return StatusResponse(
-        daemon_enabled=_daemon_started,
-        backfill_running=_backfill_running["active"],
         last_synced=_latest_synced(),
         tables=counts,
-        date_ranges=ranges,
+        date_ranges={table: list(store.date_range(table)) for table in counts},
         coverage=store.market_coverage(),
+        daily_readiness=_readiness_payload(store),
     )
 
 
 @router.post("/daily", response_model=SyncResultResponse, dependencies=[Depends(require_admin)])
 async def sync_daily(body: DailySyncRequest) -> SyncResultResponse:
-    """Run one trade date's sync synchronously (foreground)."""
-    from src.data.market_sync import run_daily_sync
-
-    store = _sync_store()
-    if store is None:
-        raise HTTPException(503, "market store unavailable")
-    trade_date = _resolve_trade_date(body.trade_date)
-    datasets = set(body.datasets) if body.datasets else None
-    try:
-        rows = run_daily_sync(
-            trade_date,
-            store=store,
-            codes=body.codes,
-            datasets=datasets,
-            lookback_days=body.lookback_days,
-        )
-    except Exception as exc:  # noqa: BLE001
-        return SyncResultResponse(ok=False, trade_date=trade_date, detail=str(exc)[:300])
-    return SyncResultResponse(
-        ok=True, trade_date=trade_date, detail=f"synced {sum(rows.values())} rows", rows=rows,
-    )
+    _raise_worker_required()
 
 
 @router.post("/code", response_model=SyncResultResponse, dependencies=[Depends(require_admin)])
 async def sync_code(body: CodeSyncRequest) -> SyncResultResponse:
-    """Sync a single code's daily-K over [start, end] (defaults: last 90 days)."""
-    from src.data.market_sync import _fetch_daily_range_rows, _latest_settled_date_for_sync, _to_tpdog_code
-
-    store = _sync_store()
-    if store is None:
-        raise HTTPException(503, "market store unavailable")
-    from src.data.market_sync import _today_cst_str
-    end = body.end or _today_cst_str()
-    # Default start: the 1st of end's month (tpdog caps windows at ~1 month).
-    start = body.start or (end[:8] + "01")
-    tpdog_code = _to_tpdog_code(body.code)
-    if tpdog_code is None:
-        raise HTTPException(400, f"unsupported code: {body.code}")
-    try:
-        rows = _fetch_daily_range_rows(tpdog_code, start, end)
-        today_str = _today_cst_str()
-        latest_settled = _latest_settled_date_for_sync(end, today_str)
-        settled = [r for r in rows if latest_settled and r.get("date") and r["date"] <= latest_settled]
-        n = store.upsert_daily_bars(body.code, settled) if settled else 0
-    except Exception as exc:  # noqa: BLE001
-        return SyncResultResponse(ok=False, trade_date=end, detail=str(exc)[:300])
-    return SyncResultResponse(ok=True, trade_date=end, detail=f"{n} rows", rows={"daily": n})
+    _raise_worker_required()
 
 
 @router.post("/backfill", dependencies=[Depends(require_admin)])
 async def backfill(body: BackfillRequest) -> dict[str, Any]:
-    """Kick off a background backfill (returns immediately; poll /status)."""
-    if not _backfill_lock.acquire(blocking=False):
-        return {"ok": False, "detail": "a backfill is already running", "running": True}
-    _backfill_running.update(active=True, started_at=datetime.now(timezone.utc).isoformat())
-
-    def _run() -> None:
-        from src.data.market_sync import run_daily_sync, _today_cst_str
-        from src.data.rate_limiter import mark_background
-        mark_background(True)  # reserve foreground slots during the backfill
-        try:
-            today = _today_cst_str()
-            rows = run_daily_sync(
-                today, store=_sync_store(), codes=body.codes,
-                datasets=set(body.datasets), universe=body.universe,
-                etf_codes=body.etf_codes, deadline_seconds=3600,
-                lookback_days=body.lookback_days if body.lookback_days is not None else body.years * 365,
-            )
-            _backfill_running["last_result"] = {"ok": True, "rows": rows}
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("backfill failed")
-            _backfill_running["last_result"] = {"ok": False, "detail": str(exc)[:300]}
-        finally:
-            _backfill_running["active"] = False
-            _backfill_lock.release()
-
-    threading.Thread(target=_run, name="market-backfill", daemon=True).start()
-    return {"ok": True, "detail": "backfill started; poll GET /market-sync/status", "running": True}
+    _raise_worker_required()
 
 
 @router.post("/snapshot", response_model=SyncResultResponse, dependencies=[Depends(require_admin)])
 async def snapshot(body: DailySyncRequest = DailySyncRequest()) -> SyncResultResponse:
-    """Run just the snapshot datasets (dragon/pool/premium) for one date."""
-    body.datasets = ["dragon", "pool", "premium"]
-    return await sync_daily(body)
+    _raise_worker_required()
+
+
+@router.post("/push")
+def push_data(body: PushRequest) -> dict[str, Any]:
+    _raise_worker_required()
 
 
 @router.get("/health", response_model=HealthResponse, dependencies=[Depends(require_admin)])
 async def health() -> HealthResponse:
-    from src.data.market_sync import _is_trading_day, _today_cst_str
-    from src.data.tpdog_client import is_configured
-
-    configured = is_configured()
-    tpdog_ok = False
-    detail = ""
-    if configured:
-        try:
-            from src.data.tpdog_client import call
-            call("trading_day/year", year="2026")
-            tpdog_ok = True
-            detail = "token ok"
-        except Exception as exc:  # noqa: BLE001
-            detail = str(exc)[:200]
-    else:
-        detail = "TPDOG_TOKEN not configured"
-    return HealthResponse(
-        tpdog_configured=configured, tpdog_ok=tpdog_ok,
-        trading_today=_is_trading_day(_today_cst_str()), detail=detail,
-    )
-
-
-@router.post("/push")
-def push_data(body: PushRequest, _: None = Depends(_check_push_token)) -> dict:
-    """接收本地 data-sync 推送的增量数据，写入本地库。
-    走应用单例连接写库（不覆盖文件），避免 rsync 句柄失效问题。"""
-    spec = PUSH_TABLES.get(body.table)
-    if spec is None:
-        raise HTTPException(status_code=400, detail=f"table '{body.table}' not pushable")
     store = _store()
     if store is None:
         raise HTTPException(status_code=503, detail="market store unavailable")
-    kind, pk_cols, value_cols = spec
-    try:
-        if kind == "wide":
-            from src.data.market_store import _upsert_market_wide
-            n = _upsert_market_wide(store, body.table, body.trade_date, body.rows,
-                                    pk_cols=pk_cols, value_cols=value_cols)
-        else:  # per_code
-            n = _push_per_code(store, body.table, body.rows)
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("market-sync push failed for %s/%s", body.table, body.trade_date)
-        raise HTTPException(status_code=500, detail=f"push failed: {exc}") from exc
-    return {"ok": True, "table": body.table, "trade_date": body.trade_date, "rows": n}
+    from src.data.market_sync import _today_cst_str
+
+    return HealthResponse(
+        tpdog_configured=bool(os.getenv("TPDOG_TOKEN", "").strip()),
+        tpdog_ok=False,
+        trading_today=store.is_trading_date(_today_cst_str()),
+        detail="read-only API: provider health is checked by vibe-trading-sync",
+    )
 
 
 def register_market_sync_routes(app: FastAPI) -> None:
-    """Mount all /market-sync/* routes onto the app."""
     app.include_router(router)

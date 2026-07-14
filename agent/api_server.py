@@ -607,8 +607,8 @@ async def _run_startup_preflight() -> None:
     # Start the market-data sync daemon (auto close-of-day backfill into the
     # market SQLite DB). Idempotent; no-op if tpdog is unconfigured.
     try:
-        from src.data.market_sync import start_market_sync_daemon
-        start_market_sync_daemon()
+        # Canonical market writes are owned by the standalone sync worker.
+        pass
     except Exception:  # noqa: BLE001 — daemon must never block startup
         console.print("[yellow]market-sync daemon failed to start[/yellow]")
 

@@ -322,16 +322,18 @@ def _slot_adjusted_score(item: dict[str, Any], slot: str) -> float:
     return max(0.01, min(0.99, score))
 
 
-def _date_gap_days(older: str | None, newer: str | None) -> int | None:
-    if not older or not newer:
-        return None
-    try:
-        return (
-            datetime.strptime(newer[:10], "%Y-%m-%d")
-            - datetime.strptime(older[:10], "%Y-%m-%d")
-        ).days
-    except ValueError:
-        return None
+def _expected_settled_date(store) -> str | None:
+    """Resolve the required daily date from the local canonical calendar."""
+    now = _now_cst()
+    cutoff = now.date().isoformat()
+    if now.hour < 15 or (now.hour == 15 and now.minute < 5):
+        cutoff = (now.date() - timedelta(days=1)).isoformat()
+    row = store._conn.execute(
+        "SELECT MAX(trade_date) AS d FROM trade_calendar "
+        "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
+        (cutoff,),
+    ).fetchone()
+    return str(row["d"]) if row and row["d"] else None
 
 
 def _assert_candidate_market_data_fresh() -> None:
@@ -340,22 +342,43 @@ def _assert_candidate_market_data_fresh() -> None:
 
         store = get_market_store()
         if store is None:
-            return
-        _, latest_daily = store.date_range("bars_daily")
-        _, latest_realtime = store.date_range("realtime_quote_snapshot")
-    except Exception:
-        logger.debug("daily recommendation market freshness check failed", exc_info=True)
-        return
-
-    gap = _date_gap_days(latest_daily, latest_realtime)
-    if gap is not None and gap > 3:
+            raise RuntimeError("market store unavailable")
+        expected_date = _expected_settled_date(store)
+        if not expected_date:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "DATA_NOT_READY",
+                    "dataset": "trade_calendar",
+                    "status": "failed",
+                    "blocking_reasons": ["canonical_trade_calendar_unavailable"],
+                },
+            )
+        readiness = store.get_data_readiness("bars_daily", expected_date)
+    except HTTPException:
+        raise
+    except Exception as exc:
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Daily market data is stale "
-                f"(latest daily={latest_daily}, latest realtime={latest_realtime}); "
-                "wait for post-close sync before generating recommendations"
-            ),
+            detail={
+                "code": "DATA_NOT_READY",
+                "dataset": "bars_daily",
+                "status": "failed",
+                "blocking_reasons": [f"readiness_check_failed: {exc}"],
+            },
+        ) from exc
+
+    if not readiness.ready:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "dataset": "bars_daily",
+                "expected_date": expected_date,
+                "status": readiness.status.value,
+                "run_id": readiness.run_id,
+                "blocking_reasons": readiness.blocking_reasons,
+            },
         )
 
 

@@ -51,13 +51,22 @@ def test_fetch_stocks_from_local_db_adds_bars_and_filters_invalid(monkeypatch):
     assert stocks[0]["change_pct"] > 0
 
 
-def test_fetch_top_stocks_prefers_local_db(monkeypatch):
+def test_fetch_top_stocks_uses_local_db_only(monkeypatch):
     local = [{"symbol": "600001.SH", "df": _bars([10 + i for i in range(90)])}]
 
     monkeypatch.setattr(routes, "_fetch_stocks_from_local_db", lambda limit: local)
-    monkeypatch.setattr(routes, "_fetch_stocks_akshare", lambda limit: (_ for _ in ()).throw(AssertionError("akshare should not run")))
-
     assert routes._fetch_top_stocks(10) is local
+
+
+def test_fetch_top_stocks_does_not_fallback_when_canonical_db_is_empty(monkeypatch):
+    monkeypatch.setattr(routes, "_fetch_stocks_from_local_db", lambda limit: [])
+    monkeypatch.setattr(
+        routes,
+        "_fetch_stocks_akshare",
+        lambda limit: (_ for _ in ()).throw(AssertionError("query service must not fetch")),
+    )
+
+    assert routes._fetch_top_stocks(10) == []
 
 
 def test_quality_score_penalizes_hot_breakout_chase() -> None:
