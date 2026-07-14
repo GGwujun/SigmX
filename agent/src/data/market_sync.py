@@ -1488,6 +1488,49 @@ def _sync_index_daily(
     written += _sync_index_daily_tpdog(store, trade_date, index_codes=missing_codes)
     missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
     written += _sync_index_daily_akshare_missing(store, trade_date, index_codes=missing_codes)
+    # 第 4 层降级：新浪（不封 IP，东财/tushare 全挂时的兜底）
+    missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
+    if missing_codes:
+        written += _sync_index_daily_sina(store, trade_date, index_codes=missing_codes)
+    return written
+
+
+def _sync_index_daily_sina(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    index_codes: Optional[list[str]] = None,
+) -> int:
+    """新浪指数降级源 — 东财/tushare 全挂时用（不封 IP）。"""
+    try:
+        from src.data.astock_client import sina_index_spot
+        spots = sina_index_spot()
+    except Exception as exc:
+        logger.debug("sina index spot fallback failed: %s", exc)
+        return 0
+
+    code_map = {s["code"]: s for s in spots}
+    written = 0
+    for code in (index_codes or []):
+        if store.has_index_daily(code, trade_date):
+            continue
+        spot = code_map.get(code)
+        if not spot:
+            continue
+        row = {
+            "code": code,
+            "trade_date": trade_date,
+            "open": spot.get("open"),
+            "high": spot.get("high"),
+            "low": spot.get("low"),
+            "close": spot.get("close"),
+            "pre_close": None,
+            "change": None,
+            "pct_chg": spot.get("pct_chg"),
+            "volume": None,
+        }
+        written += store.upsert_index_daily(code, [row])
+        logger.info("sina index fallback wrote %s for %s", code, trade_date)
     return written
 
 
@@ -3642,6 +3685,38 @@ def _sync_market_breadth_snapshot(store: MarketStore, trade_date: str) -> int:
     written = _write_from_rows(rows, source="eastmoney.clist.a_spot")
     if not written:
         _set_sync_error(store, "market_breadth", "eastmoney.clist.a_spot", "empty mapped result")
+
+    # 最终降级：从 bars_daily 算广度（tushare 已拉到的数据，不依赖外部 API）
+    if not written:
+        try:
+            bar_rows = store._conn.execute(
+                "SELECT rise_rate, total_amt FROM bars_daily WHERE trade_date = ?",
+                (trade_date,),
+            ).fetchall()
+            if len(bar_rows) >= 1000:
+                br = [float(r["rise_rate"] or 0) for r in bar_rows]
+                amt = sum(float(r["total_amt"] or 0) for r in bar_rows)
+                pool = _pool_payload(store, trade_date)
+                written = store.upsert_market_breadth_snapshot(
+                    trade_date,
+                    {
+                        "total": len(br),
+                        "advancers": sum(1 for v in br if v > 0),
+                        "decliners": sum(1 for v in br if v < 0),
+                        "unchanged": sum(1 for v in br if v == 0),
+                        "limit_up": pool["limit_up_count"],
+                        "limit_down": pool["limit_down_count"],
+                        "max_limit_up_height": pool["max_limit_up_height"],
+                        "turnover_billion": round(amt / 100_000_000, 2) if amt else None,
+                        "source": "bars_daily_fallback",
+                    },
+                )
+                if written:
+                    logger.info("market breadth fallback from bars_daily: %d rows", len(br))
+                    _clear_sync_error(store, "market_breadth", "bars_daily_fallback")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("bars_daily breadth fallback failed: %s", exc)
+
     return written
 
 
