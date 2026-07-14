@@ -563,3 +563,605 @@ def sina_option_greeks(code: str) -> dict:
         "iv": _opt_f(v[6]), "strike": _opt_f(v[10]),
         "last": _opt_f(v[11]), "theory": _opt_f(v[12]),
     }
+
+
+# ── Layer 3: 信号 — 东财板块归属 / 资金流向 ──────────────────────
+
+
+def eastmoney_concept_blocks(code: str) -> dict:
+    """个股所属板块/概念归属（东财 slist，一次拿全，走 em_get 限流）。
+    返回: {total, boards: [{name, code, change_pct, lead_stock}], concept_tags: [...]}
+    """
+    market_code = 1 if code.startswith("6") else 0
+    params = {
+        "fltt": "2", "invt": "2",
+        "secid": f"{market_code}.{code}",
+        "spt": "3", "pi": "0", "pz": "200", "po": "1",
+        "fields": "f12,f14,f3,f128",
+    }
+    try:
+        r = em_get("https://push2.eastmoney.com/api/qt/slist/get",
+                   params=params, headers={"User-Agent": UA,
+                   "Referer": "https://quote.eastmoney.com/"}, timeout=15)
+        d = r.json()
+    except Exception as e:
+        logger.warning("东财板块归属请求失败: %s", e)
+        return {"total": 0, "boards": [], "concept_tags": []}
+
+    diff = (d.get("data") or {}).get("diff") or {}
+    items = diff.values() if isinstance(diff, dict) else diff
+    boards = []
+    for it in items:
+        boards.append({
+            "name": it.get("f14", ""),
+            "code": it.get("f12", ""),
+            "change_pct": it.get("f3", ""),
+            "lead_stock": it.get("f128", ""),
+        })
+    return {
+        "total": len(boards),
+        "boards": boards,
+        "concept_tags": [b["name"] for b in boards],
+    }
+
+
+def eastmoney_fund_flow_minute(code: str) -> list[dict]:
+    """个股资金流向（分钟级，当日盘中）。
+    返回: [{time, main_net, small_net, mid_net, large_net, super_net}]
+    """
+    secid = f"1.{code}" if code.startswith("6") else f"0.{code}"
+    url = "https://push2.eastmoney.com/api/qt/stock/fflow/kline/get"
+    params = {
+        "secid": secid, "klt": 1,
+        "fields1": "f1,f2,f3,f7",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57",
+    }
+    try:
+        r = em_get(url, params=params, headers={
+            "User-Agent": UA, "Referer": "https://quote.eastmoney.com/"}, timeout=15)
+        klines = (r.json().get("data") or {}).get("klines") or []
+    except Exception as e:
+        logger.warning("东财分钟资金流请求失败: %s", e)
+        return []
+    rows = []
+    for line in klines:
+        parts = line.split(",")
+        if len(parts) >= 7:
+            rows.append({
+                "time": parts[0],
+                "main_net": float(parts[1]) if parts[1] != "-" else 0,
+                "small_net": float(parts[2]) if parts[2] != "-" else 0,
+                "mid_net": float(parts[3]) if parts[3] != "-" else 0,
+                "large_net": float(parts[4]) if parts[4] != "-" else 0,
+                "super_net": float(parts[5]) if parts[5] != "-" else 0,
+            })
+    return rows
+
+
+def stock_fund_flow_120d(code: str) -> list[dict]:
+    """个股资金流（日级，最近 120 个交易日）。
+    返回: [{date, main_net, small_net, mid_net, large_net, super_net}]
+    """
+    market_code = 1 if code.startswith("6") else 0
+    url = "https://push2his.eastmoney.com/api/qt/stock/fflow/daykline/get"
+    params = {
+        "secid": f"{market_code}.{code}",
+        "fields1": "f1,f2,f3,f7",
+        "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63,f64,f65",
+        "lmt": "120",
+    }
+    try:
+        r = em_get(url, params=params, headers={
+            "User-Agent": UA, "Referer": "https://quote.eastmoney.com/",
+            "Origin": "https://quote.eastmoney.com"}, timeout=15)
+        klines = (r.json().get("data") or {}).get("klines") or []
+    except Exception as e:
+        logger.warning("东财日级资金流请求失败: %s", e)
+        return []
+    rows = []
+    for line in klines:
+        parts = line.split(",")
+        if len(parts) >= 7:
+            rows.append({
+                "date": parts[0],
+                "main_net": float(parts[1]) if parts[1] != "-" else 0,
+                "small_net": float(parts[2]) if parts[2] != "-" else 0,
+                "mid_net": float(parts[3]) if parts[3] != "-" else 0,
+                "large_net": float(parts[4]) if parts[4] != "-" else 0,
+                "super_net": float(parts[5]) if parts[5] != "-" else 0,
+            })
+    return rows
+
+
+# ── Layer 4: 资金面 — 融资融券 / 大宗交易 / 股东户数 / 分红 ────────
+
+DATACENTER_URL = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+
+
+def eastmoney_datacenter(report_name: str, columns: str = "ALL",
+                         filter_str: str = "", page_size: int = 50,
+                         sort_columns: str = "", sort_types: str = "-1") -> list[dict]:
+    """东财数据中心统一查询（走 em_get 限流）。"""
+    params = {
+        "reportName": report_name, "columns": columns,
+        "filter": filter_str, "pageNumber": "1", "pageSize": str(page_size),
+        "sortColumns": sort_columns, "sortTypes": sort_types,
+        "source": "WEB", "client": "WEB",
+    }
+    try:
+        r = em_get(DATACENTER_URL, params=params, timeout=15)
+        d = r.json()
+    except Exception as e:
+        logger.warning("东财数据中心 %s 请求失败: %s", report_name, e)
+        return []
+    if d.get("result") and d["result"].get("data"):
+        return d["result"]["data"]
+    return []
+
+
+def margin_trading(code: str, page_size: int = 30) -> list[dict]:
+    """融资融券明细（日级）。"""
+    data = eastmoney_datacenter(
+        "RPTA_WEB_RZRQ_GGMX",
+        filter_str=f'(SCODE="{code}")',
+        page_size=page_size, sort_columns="DATE", sort_types="-1",
+    )
+    return [{
+        "date": str(r.get("DATE", ""))[:10],
+        "rzye": r.get("RZYE", 0), "rzmre": r.get("RZMRE", 0),
+        "rzche": r.get("RZCHE", 0), "rqye": r.get("RQYE", 0),
+        "rqmcl": r.get("RQMCL", 0), "rqchl": r.get("RQCHL", 0),
+        "rzrqye": r.get("RZRQYE", 0),
+    } for r in data]
+
+
+def block_trade(code: str, page_size: int = 20) -> list[dict]:
+    """大宗交易记录。"""
+    data = eastmoney_datacenter(
+        "RPT_DATA_BLOCKTRADE",
+        filter_str=f'(SECURITY_CODE="{code}")',
+        page_size=page_size, sort_columns="TRADE_DATE", sort_types="-1",
+    )
+    rows = []
+    for r in data:
+        close = r.get("CLOSE_PRICE") or 0
+        deal_price = r.get("DEAL_PRICE") or 0
+        premium = ((deal_price / close - 1) * 100) if close else 0
+        rows.append({
+            "date": str(r.get("TRADE_DATE", ""))[:10],
+            "price": deal_price, "close": close,
+            "premium_pct": round(premium, 2),
+            "vol": r.get("DEAL_VOLUME", 0), "amount": r.get("DEAL_AMT", 0),
+            "buyer": r.get("BUYER_NAME", ""), "seller": r.get("SELLER_NAME", ""),
+        })
+    return rows
+
+
+def holder_num_change(code: str, page_size: int = 10) -> list[dict]:
+    """股东户数变化（季度级）。"""
+    data = eastmoney_datacenter(
+        "RPT_HOLDERNUMLATEST",
+        filter_str=f'(SECURITY_CODE="{code}")',
+        page_size=page_size, sort_columns="END_DATE", sort_types="-1",
+    )
+    return [{
+        "date": str(r.get("END_DATE", ""))[:10],
+        "holder_num": r.get("HOLDER_NUM", 0),
+        "change_num": r.get("HOLDER_NUM_CHANGE", 0),
+        "change_ratio": r.get("HOLDER_NUM_RATIO", 0),
+        "avg_shares": r.get("AVG_FREE_SHARES", 0),
+    } for r in data]
+
+
+def dividend_history(code: str, page_size: int = 20) -> list[dict]:
+    """分红送转历史。"""
+    data = eastmoney_datacenter(
+        "RPT_SHAREBONUS_DET",
+        filter_str=f'(SECURITY_CODE="{code}")',
+        page_size=page_size, sort_columns="EX_DIVIDEND_DATE", sort_types="-1",
+    )
+    return [{
+        "date": str(r.get("EX_DIVIDEND_DATE", ""))[:10],
+        "bonus_rmb": r.get("PRETAX_BONUS_RMB", 0),
+        "transfer_ratio": r.get("TRANSFER_RATIO", 0),
+        "bonus_ratio": r.get("BONUS_RATIO", 0),
+        "plan": r.get("ASSIGN_PROGRESS", ""),
+    } for r in data]
+
+
+def lockup_expiry(code: str, trade_date: str, forward_days: int = 90) -> dict:
+    """限售解禁日历。返回: {history: [...], upcoming: [...]}"""
+    from datetime import datetime as _dt, timedelta as _td
+    start = (_dt.strptime(trade_date, "%Y-%m-%d") - _td(days=365)).strftime("%Y-%m-%d")
+    end = (_dt.strptime(trade_date, "%Y-%m-%d") + _td(days=forward_days)).strftime("%Y-%m-%d")
+    data = eastmoney_datacenter(
+        "RPT_LIFT_STAGE",
+        filter_str=f'(SECURITY_CODE="{code}")(FREE_DATE>=\'{start}\')(FREE_DATE<=\'{end}\')',
+        page_size=50, sort_columns="FREE_DATE", sort_types="-1",
+    )
+    today = trade_date
+    history = []
+    upcoming = []
+    for r in data:
+        item = {
+            "date": str(r.get("FREE_DATE", ""))[:10],
+            "shares": r.get("FREE_SHARES", 0),
+            "pct": r.get("FREE_SHARES_RATIO", 0),
+            "type": r.get("LIFT_TYPE", ""),
+        }
+        if item["date"] <= today:
+            history.append(item)
+        else:
+            upcoming.append(item)
+    return {"history": history, "upcoming": upcoming}
+
+
+# ── Layer 5: 新闻 — 东财个股新闻 / 财联社电报 / 全球资讯 ─────────
+
+
+def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
+    """东财个股新闻流。"""
+    url = "https://search-api-web.eastmoney.com/search/jsonp"
+    params = {
+        "cb": "jQuery", "param": json.dumps({
+            "uid": "", "keyword": code, "type": ["cmsArticleWebOld"],
+            "client": "web", "clientType": "web",
+            "clientVersion": "curr", "param": {
+                "cmsArticleWebOld": {"searchScope": "default", "sort": "default",
+                    "pageIndex": 1, "pageSize": page_size, "preTag": "", "postTag": ""}}}),
+    }
+    try:
+        r = em_get(url, params=params, timeout=10)
+        text = r.text
+        # 去 jQuery 壳
+        start = text.index("(") + 1
+        end = text.rindex(")")
+        d = json.loads(text[start:end])
+    except Exception as e:
+        logger.warning("东财个股新闻请求失败: %s", e)
+        return []
+    articles = (d.get("result") or {}).get("cmsArticleWebOld") or {}
+    rows = []
+    for a in (articles.get("list") or []):
+        rows.append({
+            "title": a.get("title", ""),
+            "date": a.get("date", ""),
+            "url": a.get("url", ""),
+            "source": a.get("mediaName", ""),
+            "summary": (a.get("content") or "")[:200],
+        })
+    return rows
+
+
+def cls_telegraph(limit: int = 30) -> list[dict]:
+    """财联社电报（全市场实时快讯，本地签名零 key）。"""
+    import hashlib
+    from datetime import datetime as _dt
+    ts = int(_dt.now().timestamp())
+    # 本地签名: md5(sha1(按 key 字典序拼接的 query 串))
+    query = f"app=CailianpressWeb&os=web&sv=8.4.6&ts={ts}"
+    sign_str = hashlib.sha1(query.encode()).hexdigest()
+    sign = hashlib.md5(sign_str.encode()).hexdigest()
+
+    url = f"https://www.cls.cn/nodeapi/roll/get_roll_list?{query}&sign={sign}"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+    except Exception as e:
+        logger.warning("财联社电报请求失败: %s", e)
+        return []
+    rolls = (d.get("data") or {}).get("roll_data") or []
+    return [{
+        "title": (r.get("title") or r.get("brief") or "")[:100],
+        "content": (r.get("content") or "")[:300],
+        "time": r.get("ctime", ""),
+        "level": r.get("level", ""),
+    } for r in rolls[:limit]]
+
+
+def eastmoney_global_news(page_size: int = 20) -> list[dict]:
+    """东财全球资讯（7×24）。"""
+    url = "https://np-listapi.eastmoney.com/comm/web/getNewsByColumns"
+    params = {"column": "102", "pageSize": str(page_size), "pageIndex": "0"}
+    try:
+        r = em_get(url, params=params, timeout=10)
+        d = r.json()
+    except Exception as e:
+        logger.warning("东财全球资讯请求失败: %s", e)
+        return []
+    return [{
+        "title": a.get("title", ""),
+        "date": a.get("showtime", ""),
+        "url": a.get("url", ""),
+        "summary": (a.get("digest") or "")[:200],
+    } for a in (d.get("data") or {}).get("list") or []]
+
+
+# ── Layer 8: 打板 — 涨停池 / 炸板 / 跌停 / 昨日涨停 ──────────────
+
+_ZTB_UT = "7eea3edcaed734bea9cbfc24409ed989"
+
+
+def _fmt_zt_time(t: Any) -> str:
+    s = str(t).zfill(6)
+    return f"{s[0:2]}:{s[2:4]}:{s[4:6]}"
+
+
+def _em_zt_api(endpoint: str, sort: str, date: str) -> list[dict]:
+    url = f"https://push2ex.eastmoney.com/{endpoint}"
+    params = {"ut": _ZTB_UT, "dpt": "wz.ztzt", "Pageindex": 0,
+              "pagesize": 10000, "sort": sort, "date": date}
+    try:
+        r = em_get(url, params=params, headers={
+            "User-Agent": UA, "Referer": "https://quote.eastmoney.com/"}, timeout=10)
+        return (r.json().get("data") or {}).get("pool") or []
+    except Exception as e:
+        logger.warning("涨停板池 %s 请求失败: %s", endpoint, e)
+        return []
+
+
+def em_zt_pool(date: str) -> list[dict]:
+    """涨停池。date=YYYYMMDD。"""
+    out = []
+    for p in _em_zt_api("getTopicZTPool", "fbt:asc", date):
+        zttj = p.get("zttj") or {}
+        out.append({
+            "code": p["c"], "name": p["n"],
+            "price": p["p"] / 1000, "pct": round(p["zdp"], 2),
+            "amount": p["amount"], "float_cap": p["ltsz"],
+            "turnover": round(p["hs"], 2), "limit_days": p["lbc"],
+            "first_seal": _fmt_zt_time(p["fbt"]),
+            "last_seal": _fmt_zt_time(p["lbt"]),
+            "seal_fund": p["fund"], "break_times": p["zbc"],
+            "industry": p.get("hybk", ""),
+            "zt_stat": f'{zttj.get("days", "?")}天{zttj.get("ct", "?")}板',
+        })
+    return out
+
+
+def em_zb_pool(date: str) -> list[dict]:
+    """炸板池。"""
+    out = []
+    for p in _em_zt_api("getTopicZBPool", "fbt:asc", date):
+        zttj = p.get("zttj") or {}
+        out.append({
+            "code": p["c"], "name": p["n"],
+            "price": p["p"] / 1000, "limit_price": p["ztp"] / 1000,
+            "pct": round(p["zdp"], 2), "turnover": round(p["hs"], 2),
+            "first_seal": _fmt_zt_time(p["fbt"]),
+            "break_times": p["zbc"], "amplitude": round(p["zf"], 2),
+            "speed": round(p["zs"], 2), "industry": p.get("hybk", ""),
+            "zt_stat": f'{zttj.get("days", "?")}天{zttj.get("ct", "?")}板',
+        })
+    return out
+
+
+def em_dt_pool(date: str) -> list[dict]:
+    """跌停池。"""
+    out = []
+    for p in _em_zt_api("getTopicDTPool", "fund:asc", date):
+        out.append({
+            "code": p["c"], "name": p["n"],
+            "price": p["p"] / 1000, "pct": round(p["zdp"], 2),
+            "turnover": round(p["hs"], 2), "pe": p.get("pe"),
+            "seal_fund": p["fund"], "last_seal": _fmt_zt_time(p["lbt"]),
+            "board_amount": p.get("fba"), "dt_days": p.get("days"),
+            "open_times": p.get("oc"), "industry": p.get("hybk", ""),
+        })
+    return out
+
+
+def em_yzt_pool(date: str) -> list[dict]:
+    """昨日涨停池（算晋级率/赚钱效应）。"""
+    out = []
+    for p in _em_zt_api("getYesterdayZTPool", "zs:desc", date):
+        zttj = p.get("zttj") or {}
+        out.append({
+            "code": p["c"], "name": p["n"],
+            "price": p["p"] / 1000, "pct": round(p["zdp"], 2),
+            "turnover": round(p["hs"], 2),
+            "amplitude": round(p["zf"], 2), "speed": round(p["zs"], 2),
+            "y_first_seal": _fmt_zt_time(p["yfbt"]),
+            "y_limit_days": p["ylbc"], "industry": p.get("hybk", ""),
+            "zt_stat": f'{zttj.get("days", "?")}天{zttj.get("ct", "?")}板',
+        })
+    return out
+
+
+def ths_limit_up_pool(date: str) -> list[dict]:
+    """同花顺涨停揭秘（涨停原因 + 封板质量）。date=YYYYMMDD。"""
+    from datetime import datetime as _dt
+    url = "https://data.10jqka.com.cn/dataapi/limit_up/limit_up_pool"
+    params = {
+        "page": 1, "limit": 200,
+        "field": "199112,10,9001,330323,330324,330325,9002,330329,133971,133970,1968584,3475914,9003,9004",
+        "filter": "HS,GEM2STAR", "order_field": "330324",
+        "order_type": "0", "date": date,
+    }
+    try:
+        req = urllib.request.Request(url + "?" + "&".join(f"{k}={v}" for k, v in params.items()))
+        req.add_header("User-Agent", UA)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            info = (json.loads(r.read()).get("data") or {}).get("info") or []
+    except Exception as e:
+        logger.warning("同花顺涨停揭秘请求失败: %s", e)
+        return []
+    out = []
+    for it in info:
+        ft = it.get("first_limit_up_time")
+        out.append({
+            "code": it.get("code"), "name": it.get("name"),
+            "price": it.get("latest"), "pct": it.get("change_rate"),
+            "reason": it.get("reason_type", ""),
+            "board_type": it.get("limit_up_type", ""),
+            "seal_rate": it.get("limit_up_suc_rate"),
+            "break_times": it.get("open_num") or 0,
+            "seal_amount": it.get("order_amount"),
+            "high_days": it.get("high_days", ""),
+            "first_time": _dt.fromtimestamp(int(ft)).strftime("%H:%M:%S") if ft else "",
+            "is_again": it.get("is_again_limit"),
+        })
+    return out
+
+
+def limit_up_sentiment(date: str) -> dict:
+    """打板情绪速算 — 炸板率 / 连板高度 / 连板梯队。"""
+    zt = em_zt_pool(date)
+    zb = em_zb_pool(date)
+    yzt = em_yzt_pool(date)
+    touched = len(zt) + len(zb)
+    fail_rate = round(len(zb) / touched * 100, 2) if touched else 0
+    promoted = sum(1 for s in zt if s.get("limit_days", 0) >= 2)
+    promotion_rate = round(promoted / len(yzt) * 100, 2) if yzt else 0
+    ladder: dict[int, list] = {}
+    for s in zt:
+        d = s.get("limit_days", 1)
+        ladder.setdefault(d, []).append({"code": s["code"], "name": s["name"]})
+    return {
+        "limit_up_count": len(zt),
+        "fail_count": len(zb),
+        "fail_rate": fail_rate,
+        "max_height": max(ladder.keys()) if ladder else 0,
+        "promotion_rate": promotion_rate,
+        "ladder": {str(k): len(v) for k, v in sorted(ladder.items(), reverse=True)},
+    }
+
+
+# ── Layer 10: 舆情 — 同花顺热榜 / 东财人气榜 ──────────────────────
+
+
+def ths_hot_list(limit: int = 30) -> list[dict]:
+    """同花顺热榜（人气值 + 概念标签 + 排名变化）。"""
+    url = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock"
+    params = {"stock_type": "a", "type": "hour", "list_type": "normal"}
+    try:
+        req = urllib.request.Request(url + "?" + "&".join(f"{k}={v}" for k, v in params.items()))
+        req.add_header("User-Agent", UA)
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+    except Exception as e:
+        logger.warning("同花顺热榜请求失败: %s", e)
+        return []
+    items = (d.get("data") or {}).get("stock_list") or []
+    return [{
+        "code": it.get("code", ""),
+        "name": it.get("name", ""),
+        "rank": it.get("order", 0),
+        "hot_value": it.get("hot_value", 0),
+        "change_pct": it.get("rate", ""),
+        "tags": it.get("tag", ""),
+    } for it in items[:limit]]
+
+
+def eastmoney_popularity(page_size: int = 30) -> list[dict]:
+    """东财人气榜。"""
+    url = "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
+    body = json.dumps({
+        "appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38",
+        "pageNo": 1, "pageSize": page_size,
+    }).encode()
+    try:
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "User-Agent": UA, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read())
+    except Exception as e:
+        logger.warning("东财人气榜请求失败: %s", e)
+        return []
+    result = []
+    for it in (d.get("data") or []):
+        sc = it.get("sc", "")  # e.g. "SZ002384"
+        code = sc[2:] if len(sc) > 2 else sc
+        result.append({
+            "code": code,
+            "market": sc[:2] if len(sc) > 2 else "",
+            "rank": it.get("rk", 0),
+            "rank_change": it.get("rc", 0),
+            "history_rank_change": it.get("hisRc", 0),
+        })
+    return result
+
+
+# ── Layer 2: 研报 — 同花顺一致预期 EPS（不依赖东财）───────────────
+
+
+def ths_eps_forecast(code: str) -> list[dict]:
+    """同花顺机构一致预期 EPS（直连 basic.10jqka.com.cn，不依赖东财）。
+    返回: [{year, count, min_eps, mean_eps, max_eps, net_profit}]
+    均值 = 机构一致预期 EPS。预测机构数 < 3 的要谨慎。
+    """
+    import re as _re
+    url = f"https://basic.10jqka.com.cn/new/{code}/worth.html"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA, "Referer": "https://basic.10jqka.com.cn/"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            html = r.read().decode("gbk", errors="replace")
+    except Exception as e:
+        logger.warning("同花顺一致预期请求失败: %s", e)
+        return []
+
+    # 提取汇总预测: "预测2026年每股收益 68.83 元"
+    summary_match = _re.search(r'预测(\d{4})年每股收益.*?<strong>([\d.]+)</strong>', html)
+
+    # 提取表格数据: forecast div 里的 td 序列
+    # 格式: 机构数, min, mean, max, net_profit, 机构数, min, mean, max, net_profit...
+    forecast_match = _re.search(r'id="forecast".*?</div>\s*<div', html, _re.DOTALL)
+    if not forecast_match:
+        # 尝试提取 forecastdetail
+        forecast_match = _re.search(r'id="forecast"(.*?)(?:id="forecastdetail"|</div>\s*</div>)', html, _re.DOTALL)
+
+    rows = []
+    if forecast_match:
+        block = forecast_match.group(0) if forecast_match.lastindex else forecast_match.group()
+        # 找年度标题行 (含 "年" 的文本)
+        year_pattern = _re.compile(r'(\d{4}).*?汇总')
+        # 提取 td 内容
+        tds = _re.findall(r'<td[^>]*>(.*?)</td>', block)
+        # 清理 HTML 标签
+        clean_tds = []
+        for td in tds:
+            val = _re.sub(r'<[^>]+>', '', td).strip()
+            clean_tds.append(val)
+
+        # 每 5 个 td 一组: 机构数, min, mean, max, net_profit
+        i = 0
+        # 先找年度标记
+        current_year = ""
+        for td in clean_tds:
+            if td and "tc" in td:
+                continue  # skip class-only markers
+        # 按年度分组：先找所有包含年份的行
+        year_blocks = _re.split(r'(?:汇总|预测.*?每股收益)', block)
+        for idx, yb in enumerate(year_blocks[1:], 1):  # skip before-first
+            ym = _re.search(r'(\d{4})', yb)
+            if not ym:
+                continue
+            year = ym.group(1)
+            ytds = _re.findall(r'<td[^>]*>(.*?)</td>', yb)
+            vals = [_re.sub(r'<[^>]+>', '', v).strip() for v in ytds]
+            # 找数字组: count, min, mean, max, profit
+            nums = [v for v in vals if v and _re.match(r'^[\d.-]+$', v)]
+            if len(nums) >= 4:
+                rows.append({
+                    "year": year,
+                    "count": int(float(nums[0])) if nums[0] else 0,
+                    "min_eps": float(nums[1]) if nums[1] else 0,
+                    "mean_eps": float(nums[2]) if nums[2] else 0,
+                    "max_eps": float(nums[3]) if nums[3] else 0,
+                    "net_profit": float(nums[4]) if len(nums) > 4 and nums[4] else 0,
+                })
+
+    # fallback: 从 summary 取当年预测
+    if not rows and summary_match:
+        rows.append({
+            "year": summary_match.group(1),
+            "count": 0,
+            "min_eps": 0,
+            "mean_eps": float(summary_match.group(2)),
+            "max_eps": 0,
+            "net_profit": 0,
+        })
+
+    return rows
