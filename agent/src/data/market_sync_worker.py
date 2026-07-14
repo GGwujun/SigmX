@@ -202,16 +202,48 @@ def _run_post_close_shadow_sync(
             lookback_days=lookback_days,
             sync_run_id=run_id,
         )
-        # 记录 sync 结果（跳过严格质量校验，数据先流通）
-        try:
-            if "daily" in datasets:
-                from src.data.market_quality import QualityStatus
-                shadow_store.finish_sync_run(run_id, QualityStatus.VERIFIED)
+        missing_results = sorted(datasets - rows.keys())
+        if missing_results:
+            logger.warning(
+                "sync 未产出以下数据集结果（可能是源被封或数据不存在）: %s",
+                ", ".join(missing_results),
+            )
+
+        if "daily" in datasets:
+            received_codes = set(shadow_store.daily_codes_for_run(trade_date, run_id))
+            suspension_result = fetch_suspended_codes(
+                trade_date,
+                sorted(set(expected_codes) - received_codes),
+            )
+            active_expected = set(expected_codes)
+            if suspension_result.available:
+                active_expected -= set(suspension_result.codes)
+            daily_rows = shadow_store.daily_rows_for_run(trade_date, run_id)
+            tushare_codes = [
+                str(row["code"])
+                for row in daily_rows
+                if row.get("source") == "tushare.daily"
+            ]
+            reference_sample = select_daily_reference_sample(tushare_codes)
+            if active_expected and not reference_sample:
+                reference_result = ReferenceResult.unavailable(
+                    "no independent reference sample for active daily universe"
+                )
             else:
-                from src.data.market_quality import QualityStatus
-                shadow_store.finish_sync_run(run_id, QualityStatus.VERIFIED)
-        except Exception:
-            pass
+                reference_result = fetch_daily_reference_closes(trade_date, reference_sample)
+            report = validate_daily_dataset(
+                shadow_store,
+                trade_date,
+                expected_codes,
+                run_id,
+                suspension_result=suspension_result,
+                reference_result=reference_result,
+            )
+            shadow_store.record_dataset_result(run_id, report)
+            if report.status is not QualityStatus.VERIFIED:
+                logger.warning("daily 数据质量校验: %s — %s", report.status.value, report.blocking_reasons)
+        from src.data.market_quality import QualityStatus
+        shadow_store.finish_sync_run(run_id, QualityStatus.VERIFIED)
         logger.info("post-close shadow sync done rows=%s", rows)
     except Exception as exc:
         run_row = shadow_store._conn.execute(
