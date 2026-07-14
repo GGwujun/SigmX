@@ -19,18 +19,30 @@ import argparse
 import logging
 import os
 import sqlite3
+import socket
 import time
 from pathlib import Path
 from typing import Iterable
 
 from src.data.market_store import MarketStore
+from src.data.market_quality import (
+    DatasetQualityReport,
+    QualityStatus,
+    ReferenceResult,
+    SuspensionResult,
+    validate_daily_dataset,
+)
 from src.data.market_sync import (
+    _all_a_share_codes,
     _maybe_run_fund_premium_sync,
     _maybe_run_intraday_sync,
     _maybe_run_premarket_sync,
     _now_cst,
     _today_cst_str,
+    fetch_daily_reference_closes,
+    fetch_suspended_codes,
     run_daily_sync,
+    select_daily_reference_sample,
 )
 from src.data.rate_limiter import mark_background, reset_background
 
@@ -64,6 +76,25 @@ _POST_CLOSE_DATASETS = {
     "stage_snapshot",
     "premium",
 }
+
+
+class MarketDataQualityError(RuntimeError):
+    """Raised when a sync attempt cannot be proven safe to publish."""
+
+    def __init__(self, report_or_message: DatasetQualityReport | str) -> None:
+        self.report = report_or_message if isinstance(report_or_message, DatasetQualityReport) else None
+        if self.report is not None:
+            message = (
+                f"{self.report.dataset} quality gate failed with {self.report.status.value}: "
+                f"{', '.join(self.report.blocking_reasons)}"
+            )
+        else:
+            message = str(report_or_message)
+        super().__init__(message)
+
+
+def _worker_id() -> str:
+    return f"{socket.gethostname()}:{os.getpid()}"
 
 
 def _default_live_db() -> Path:
@@ -129,24 +160,107 @@ def _run_post_close_shadow_sync(
     live_store = MarketStore(live_db)
     meta_key = f"daemon:{trade_date}"
     if live_store.get_meta(meta_key):
+        live_store._conn.close()
         return {}
+    live_store._conn.close()
 
     logger.info("post-close shadow sync preparing %s -> %s", live_db, shadow_db)
     _prepare_shadow(live_db, shadow_db)
     shadow_store = MarketStore(shadow_db)
-    rows = run_daily_sync(
-        trade_date,
-        store=shadow_store,
-        datasets=datasets,
-        universe=os.getenv("MARKET_SYNC_POSTCLOSE_UNIVERSE", "all"),
-        deadline_seconds=deadline_seconds,
-        lookback_days=lookback_days,
+    run_id = shadow_store.create_sync_run(trade_date, worker_id=_worker_id())
+    universe = os.getenv("MARKET_SYNC_POSTCLOSE_UNIVERSE", "all")
+    expected_codes = (
+        _all_a_share_codes(shadow_store, default_only=(universe == "default"))
+        if "daily" in datasets
+        else []
     )
-    shadow_store.set_meta(meta_key, _now_cst().isoformat())
+    try:
+        rows = run_daily_sync(
+            trade_date,
+            store=shadow_store,
+            codes=expected_codes if "daily" in datasets else None,
+            datasets=datasets,
+            universe=universe,
+            deadline_seconds=deadline_seconds,
+            lookback_days=lookback_days,
+            sync_run_id=run_id,
+        )
+        missing_results = sorted(datasets - rows.keys())
+        if missing_results:
+            raise MarketDataQualityError(
+                f"missing dataset results after sync: {', '.join(missing_results)}"
+            )
+
+        if "daily" in datasets:
+            received_codes = set(shadow_store.daily_codes_for_run(trade_date, run_id))
+            suspension_result = fetch_suspended_codes(
+                trade_date,
+                sorted(set(expected_codes) - received_codes),
+            )
+            active_expected = set(expected_codes)
+            if suspension_result.available:
+                active_expected -= set(suspension_result.codes)
+            daily_rows = shadow_store.daily_rows_for_run(trade_date, run_id)
+            tushare_codes = [
+                str(row["code"])
+                for row in daily_rows
+                if row.get("source") == "tushare.daily"
+            ]
+            reference_sample = select_daily_reference_sample(tushare_codes)
+            if active_expected and not reference_sample:
+                reference_result = ReferenceResult.unavailable(
+                    "no independent reference sample for active daily universe"
+                )
+            else:
+                reference_result = fetch_daily_reference_closes(trade_date, reference_sample)
+            report = validate_daily_dataset(
+                shadow_store,
+                trade_date,
+                expected_codes,
+                run_id,
+                suspension_result=suspension_result,
+                reference_result=reference_result,
+            )
+            shadow_store.record_dataset_result(run_id, report)
+            if report.status is not QualityStatus.VERIFIED:
+                shadow_store.finish_sync_run(
+                    run_id,
+                    report.status,
+                    error_summary="; ".join(report.blocking_reasons),
+                )
+                raise MarketDataQualityError(report)
+        shadow_store.finish_sync_run(run_id, QualityStatus.VERIFIED)
+    except Exception as exc:
+        run_row = shadow_store._conn.execute(
+            "SELECT status FROM sync_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if run_row and run_row["status"] in {
+            QualityStatus.PENDING.value,
+            QualityStatus.FETCHING.value,
+            QualityStatus.VALIDATING.value,
+        }:
+            shadow_store.finish_sync_run(run_id, QualityStatus.FAILED, error_summary=str(exc))
+        shadow_store._conn.close()
+        raise
+
     if not _integrity_ok(shadow_db):
+        shadow_store.finish_sync_run(
+            run_id,
+            QualityStatus.FAILED,
+            error_summary="shadow DB integrity check failed",
+        )
+        shadow_store._conn.close()
         raise RuntimeError(f"shadow DB integrity check failed: {shadow_db}")
+    shadow_store._conn.close()
     logger.info("post-close shadow sync publishing %s rows=%s", trade_date, rows)
     _publish_shadow(shadow_db, live_db)
+    published_store = MarketStore(live_db)
+    if "daily" in datasets and not published_store.get_data_readiness("bars_daily", trade_date).ready:
+        published_store._conn.close()
+        raise RuntimeError("post-publication readiness verification failed")
+    published_store.finish_sync_run(run_id, QualityStatus.PUBLISHED)
+    published_store.set_meta(meta_key, _now_cst().isoformat())
+    published_store._conn.close()
     return rows
 
 
@@ -162,20 +276,13 @@ def run_once(
     live_db = _default_live_db()
     ds = set(datasets) if datasets is not None else set(_POST_CLOSE_DATASETS)
     day = trade_date or _today_cst_str()
-    if shadow:
-        return _run_post_close_shadow_sync(
-            day,
-            live_db=live_db,
-            shadow_db=_shadow_db_path(live_db),
-            datasets=ds,
-            deadline_seconds=deadline_seconds,
-            lookback_days=lookback_days,
-        )
-    return run_daily_sync(
+    if not shadow:
+        raise ValueError("shadow publication is mandatory for canonical market data")
+    return _run_post_close_shadow_sync(
         day,
-        store=MarketStore(live_db),
+        live_db=live_db,
+        shadow_db=_shadow_db_path(live_db),
         datasets=ds,
-        universe=os.getenv("MARKET_SYNC_POSTCLOSE_UNIVERSE", "all"),
         deadline_seconds=deadline_seconds,
         lookback_days=lookback_days,
     )
@@ -225,7 +332,6 @@ def main(argv: list[str] | None = None) -> int:
     once = sub.add_parser("once", help="Run one sync and exit")
     once.add_argument("--date", default="")
     once.add_argument("--datasets", default="")
-    once.add_argument("--no-shadow", action="store_true")
     once.add_argument("--deadline", type=int, default=3600)
     once.add_argument("--lookback-days", type=int, default=365)
 
@@ -239,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = run_once(
             trade_date=args.date or None,
             datasets=_parse_datasets(args.datasets, _POST_CLOSE_DATASETS) if args.datasets else None,
-            shadow=not args.no_shadow,
+            shadow=True,
             deadline_seconds=args.deadline,
             lookback_days=args.lookback_days,
         )
