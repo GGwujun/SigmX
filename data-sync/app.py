@@ -1,171 +1,203 @@
-"""
-SigmX data-sync 推送服务（替代 rsync 文件覆盖）。
-读本地 market.db 增量数据，通过 http POST /market-sync/push 推送到服务器。
-服务器应用用自己的连接写库，不覆盖文件，无句柄失效问题。
+"""Ship quality-gated SQLite snapshots from the sync host to production.
 
-增量：按 trade_date 水位线推进（存本地 sync_meta 表，key=push:{table}:last_date）。
-只推 trade_date > 水位线 的日期。历史已收盘数据不变，水位线设到最新日-1 即可。
+The producer never exports table-shaped JSON or maintains per-table date
+watermarks.  A consistent SQLite backup captures every current and future
+schema, is compressed, chunked, checksummed, resumable, and committed by the
+remote receiver only when its sync run is already marked ``published``.
 """
-# 禁用系统代理（避免推送请求走代理失败）
-import os as _os
-for _k in list(_os.environ.keys()):
-    if "proxy" in _k.lower():
-        _os.environ.pop(_k, None)
-_os.environ.setdefault("NO_PROXY", "*")
 
+from __future__ import annotations
+
+import gzip
+import hashlib
 import json
 import os
 import sqlite3
 import time
-import urllib.request
 import urllib.error
-from datetime import datetime, timezone, timedelta
+import urllib.parse
+import urllib.request
+from contextlib import closing
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
 
-DB_PATH = os.environ.get("DB_PATH", "/data/market.db")
-SERVER_URL = os.environ.get("SERVER_URL", "").rstrip("/")
-PUSH_TOKEN = os.environ.get("MARKET_SYNC_PUSH_TOKEN", "").strip()
-SYNC_INTERVAL = int(os.environ.get("SYNC_INTERVAL", "300"))
-BATCH = 1000
+for _key in list(os.environ):
+    if "proxy" in _key.lower():
+        os.environ.pop(_key, None)
+os.environ.setdefault("NO_PROXY", "*")
+
+DB_PATH = Path(os.getenv("DB_PATH", "/data/market.db"))
+SERVER_URL = os.getenv("SERVER_URL", "").rstrip("/")
+INGEST_TOKEN = os.getenv("MARKET_INGEST_TOKEN", "").strip()
+SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "30"))
+CHUNK_BYTES = int(os.getenv("SNAPSHOT_CHUNK_BYTES", str(4 << 20)))
+WORK_DIR = Path(os.getenv("SNAPSHOT_WORK_DIR", "/tmp/sigmx-data-sync"))
+PUSH_SLOTS = tuple(
+    slot.strip() for slot in os.getenv("SNAPSHOT_PUSH_SLOTS", "09:26,14:29,15:20").split(",")
+    if slot.strip()
+)
 TZ_SH = timezone(timedelta(hours=8))
 
-# 与服务器 PUSH_TABLES 保持一致（A类 wide / B类 per_code）
-PUSH_TABLES = [
-    "sector_capital_flow", "stock_capital_rank", "market_breadth_snapshot",
-    "sector_snapshot", "global_market_index_daily", "us_theme_snapshot",
-    "us_a_share_transmission", "premarket_news", "dragon_tiger", "stock_pool",
-    "bars_daily", "index_daily",
-]
+
+def log(message: str) -> None:
+    print(f"[{datetime.now(TZ_SH):%Y-%m-%d %H:%M:%S}] {message}", flush=True)
 
 
-def log(msg):
-    print(f"[{datetime.now(TZ_SH).strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        while block := source.read(4 << 20):
+            digest.update(block)
+    return digest.hexdigest()
 
 
-def get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+def _consistent_backup(source_path: Path, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.unlink(missing_ok=True)
+    with closing(sqlite3.connect(
+        f"file:{source_path.as_posix()}?mode=ro", uri=True, timeout=60
+    )) as source:
+        with closing(sqlite3.connect(str(destination), timeout=60)) as target:
+            source.backup(target, pages=2000, sleep=0.02)
 
 
-def get_meta(conn, key):
-    row = conn.execute("SELECT value FROM sync_meta WHERE key=?", (key,)).fetchone()
-    return row["value"] if row else None
+def _latest_published_run(snapshot_db: Path) -> tuple[str, str, str]:
+    with closing(sqlite3.connect(str(snapshot_db), timeout=30)) as conn:
+        row = conn.execute(
+            "SELECT run_id, trade_date, status, finished_at FROM sync_runs "
+            "ORDER BY started_at DESC, rowid DESC LIMIT 1"
+        ).fetchone()
+        check = conn.execute("PRAGMA integrity_check").fetchone()
+    if not check or check[0] != "ok":
+        raise RuntimeError("local snapshot failed SQLite integrity check")
+    if not row or row[2] != "published":
+        raise RuntimeError("latest local sync run is not published; refusing snapshot delivery")
+    return str(row[0]), str(row[1]), str(row[3])
 
 
-def set_meta(conn, key, value):
-    conn.execute(
-        "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
-        (key, value, datetime.now(timezone.utc).isoformat()),
-    )
-    conn.commit()
+def build_snapshot(source_db: Path, output_dir: Path) -> tuple[Path, dict[str, Any]]:
+    output_dir = Path(output_dir)
+    raw = output_dir / "market.snapshot.db"
+    packed = output_dir / "market.snapshot.db.gz"
+    _consistent_backup(Path(source_db), raw)
+    run_id, trade_date, published_at = _latest_published_run(raw)
+
+    with raw.open("rb") as source, packed.open("wb") as raw_target:
+        with gzip.GzipFile(fileobj=raw_target, mode="wb", filename="", mtime=0) as target:
+            while block := source.read(4 << 20):
+                target.write(block)
+    raw.unlink(missing_ok=True)
+    digest = _sha256_file(packed)
+    manifest = {
+        "snapshot_id": f"{trade_date.replace('-', '')}-{digest[:24]}",
+        "trade_date": trade_date,
+        "run_id": run_id,
+        "published_at": published_at,
+        "size_bytes": packed.stat().st_size,
+        "sha256": digest,
+        "compression": "gzip",
+    }
+    return packed, manifest
 
 
-def export_rows(conn, table, trade_date):
-    """按 trade_date 导出某表全部行，展开 extra_json（与服务器 _get_market_wide 一致）。"""
-    rows = conn.execute(
-        f"SELECT * FROM {table} WHERE trade_date=?", (trade_date,)
-    ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        extra = d.pop("extra_json", None)
-        if extra:
-            try:
-                d.update(json.loads(extra))
-            except (TypeError, ValueError):
-                pass
-        out.append(d)
-    return out
+class SnapshotClient:
+    def __init__(self, server_url: str, token: str, *, timeout: int = 120) -> None:
+        self.server_url = server_url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
 
-
-def distinct_dates(conn, table, after):
-    """trade_date > after 的所有日期，升序。after 为空则取最新 2 天（只推最新）。"""
-    if after:
-        rows = conn.execute(
-            f"SELECT DISTINCT trade_date FROM {table} WHERE trade_date > ? ORDER BY trade_date",
-            (after,),
-        ).fetchall()
-        return [r["trade_date"] for r in rows]
-    # 首次：只推最新 2 个交易日（历史已正确，不推全量）
-    rows = conn.execute(
-        f"SELECT DISTINCT trade_date FROM {table} ORDER BY trade_date DESC LIMIT 2"
-    ).fetchall()
-    return sorted(r["trade_date"] for r in rows)
-
-
-def post_push(table, trade_date, rows):
-    """分批 POST 到服务器 /market-sync/push。全部成功返回 True。"""
-    if not rows:
-        return True
-    for i in range(0, len(rows), BATCH):
-        chunk = rows[i:i + BATCH]
-        payload = json.dumps(
-            {"table": table, "trade_date": trade_date, "rows": chunk},
-            ensure_ascii=False,
-        ).encode("utf-8")
-        url = f"{SERVER_URL}/market-sync/push"
-        req = urllib.request.Request(
-            url, data=payload, method="POST",
-            headers={"Content-Type": "application/json; charset=utf-8",
-                     "X-Push-Token": PUSH_TOKEN},
+    def _request(self, method: str, path: str, payload: bytes, content_type: str) -> dict[str, Any]:
+        request = urllib.request.Request(
+            f"{self.server_url}{path}",
+            data=payload,
+            method=method,
+            headers={
+                "Content-Type": content_type,
+                "X-Market-Ingest-Token": self.token,
+            },
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as resp:
-                body = json.loads(resp.read().decode("utf-8"))
-                if not body.get("ok"):
-                    log(f"  push {table}/{trade_date} batch {i}: server said not ok: {body}")
-                    return False
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as exc:
-            log(f"  push {table}/{trade_date} batch {i} failed: {exc}")
-            return False
-    return True
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"receiver HTTP {exc.code}: {detail}") from exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            raise RuntimeError(f"receiver unavailable: {exc}") from exc
+
+    def send(self, packed: Path, manifest: dict[str, Any]) -> dict[str, Any]:
+        start = self._request(
+            "POST",
+            "/snapshots/start",
+            json.dumps(manifest, separators=(",", ":")).encode("utf-8"),
+            "application/json",
+        )
+        if start.get("committed"):
+            return start
+        offset = int(start.get("offset", 0))
+        snapshot_id = urllib.parse.quote(str(manifest["snapshot_id"]), safe="")
+        with packed.open("rb") as source:
+            source.seek(offset)
+            while chunk := source.read(CHUNK_BYTES):
+                result = self._request(
+                    "PUT",
+                    f"/snapshots/{snapshot_id}/chunks?offset={offset}",
+                    chunk,
+                    "application/octet-stream",
+                )
+                next_offset = int(result.get("offset", -1))
+                if next_offset != offset + len(chunk):
+                    raise RuntimeError(
+                        f"receiver returned invalid offset {next_offset}; expected {offset + len(chunk)}"
+                    )
+                offset = next_offset
+        return self._request(
+            "POST",
+            f"/snapshots/{snapshot_id}/commit",
+            b"{}",
+            "application/json",
+        )
 
 
-def sync_once():
-    conn = get_conn()
+def sync_once() -> dict[str, Any]:
+    if not DB_PATH.exists():
+        raise RuntimeError(f"market database does not exist: {DB_PATH}")
+    packed, manifest = build_snapshot(DB_PATH, WORK_DIR)
     try:
-        for table in PUSH_TABLES:
-            # 检查表是否存在
-            exists = conn.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
-            ).fetchone()
-            if not exists:
-                continue
-            last = get_meta(conn, f"push:{table}:last_date")
-            dates = distinct_dates(conn, table, last)
-            if not dates:
-                continue
-            for d in dates:
-                rows = export_rows(conn, table, d)
-                if not rows:
-                    # 空日期也推进水位线，避免反复查空
-                    set_meta(conn, f"push:{table}:last_date", d)
-                    continue
-                log(f"push {table} {d}: {len(rows)} rows")
-                if post_push(table, d, rows):
-                    set_meta(conn, f"push:{table}:last_date", d)
-                    log(f"  done {table} {d}")
-                else:
-                    log(f"  FAILED {table} {d}, will retry next cycle")
-                    break  # 该表中断，下个周期重试；不推进水位线
+        log(
+            f"upload snapshot={manifest['snapshot_id']} trade_date={manifest['trade_date']} "
+            f"compressed={manifest['size_bytes']}"
+        )
+        result = SnapshotClient(SERVER_URL, INGEST_TOKEN).send(packed, manifest)
+        log(f"snapshot committed: {result}")
+        return result
     finally:
-        conn.close()
+        packed.unlink(missing_ok=True)
 
 
-def main():
-    log(f"=== SigmX data-sync push started ===")
-    log(f"DB: {DB_PATH}")
-    log(f"Server: {SERVER_URL}")
-    log(f"Interval: {SYNC_INTERVAL}s")
-    log(f"Token: {'set' if PUSH_TOKEN else 'none (server may require)'}")
-    if not SERVER_URL:
-        log("ERROR: SERVER_URL not set")
-        return
+def _due_slot(now: datetime) -> str | None:
+    current = now.strftime("%H:%M")
+    return current if current in PUSH_SLOTS else None
+
+
+def main() -> None:
+    log("SigmX verified snapshot sender started")
+    log(f"DB={DB_PATH} receiver={SERVER_URL} slots={','.join(PUSH_SLOTS)}")
+    if not SERVER_URL or not INGEST_TOKEN:
+        raise SystemExit("SERVER_URL and MARKET_INGEST_TOKEN are required")
+    completed: set[str] = set()
     while True:
-        try:
-            sync_once()
-        except Exception as exc:  # noqa: BLE001
-            log(f"sync cycle error: {exc}")
+        now = datetime.now(TZ_SH)
+        slot = _due_slot(now)
+        slot_key = f"{now:%Y-%m-%d}:{slot}" if slot else None
+        if slot_key and slot_key not in completed:
+            try:
+                sync_once()
+                completed.add(slot_key)
+            except Exception as exc:  # noqa: BLE001
+                log(f"snapshot delivery failed and will retry within this slot: {exc}")
+        completed = {key for key in completed if key.startswith(f"{now:%Y-%m-%d}:")}
         time.sleep(SYNC_INTERVAL)
 
 

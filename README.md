@@ -211,6 +211,31 @@ docker compose logs market-sync --tail 100
 
 `--no-shadow` 已移除。质量校验失败时，旧的 `market.db` 保持不变；通过 `GET /market-sync/status` 查看 `daily_readiness`、`run_id` 和阻断原因。
 
+### 数据同步与线上查询的部署边界
+
+推荐部署为两个主机角色：
+
+- 同步主机运行 `market-sync` 和 `data-sync`，二者挂载同一个 `market.db`。前者只负责拉取、影子库校验和发布，后者只发送已发布快照。
+- 线上查询主机运行 `vibe-trading` 和 `data-ingest`。查询 API 不访问外部行情源；`data-ingest` 是独立控制面，只接收并校验快照，再导入共享数据库卷。
+
+生产查询主机默认不会启动 `market-sync`。只有同步主机才显式启用：
+
+```bash
+docker compose --profile sync up -d market-sync
+```
+
+在两端设置相同的高强度 `MARKET_INGEST_TOKEN`。发送端的 `MARKET_INGEST_URL` 指向接收 sidecar；如果通过 Nginx 暴露 `/market-ingest/`，需将此前缀剥离后代理到 `127.0.0.1:8898`。也可以通过受限专网直接连接 8898。不要把该端口公开到互联网明文访问。
+
+默认快照发送时点是 `09:26`、`14:29`、`15:20`，分别服务于 `09:27`、`14:30` 今日推荐和收盘后正式数据。可通过 `SNAPSHOT_PUSH_SLOTS` 调整。传输支持断点续传和幂等重试；接收端只有在 SHA-256、SQLite 完整性及对应 `sync_runs.status=published` 全部通过后才提交。
+
+```bash
+# 查询主机（业务查询 + 接收控制面，不拉行情）
+docker compose up -d vibe-trading data-ingest
+
+# 查看交付状态
+docker compose logs data-ingest --tail 100
+```
+
 ### 停止本地服务
 
 ```bash

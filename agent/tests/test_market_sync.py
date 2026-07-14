@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 import sys
 import types
 from unittest import mock
@@ -153,6 +154,47 @@ def test_bounded_sync_queries_rotate_instead_of_repeating_first_codes(
 
     assert first == ["000001.SZ", "000002.SZ"]
     assert second == ["000003.SZ", "000004.SZ"]
+
+
+def test_intraday_snapshot_creates_current_day_published_run(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 7, 14, 9, 25, tzinfo=timezone.utc)
+    monkeypatch.setattr(ms, "_now_cst", lambda: now)
+    monkeypatch.setattr("src.data.trade_calendar.is_trading_day", lambda day: True)
+    monkeypatch.setattr("src.data.trade_calendar.cn_market_phase", lambda value: "in_session")
+    monkeypatch.setattr(
+        ms,
+        "run_daily_sync",
+        lambda *args, **kwargs: {dataset: 1 for dataset in ms._INTRADAY_DATASETS},
+    )
+
+    ms._maybe_run_intraday_sync(store)
+
+    row = store._conn.execute(
+        "SELECT status FROM sync_runs WHERE trade_date='2026-07-14' ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    assert row["status"] == "published"
+
+
+def test_intraday_snapshot_does_not_publish_empty_critical_input(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 7, 14, 14, 25, tzinfo=timezone.utc)
+    monkeypatch.setattr(ms, "_now_cst", lambda: now)
+    monkeypatch.setattr("src.data.trade_calendar.is_trading_day", lambda day: True)
+    monkeypatch.setattr("src.data.trade_calendar.cn_market_phase", lambda value: "in_session")
+    results = {dataset: 1 for dataset in ms._INTRADAY_DATASETS}
+    results["hot_list"] = 0
+    monkeypatch.setattr(ms, "run_daily_sync", lambda *args, **kwargs: results)
+
+    ms._maybe_run_intraday_sync(store)
+
+    row = store._conn.execute(
+        "SELECT status FROM sync_runs WHERE trade_date='2026-07-14' ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    assert row["status"] == "partial"
+    assert store.get_meta("daemon:intraday:2026-07-14:173") is None
 
 
 def test_daily_refreshes_existing_date_for_new_sync_run(store: MarketStore) -> None:

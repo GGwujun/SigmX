@@ -26,7 +26,12 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from src.data.market_quality import ReferenceResult, SuspensionResult
+from src.data.market_quality import (
+    DatasetQualityReport,
+    QualityStatus,
+    ReferenceResult,
+    SuspensionResult,
+)
 from src.data.market_store import MarketStore, get_market_store
 
 logger = logging.getLogger(__name__)
@@ -5285,6 +5290,7 @@ _INTRADAY_DATASETS = {
     "northbound",
     "cls_telegraph",
 }
+_INTRADAY_BLOCKING_DATASETS = _INTRADAY_DATASETS - {"northbound"}
 _INTRADAY_SYNC_INTERVAL_MINUTES = 5
 
 
@@ -5354,12 +5360,63 @@ def _maybe_run_intraday_sync(store: MarketStore) -> None:
     meta_key = f"daemon:intraday:{today}:{slot}"
     if store.get_meta(meta_key):
         return
+    run_id = store.create_sync_run(today, worker_id=f"intraday:{os.getpid()}")
     try:
         logger.info("market-sync daemon: starting intraday sync for %s slot=%s", today, slot)
-        run_daily_sync(today, store=store, datasets=_INTRADAY_DATASETS, deadline_seconds=240)
+        rows = run_daily_sync(
+            today,
+            store=store,
+            datasets=_INTRADAY_DATASETS,
+            deadline_seconds=240,
+            sync_run_id=run_id,
+        )
+        failed: list[str] = []
+        for dataset in sorted(_INTRADAY_DATASETS):
+            received = max(int(rows.get(dataset, 0)), 0)
+            required = 1 if dataset in _INTRADAY_BLOCKING_DATASETS else 0
+            reasons = ["row_count_below_minimum"] if received < required else []
+            status = QualityStatus.PARTIAL if reasons else QualityStatus.VERIFIED
+            store.record_dataset_result(
+                run_id,
+                DatasetQualityReport(
+                    dataset=dataset,
+                    trade_date=today,
+                    status=status,
+                    expected_rows=required,
+                    received_rows=received,
+                    valid_rows=received,
+                    blocking_reasons=reasons,
+                    source="intraday-provider-chain",
+                ),
+            )
+            if reasons:
+                failed.append(dataset)
+        if failed:
+            store.finish_sync_run(
+                run_id,
+                QualityStatus.PARTIAL,
+                error_summary="empty critical intraday datasets: " + ", ".join(failed),
+            )
+            logger.warning(
+                "market-sync daemon: intraday snapshot rejected for %s slot=%s datasets=%s",
+                today,
+                slot,
+                failed,
+            )
+            return
+        store.finish_sync_run(run_id, QualityStatus.PUBLISHED)
         store.set_meta(meta_key, _now_cst().isoformat())
         logger.info("market-sync daemon: intraday done for %s slot=%s", today, slot)
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001
+        row = store._conn.execute(
+            "SELECT status FROM sync_runs WHERE run_id = ?", (run_id,)
+        ).fetchone()
+        if row and row["status"] in {
+            QualityStatus.PENDING.value,
+            QualityStatus.FETCHING.value,
+            QualityStatus.VALIDATING.value,
+        }:
+            store.finish_sync_run(run_id, QualityStatus.FAILED, error_summary=str(exc))
         logger.exception("market-sync daemon intraday tick failed")
 
 

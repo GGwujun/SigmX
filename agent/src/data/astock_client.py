@@ -17,7 +17,7 @@ import re
 import ssl
 import time
 import urllib.request
-from typing import Any, Optional
+from typing import Any
 
 import requests
 
@@ -1058,7 +1058,6 @@ def ths_eps_forecast(code: str) -> list[dict]:
     if forecast_match:
         block = forecast_match.group(0) if forecast_match.lastindex else forecast_match.group()
         # 找年度标题行 (含 "年" 的文本)
-        year_pattern = _re.compile(r'(\d{4}).*?汇总')
         # 提取 td 内容
         tds = _re.findall(r'<td[^>]*>(.*?)</td>', block)
         # 清理 HTML 标签
@@ -1068,9 +1067,6 @@ def ths_eps_forecast(code: str) -> list[dict]:
             clean_tds.append(val)
 
         # 每 5 个 td 一组: 机构数, min, mean, max, net_profit
-        i = 0
-        # 先找年度标记
-        current_year = ""
         for td in clean_tds:
             if td and "tc" in td:
                 continue  # skip class-only markers
