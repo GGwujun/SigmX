@@ -22,9 +22,12 @@ def store(tmp_path: Path) -> MarketStore:
 
 def test_daily_incremental_and_no_intraday(store: MarketStore) -> None:
     """A code with last_daily_date=06-10 only fetches 06-11; today is filtered."""
-    store.upsert_daily_bars("600206.SH", [
-        {"date": "2026-06-10", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
-    ])
+    store.upsert_daily_bars(
+        "600206.SH",
+        [{"date": "2026-06-10", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}],
+        source="test.fixture",
+        sync_run_id="old-run",
+    )
 
     captured = {}
 
@@ -38,7 +41,9 @@ def test_daily_incremental_and_no_intraday(store: MarketStore) -> None:
     with mock.patch.object(ms, "_fetch_daily_range_rows", side_effect=fake_fetch), \
          mock.patch.object(ms, "_today_cst_str", return_value="2026-06-15"), \
          mock.patch.object(ms, "_all_a_share_codes", return_value=["600206.SH"]):
-        res = ms.run_daily_sync("2026-06-11", store=store, datasets={"daily"})
+        res = ms.run_daily_sync(
+            "2026-06-11", store=store, datasets={"daily"}, sync_run_id="run-1"
+        )
 
     assert captured["start"] == "2026-06-11"  # resumed from last+1
     assert res["daily"] == 1  # today(06-15) filtered out
@@ -62,6 +67,7 @@ def test_today_daily_persists_after_post_close(store: MarketStore) -> None:
             codes=["600206.SH"],
             datasets={"daily"},
             lookback_days=0,
+            sync_run_id="run-1",
         )
 
     assert res["daily"] == 1
@@ -84,6 +90,7 @@ def test_today_daily_skips_before_post_close(store: MarketStore) -> None:
             codes=["600206.SH"],
             datasets={"daily"},
             lookback_days=0,
+            sync_run_id="run-1",
         )
 
     assert res["daily"] == 0
@@ -91,30 +98,57 @@ def test_today_daily_skips_before_post_close(store: MarketStore) -> None:
     assert store.get_daily_bars("600206.SH", start="2026-06-25", end="2026-06-25") is None
 
 
-def test_daily_skips_already_synced_code(store: MarketStore) -> None:
+def test_daily_refreshes_existing_date_for_new_sync_run(store: MarketStore) -> None:
     """last_daily_date == trade_date → no fetch call."""
-    store.upsert_daily_bars("600206.SH", [
-        {"date": "2026-06-11", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}
-    ])
-    with mock.patch.object(ms, "_fetch_daily_range_rows") as m_fetch, \
+    store.upsert_daily_bars(
+        "600206.SH",
+        [{"date": "2026-06-11", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}],
+        source="test.fixture",
+        sync_run_id="old-run",
+    )
+    with mock.patch.object(
+        ms,
+        "_fetch_daily_range_rows",
+        return_value=[{"date": "2026-06-11", "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}],
+    ) as m_fetch, \
          mock.patch.object(ms, "_all_a_share_codes", return_value=["600206.SH"]):
-        res = ms.run_daily_sync("2026-06-11", store=store, datasets={"daily"})
-    assert m_fetch.call_count == 0
-    assert res.get("daily", 0) == 0
+        res = ms.run_daily_sync(
+            "2026-06-11", store=store, datasets={"daily"}, sync_run_id="new-run"
+        )
+    assert m_fetch.call_count == 1
+    assert res["daily"] == 1
+    assert store.daily_codes_for_run("2026-06-11", "new-run") == ["600206.SH"]
 
 
-def test_daily_uses_tushare_bulk_before_per_code_fallback(store: MarketStore) -> None:
+def test_daily_completes_partial_tushare_bulk_with_per_code_fallback(store: MarketStore) -> None:
+    def fake_bulk(store_arg, trade_date, *, codes=None, sync_run_id=""):
+        store_arg.upsert_daily_bars(
+            "600000.SH",
+            [{"date": trade_date, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 1}],
+            source="tushare.daily",
+            sync_run_id=sync_run_id,
+        )
+        return 1
+
     with mock.patch.object(ms, "_today_cst_str", return_value="2026-06-26"), \
-         mock.patch.object(ms, "_sync_daily_tushare_by_date", return_value=2) as m_bulk, \
-         mock.patch.object(ms, "_fetch_daily_range_rows") as m_fetch:
-        res = ms.run_daily_sync("2026-06-25", store=store, datasets={"daily"})
+         mock.patch.object(ms, "_all_a_share_codes", return_value=["600000.SH", "000001.SZ"]), \
+         mock.patch.object(ms, "_sync_daily_tushare_by_date", side_effect=fake_bulk) as m_bulk, \
+         mock.patch.object(
+             ms,
+             "_fetch_daily_range_rows",
+             return_value=[{"date": "2026-06-25", "open": 10, "high": 11, "low": 9, "close": 10, "volume": 1}],
+         ) as m_fetch:
+        res = ms.run_daily_sync(
+            "2026-06-25", store=store, datasets={"daily"}, sync_run_id="run-1"
+        )
 
     assert res["daily"] == 2
     m_bulk.assert_called_once()
-    assert m_fetch.call_count == 0
+    assert m_fetch.call_count == 1
+    assert store.daily_codes_for_run("2026-06-25", "run-1") == ["000001.SZ", "600000.SH"]
 
 
-def test_daily_falls_back_to_realtime_snapshot_when_settled_sources_empty(store: MarketStore) -> None:
+def test_daily_never_promotes_realtime_snapshot_to_settled_bar(store: MarketStore) -> None:
     store.upsert_realtime_quotes(
         "2026-07-01",
         [
@@ -143,14 +177,13 @@ def test_daily_falls_back_to_realtime_snapshot_when_settled_sources_empty(store:
             codes=["600000.SH"],
             datasets={"daily"},
             lookback_days=0,
+            sync_run_id="run-1",
         )
 
-    assert res["daily"] == 1
-    assert m_fetch.call_count == 0
+    assert res["daily"] == 0
+    assert m_fetch.call_count == 1
     df = store.get_daily_bars("600000.SH", start="2026-07-01", end="2026-07-01")
-    assert df is not None
-    assert float(df["close"].iloc[0]) == 12.5
-    assert float(df["high"].iloc[0]) == 12.8
+    assert df is None
 
 
 def test_default_daily_universe_filters_to_strategy_codes(store: MarketStore) -> None:
@@ -163,16 +196,85 @@ def test_default_daily_universe_filters_to_strategy_codes(store: MarketStore) ->
     )
     captured = {}
 
-    def fake_bulk(store_arg, trade_date, *, codes=None):
+    def fake_bulk(store_arg, trade_date, *, codes=None, sync_run_id=""):
         captured["codes"] = codes
+        store_arg.upsert_daily_bars(
+            codes[0],
+            [{"date": trade_date, "open": 1, "high": 1, "low": 1, "close": 1, "volume": 1}],
+            source="tushare.daily",
+            sync_run_id=sync_run_id,
+        )
         return 1
 
     with mock.patch.object(ms, "_today_cst_str", return_value="2026-06-26"), \
          mock.patch.object(ms, "_sync_daily_tushare_by_date", side_effect=fake_bulk):
-        res = ms.run_daily_sync("2026-06-25", store=store, datasets={"daily"})
+        res = ms.run_daily_sync(
+            "2026-06-25", store=store, datasets={"daily"}, sync_run_id="run-1"
+        )
 
     assert res["daily"] == 1
     assert captured["codes"] == ["000001.SZ"]
+
+
+def test_fetch_suspended_codes_distinguishes_authoritative_empty() -> None:
+    import pandas as pd
+
+    api = mock.Mock()
+    api.suspend_d.return_value = pd.DataFrame(
+        columns=["ts_code", "suspend_date", "resume_date", "suspend_type"]
+    )
+    with mock.patch.object(ms, "_tushare_api", return_value=api):
+        result = ms.fetch_suspended_codes("2026-07-14", ["600000.SH"])
+
+    assert result.available is True
+    assert result.codes == frozenset()
+
+
+def test_fetch_suspended_codes_reports_provider_failure() -> None:
+    api = mock.Mock()
+    api.suspend_d.side_effect = TimeoutError("timeout")
+    with mock.patch.object(ms, "_tushare_api", return_value=api):
+        result = ms.fetch_suspended_codes("2026-07-14", ["600000.SH"])
+
+    assert result.available is False
+    assert "timeout" in result.error
+
+
+def test_fetch_suspended_codes_handles_long_suspension_window() -> None:
+    import pandas as pd
+
+    api = mock.Mock()
+    api.suspend_d.return_value = pd.DataFrame(
+        [
+            {
+                "ts_code": "600000.SH",
+                "suspend_date": "20260701",
+                "resume_date": "20260720",
+                "suspend_type": "S",
+            }
+        ]
+    )
+    with mock.patch.object(ms, "_tushare_api", return_value=api):
+        result = ms.fetch_suspended_codes("2026-07-14", ["600000.SH"])
+
+    assert result.available is True
+    assert result.codes == frozenset({"600000.SH"})
+
+
+def test_reference_sample_is_unavailable_when_any_code_is_missing() -> None:
+    def fake_call(path, *, code, date):
+        if code == "sh.600000":
+            return {"date": date, "close": 10.5}
+        return []
+
+    with mock.patch("src.data.tpdog_client.call", side_effect=fake_call):
+        result = ms.fetch_daily_reference_closes(
+            "2026-07-14", ["600000.SH", "000001.SZ"]
+        )
+
+    assert result.available is False
+    assert result.closes == {"600000.SH": 10.5}
+    assert "000001.SZ" in result.error
 
 
 def test_security_master_tpdog_fallback_marks_default_universe(store: MarketStore) -> None:

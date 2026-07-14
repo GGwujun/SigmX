@@ -26,6 +26,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from src.data.market_quality import ReferenceResult, SuspensionResult
 from src.data.market_store import MarketStore, get_market_store
 
 logger = logging.getLogger(__name__)
@@ -531,6 +532,7 @@ def _sync_daily_tushare_by_date(
     trade_date: str,
     *,
     codes: Optional[list[str]] = None,
+    sync_run_id: str,
 ) -> int:
     """Fetch one settled A-share date in bulk via Tushare ``daily``.
 
@@ -577,7 +579,12 @@ def _sync_daily_tushare_by_date(
 
     written = 0
     for code, rows in grouped.items():
-        written += store.upsert_daily_bars(code, rows)
+        written += store.upsert_daily_bars(
+            code,
+            rows,
+            source="tushare.daily",
+            sync_run_id=sync_run_id,
+        )
     if written:
         logger.info("tushare daily bulk wrote %d rows for %s", written, trade_date)
     return written
@@ -605,7 +612,7 @@ def _latest_settled_date_for_sync(trade_date: str, today_str: str) -> str | None
 
 def _sync_daily_for_code(
     store: MarketStore, code: str, trade_date: str, today_str: str,
-    lookback_days: int = 90, deadline: float | None = None,
+    lookback_days: int = 90, deadline: float | None = None, *, sync_run_id: str,
 ) -> int:
     """Incremental daily-K upsert for one code. Returns rows written."""
     if deadline is not None and time.monotonic() > deadline:
@@ -615,9 +622,9 @@ def _sync_daily_for_code(
         return 0
     last = store.last_daily_date(code)
     if last == trade_date:
-        return 0  # already current
+        start = trade_date
     # Start from the day after the last bar we have, or lookback_days back.
-    if last:
+    elif last:
         start = (datetime.strptime(last, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
     else:
         start = (datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=lookback_days)).strftime("%Y-%m-%d")
@@ -634,7 +641,91 @@ def _sync_daily_for_code(
     rows = [r for r in rows if r.get("date") and r["date"] <= latest_settled]
     if not rows:
         return 0
-    return store.upsert_daily_bars(code, rows)
+    return store.upsert_daily_bars(
+        code,
+        rows,
+        source="tpdog.stock_his/daily",
+        sync_run_id=sync_run_id,
+    )
+
+
+def fetch_suspended_codes(trade_date: str, candidate_codes: list[str]) -> SuspensionResult:
+    """Resolve whether missing codes were effectively suspended on a date."""
+    if not candidate_codes:
+        return SuspensionResult.success(set())
+    if len(candidate_codes) > 100:
+        return SuspensionResult.unavailable(
+            f"too many missing codes for authoritative suspension lookup: {len(candidate_codes)}"
+        )
+    api = _tushare_api()
+    if api is None:
+        return SuspensionResult.unavailable("TUSHARE_TOKEN or tushare client unavailable")
+    try:
+        suspended: set[str] = set()
+        compact_date = trade_date.replace("-", "")
+        for code in candidate_codes:
+            df = api.suspend_d(
+                ts_code=code,
+                fields="ts_code,suspend_date,resume_date,suspend_type",
+            )
+            if df is None or "ts_code" not in df.columns:
+                return SuspensionResult.unavailable(
+                    f"tushare.suspend_d returned invalid result for {code}"
+                )
+            active = False
+            for _, row in df.iterrows():
+                suspend_date = str(row.get("suspend_date") or "").replace("-", "")
+                resume_date = str(row.get("resume_date") or "").replace("-", "")
+                if suspend_date and suspend_date <= compact_date and (
+                    not resume_date or resume_date > compact_date
+                ):
+                    active = True
+                    break
+            if active:
+                suspended.add(code.upper())
+    except Exception as exc:  # noqa: BLE001
+        return SuspensionResult.unavailable(str(exc))
+    return SuspensionResult.success(suspended)
+
+
+def fetch_daily_reference_closes(
+    trade_date: str,
+    sample_codes: list[str],
+) -> ReferenceResult:
+    """Fetch independent settled closes for a deterministic validation sample."""
+    from src.data.tpdog_client import call
+
+    closes: dict[str, float] = {}
+    errors: list[str] = []
+    for code in sample_codes:
+        tpdog_code = _to_tpdog_code(code)
+        if tpdog_code is None:
+            errors.append(f"{code}: unsupported code")
+            continue
+        try:
+            payload = call("stock/daily", code=tpdog_code, date=trade_date)
+            rows = payload if isinstance(payload, list) else [payload]
+            row = next(
+                (item for item in rows if item and str(item.get("date") or "") == trade_date),
+                None,
+            )
+            close = _num(row.get("close")) if row else 0.0
+            if close <= 0:
+                raise ValueError("missing positive exact-date close")
+            closes[code.upper()] = close
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{code}: {exc}")
+        time.sleep(_SLEEP_BETWEEN_CALLS)
+    if errors:
+        return ReferenceResult.unavailable("; ".join(errors), closes=closes)
+    return ReferenceResult.success(closes)
+
+
+def select_daily_reference_sample(expected_codes: list[str], *, limit: int = 10) -> list[str]:
+    """Choose a stable, reproducible cross-source sample from the strict universe."""
+    if limit <= 0:
+        return []
+    return sorted({code.upper() for code in expected_codes})[:limit]
 
 
 def _sync_dragon_tiger(store: MarketStore, trade_date: str) -> int:
@@ -1612,55 +1703,6 @@ def _sync_realtime_quotes_akshare(store: MarketStore, trade_date: str) -> int:
         _clear_sync_error(store, "realtime", source)
     else:
         _set_sync_error(store, "realtime", source, "empty mapped result")
-    return written
-
-
-def _sync_daily_from_realtime_snapshot(
-    store: MarketStore,
-    trade_date: str,
-    *,
-    codes: Optional[list[str]] = None,
-) -> int:
-    """Persist settled daily bars from the latest realtime quote snapshot.
-
-    This is a post-close degraded fallback for environments where paid daily
-    sources are unavailable. It keeps downstream scanners from repeatedly
-    trading against stale daily bars when realtime snapshots are fresher.
-    """
-    wanted = {str(c).upper() for c in codes} if codes else None
-    rows_by_code: dict[str, dict[str, Any]] = {}
-    for quote in store.get_realtime_quotes(trade_date, limit=10000):
-        code = str(quote.get("code") or "").upper()
-        if not code or (wanted is not None and code not in wanted):
-            continue
-        price = _num(quote.get("price"))
-        if price <= 0:
-            continue
-        open_price = _num(quote.get("open")) or price
-        high = max(_num(quote.get("high")) or price, price, open_price)
-        low_values = [v for v in (_num(quote.get("low")), price, open_price) if v > 0]
-        low = min(low_values) if low_values else price
-        rows_by_code[code] = {
-            "date": trade_date,
-            "open": open_price,
-            "high": high,
-            "low": low,
-            "close": price,
-            "volume": quote.get("volume"),
-            "total_amt": quote.get("total_amt"),
-            "rise_rate": quote.get("rise_rate"),
-            "name": quote.get("name"),
-        }
-
-    written = 0
-    for code, row in rows_by_code.items():
-        written += store.upsert_daily_bars(code, [row])
-    if written:
-        logger.warning(
-            "daily sync used realtime snapshot fallback for %s (%d rows)",
-            trade_date,
-            written,
-        )
     return written
 
 
@@ -4487,6 +4529,7 @@ def run_daily_sync(
     etf_codes: Optional[list[str]] = None,
     deadline_seconds: int = _TICK_DEADLINE_SECONDS,
     lookback_days: int = 90,
+    sync_run_id: str = "",
 ) -> dict[str, int]:
     """Pull and persist one trade_date's market data. Idempotent + resumable.
 
@@ -4535,6 +4578,8 @@ def run_daily_sync(
         "stage_snapshot",
         "premium",
     }
+    if "daily" in datasets and not sync_run_id:
+        raise ValueError("daily synchronization requires a sync_run_id")
     result: dict[str, int] = {}
 
     if "master" in datasets:
@@ -4566,17 +4611,15 @@ def run_daily_sync(
                     store, default_only=(universe == "default")
                 )
             )
-            written = _sync_daily_tushare_by_date(store, trade_date, codes=daily_codes)
-            if written:
-                result["daily"] = written
-                universe_codes = []
-            else:
-                written = _sync_daily_from_realtime_snapshot(store, trade_date, codes=daily_codes)
-                if written:
-                    result["daily"] = written
-                    universe_codes = []
-                else:
-                    universe_codes = daily_codes
+            written = _sync_daily_tushare_by_date(
+                store,
+                trade_date,
+                codes=daily_codes,
+                sync_run_id=sync_run_id,
+            )
+            result["daily"] = written
+            synced_codes = set(store.daily_codes_for_run(trade_date, sync_run_id))
+            universe_codes = [code for code in daily_codes if code not in synced_codes]
         else:
             universe_codes = (
                 codes if codes is not None else _all_a_share_codes(
@@ -4593,15 +4636,14 @@ def run_daily_sync(
                     today_str,
                     lookback_days=lookback_days,
                     deadline=deadline,
+                    sync_run_id=sync_run_id,
                 )
                 if i and i % 200 == 0:
                     logger.info("daily sync: %d/%d codes (%d rows)", i, len(universe_codes), written)
                 if time.monotonic() > deadline:
                     logger.warning("daily sync hit deadline at %d/%d codes", i, len(universe_codes))
                     break
-            if written == 0 and latest_settled == trade_date:
-                written = _sync_daily_from_realtime_snapshot(store, trade_date, codes=universe_codes)
-            result["daily"] = written
+            result["daily"] = result.get("daily", 0) + written
 
     def _run(name: str, fn: Any) -> None:
         """Run one dataset, capture failures so they don't block siblings."""

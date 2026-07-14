@@ -23,6 +23,15 @@ def _row(date: str, close: float = 1.0) -> dict:
             "volume": 1, "total_amt": 1, "rise_rate": 0.5, "t_rate": 0.1, "name": "X"}
 
 
+def _upsert_daily(store: MarketStore, code: str, rows: list[dict], *, run_id: str = "test-run") -> int:
+    return store.upsert_daily_bars(
+        code,
+        rows,
+        source="test.fixture",
+        sync_run_id=run_id,
+    )
+
+
 def test_init_is_idempotent(store: MarketStore) -> None:
     # Second init must not raise (CREATE TABLE IF NOT EXISTS).
     store._init_db()
@@ -30,7 +39,7 @@ def test_init_is_idempotent(store: MarketStore) -> None:
 
 
 def test_upsert_and_get_daily(store: MarketStore) -> None:
-    n = store.upsert_daily_bars("600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
+    n = _upsert_daily(store, "600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
     assert n == 2
     df = store.get_daily_bars("600206.SH", days=10)
     assert df is not None
@@ -40,8 +49,8 @@ def test_upsert_and_get_daily(store: MarketStore) -> None:
 
 
 def test_upsert_replaces_on_pk_conflict(store: MarketStore) -> None:
-    store.upsert_daily_bars("600206.SH", [_row("2026-06-10", close=1.0)])
-    store.upsert_daily_bars("600206.SH", [_row("2026-06-10", close=99.99)])
+    _upsert_daily(store, "600206.SH", [_row("2026-06-10", close=1.0)])
+    _upsert_daily(store, "600206.SH", [_row("2026-06-10", close=99.99)])
     df = store.get_daily_bars("600206.SH", start="2026-06-10", end="2026-06-10")
     assert df is not None and df["close"].iloc[0] == 99.99
 
@@ -70,7 +79,7 @@ def test_get_daily_returns_none_when_empty(store: MarketStore) -> None:
 
 
 def test_last_daily_date(store: MarketStore) -> None:
-    store.upsert_daily_bars("600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
+    _upsert_daily(store, "600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
     assert store.last_daily_date("600206.SH") == "2026-06-11"
     assert store.last_daily_date("000000.SH") is None
 
@@ -161,7 +170,7 @@ def test_partial_dataset_is_never_ready(store: MarketStore) -> None:
 
 
 def test_table_counts_and_range(store: MarketStore) -> None:
-    store.upsert_daily_bars("600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
+    _upsert_daily(store, "600206.SH", [_row("2026-06-10"), _row("2026-06-11")])
     store.upsert_security_master([{"code": "600206.SH", "name": "X", "list_status": "L"}])
     store.upsert_trade_calendar([{"date": "2026-06-11", "is_trading": True}])
     store.upsert_realtime_quotes("2026-06-11", [{"code": "600206.SH", "price": 12.3}])
@@ -212,7 +221,7 @@ def test_market_coverage_and_missing_daily_codes(store: MarketStore) -> None:
             {"code": "430001.BJ", "symbol": "430001", "name": "BJ", "list_status": "L", "is_bj": True},
         ]
     )
-    store.upsert_daily_bars("000001.SZ", [_row("2026-06-10")])
+    _upsert_daily(store, "000001.SZ", [_row("2026-06-10")])
 
     cov = store.market_coverage()
     assert cov["security_total"] == 4

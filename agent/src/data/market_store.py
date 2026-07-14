@@ -551,8 +551,8 @@ class MarketStore:
         code: str,
         rows: list[dict],
         *,
-        source: str = "unknown",
-        sync_run_id: str = "",
+        source: str,
+        sync_run_id: str,
         quality_status: str = "unverified",
     ) -> int:
         """Upsert daily-K rows for one code. Each row needs a ``date`` key."""
@@ -641,6 +641,59 @@ class MarketStore:
             "SELECT DISTINCT code FROM bars_daily ORDER BY code"
         ).fetchall()
         return [r["code"] for r in rows]
+
+    @_synchronized
+    def daily_rows_for_run(self, trade_date: str, run_id: str) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT code, trade_date, open, high, low, close, volume, total_amt, "
+            "rise_rate, t_rate, name, source, sync_run_id, quality_status, ingested_at "
+            "FROM bars_daily WHERE trade_date = ? AND sync_run_id = ? ORDER BY code",
+            (trade_date, run_id),
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    @_synchronized
+    def daily_codes_for_run(self, trade_date: str, run_id: str) -> list[str]:
+        rows = self._conn.execute(
+            "SELECT code FROM bars_daily WHERE trade_date = ? AND sync_run_id = ? ORDER BY code",
+            (trade_date, run_id),
+        ).fetchall()
+        return [str(row["code"]) for row in rows]
+
+    @_synchronized
+    def quarantine_data(
+        self,
+        run_id: str,
+        dataset: str,
+        trade_date: str,
+        code: str,
+        reason: str,
+        payload: dict[str, Any],
+    ) -> None:
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT INTO data_quarantine "
+                "(run_id, dataset, trade_date, code, reason, payload_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    run_id,
+                    dataset,
+                    trade_date,
+                    code,
+                    reason,
+                    json.dumps(payload, ensure_ascii=False, default=str),
+                    _now_iso(),
+                ),
+            )
+
+    @_synchronized
+    def set_daily_run_quality(self, run_id: str, status: QualityStatus | str) -> None:
+        normalized = QualityStatus(status)
+        with self._write_transaction():
+            self._conn.execute(
+                "UPDATE bars_daily SET quality_status = ?, updated_at = ? WHERE sync_run_id = ?",
+                (normalized.value, _now_iso(), run_id),
+            )
 
     # ------------------------------------------------------------------
     # Security master / universes
@@ -2474,6 +2527,10 @@ class MarketStore:
                         run_id,
                         QualityStatus.VERIFIED.value,
                     ),
+                )
+                self._conn.execute(
+                    "UPDATE bars_daily SET quality_status = ?, updated_at = ? WHERE sync_run_id = ?",
+                    (QualityStatus.PUBLISHED.value, now, run_id),
                 )
 
     @_synchronized
