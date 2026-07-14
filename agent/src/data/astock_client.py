@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import re
 import ssl
 import time
 import urllib.request
@@ -26,6 +27,19 @@ UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like 
 _ctx = ssl.create_default_context()
 _ctx.check_hostname = False
 _ctx.verify_mode = ssl.CERT_NONE
+
+
+def _optional_float(value: Any) -> float | None:
+    if value in (None, "", "-"):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _strip_html(value: Any) -> str:
+    return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
 # ── 东财统一请求入口（限流 + 重试 + Keep-Alive）─────────────────────
@@ -457,6 +471,19 @@ def cninfo_announcements(code: str, page_size: int = 30) -> list[dict]:
 # ── Layer 3: 信号 — 同花顺热点（题材归因）──────────────────────────
 
 
+def _normalize_ths_hot_reason_item(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "code": str(item.get("code") or ""),
+        "name": str(item.get("name") or ""),
+        "reason": str(item.get("reason") or ""),
+        "change_pct": _optional_float(item.get("zhangfu")),
+        "turnover": _optional_float(item.get("huanshou")),
+        "amount": _optional_float(item.get("chengjiaoe")),
+        "close": _optional_float(item.get("close")),
+        "market": item.get("market"),
+    }
+
+
 def ths_hot_reason(date: str | None = None) -> list[dict]:
     """同花顺当日强势股归因 — 含编辑部人工运营的题材标签（不封 IP）。
     date: 'YYYY-MM-DD' 格式，None=今天
@@ -476,19 +503,7 @@ def ths_hot_reason(date: str | None = None) -> list[dict]:
         logger.warning("同花顺热点错误: %s", data.get("errormsg", ""))
         return []
 
-    return [
-        {
-            "code": r.get("code", ""),
-            "name": r.get("name", ""),
-            "reason": r.get("reason", ""),
-            "change_pct": float(r.get("zhangfu") or 0),
-            "turnover": float(r.get("huanshou") or 0),
-            "amount": float(r.get("chengjiaoe") or 0),
-            "close": float(r.get("close") or 0),
-            "market": r.get("market", ""),
-        }
-        for r in (data.get("data") or [])
-    ]
+    return [_normalize_ths_hot_reason_item(item) for item in (data.get("data") or [])]
 
 
 # ── Layer 9: ETF 期权 — 新浪（不封 IP）────────────────────────────
@@ -769,6 +784,23 @@ def dividend_history(code: str, page_size: int = 20) -> list[dict]:
     } for r in data]
 
 
+def _parse_lockup_rows(rows: list[dict[str, Any]], *, trade_date: str) -> dict[str, list[dict]]:
+    history: list[dict] = []
+    upcoming: list[dict] = []
+    for row in rows:
+        item = {
+            "date": str(row.get("FREE_DATE") or "")[:10],
+            "type": str(row.get("FREE_SHARES_TYPE") or ""),
+            "shares": _optional_float(row.get("FREE_SHARES")),
+            "able_shares": _optional_float(row.get("ABLE_FREE_SHARES")),
+            "ratio": _optional_float(row.get("FREE_RATIO")),
+        }
+        if not item["date"]:
+            continue
+        (history if item["date"] <= trade_date else upcoming).append(item)
+    return {"history": history, "upcoming": upcoming}
+
+
 def lockup_expiry(code: str, trade_date: str, forward_days: int = 90) -> dict:
     """限售解禁日历。返回: {history: [...], upcoming: [...]}"""
     from datetime import datetime as _dt, timedelta as _td
@@ -779,103 +811,7 @@ def lockup_expiry(code: str, trade_date: str, forward_days: int = 90) -> dict:
         filter_str=f'(SECURITY_CODE="{code}")(FREE_DATE>=\'{start}\')(FREE_DATE<=\'{end}\')',
         page_size=50, sort_columns="FREE_DATE", sort_types="-1",
     )
-    today = trade_date
-    history = []
-    upcoming = []
-    for r in data:
-        item = {
-            "date": str(r.get("FREE_DATE", ""))[:10],
-            "shares": r.get("FREE_SHARES", 0),
-            "pct": r.get("FREE_SHARES_RATIO", 0),
-            "type": r.get("LIFT_TYPE", ""),
-        }
-        if item["date"] <= today:
-            history.append(item)
-        else:
-            upcoming.append(item)
-    return {"history": history, "upcoming": upcoming}
-
-
-# ── Layer 5: 新闻 — 东财个股新闻 / 财联社电报 / 全球资讯 ─────────
-
-
-def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
-    """东财个股新闻流。"""
-    url = "https://search-api-web.eastmoney.com/search/jsonp"
-    params = {
-        "cb": "jQuery", "param": json.dumps({
-            "uid": "", "keyword": code, "type": ["cmsArticleWebOld"],
-            "client": "web", "clientType": "web",
-            "clientVersion": "curr", "param": {
-                "cmsArticleWebOld": {"searchScope": "default", "sort": "default",
-                    "pageIndex": 1, "pageSize": page_size, "preTag": "", "postTag": ""}}}),
-    }
-    try:
-        r = em_get(url, params=params, timeout=10)
-        text = r.text
-        # 去 jQuery 壳
-        start = text.index("(") + 1
-        end = text.rindex(")")
-        d = json.loads(text[start:end])
-    except Exception as e:
-        logger.warning("东财个股新闻请求失败: %s", e)
-        return []
-    articles = (d.get("result") or {}).get("cmsArticleWebOld") or {}
-    rows = []
-    for a in (articles.get("list") or []):
-        rows.append({
-            "title": a.get("title", ""),
-            "date": a.get("date", ""),
-            "url": a.get("url", ""),
-            "source": a.get("mediaName", ""),
-            "summary": (a.get("content") or "")[:200],
-        })
-    return rows
-
-
-def cls_telegraph(limit: int = 30) -> list[dict]:
-    """财联社电报（全市场实时快讯，本地签名零 key）。"""
-    import hashlib
-    from datetime import datetime as _dt
-    ts = int(_dt.now().timestamp())
-    # 本地签名: md5(sha1(按 key 字典序拼接的 query 串))
-    query = f"app=CailianpressWeb&os=web&sv=8.4.6&ts={ts}"
-    sign_str = hashlib.sha1(query.encode()).hexdigest()
-    sign = hashlib.md5(sign_str.encode()).hexdigest()
-
-    url = f"https://www.cls.cn/nodeapi/roll/get_roll_list?{query}&sign={sign}"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            d = json.loads(r.read())
-    except Exception as e:
-        logger.warning("财联社电报请求失败: %s", e)
-        return []
-    rolls = (d.get("data") or {}).get("roll_data") or []
-    return [{
-        "title": (r.get("title") or r.get("brief") or "")[:100],
-        "content": (r.get("content") or "")[:300],
-        "time": r.get("ctime", ""),
-        "level": r.get("level", ""),
-    } for r in rolls[:limit]]
-
-
-def eastmoney_global_news(page_size: int = 20) -> list[dict]:
-    """东财全球资讯（7×24）。"""
-    url = "https://np-listapi.eastmoney.com/comm/web/getNewsByColumns"
-    params = {"column": "102", "pageSize": str(page_size), "pageIndex": "0"}
-    try:
-        r = em_get(url, params=params, timeout=10)
-        d = r.json()
-    except Exception as e:
-        logger.warning("东财全球资讯请求失败: %s", e)
-        return []
-    return [{
-        "title": a.get("title", ""),
-        "date": a.get("showtime", ""),
-        "url": a.get("url", ""),
-        "summary": (a.get("digest") or "")[:200],
-    } for a in (d.get("data") or {}).get("list") or []]
+    return _parse_lockup_rows(data, trade_date=trade_date)
 
 
 # ── Layer 8: 打板 — 涨停池 / 炸板 / 跌停 / 昨日涨停 ──────────────
@@ -1031,6 +967,19 @@ def limit_up_sentiment(date: str) -> dict:
 # ── Layer 10: 舆情 — 同花顺热榜 / 东财人气榜 ──────────────────────
 
 
+def _normalize_ths_hot_list_item(item: dict[str, Any]) -> dict[str, Any]:
+    tags = item.get("tag") or {}
+    return {
+        "code": str(item.get("code") or ""),
+        "name": str(item.get("name") or ""),
+        "rank": item.get("order") or 0,
+        "hot_value": _optional_float(item.get("rate")),
+        "change_pct": _optional_float(item.get("rise_and_fall")),
+        "rank_change": item.get("hot_rank_chg") or 0,
+        "tags": json.dumps(tags, ensure_ascii=False, sort_keys=True),
+    }
+
+
 def ths_hot_list(limit: int = 30) -> list[dict]:
     """同花顺热榜（人气值 + 概念标签 + 排名变化）。"""
     url = "https://dq.10jqka.com.cn/fuyao/hot_list_data/out/hot_list/v1/stock"
@@ -1044,14 +993,7 @@ def ths_hot_list(limit: int = 30) -> list[dict]:
         logger.warning("同花顺热榜请求失败: %s", e)
         return []
     items = (d.get("data") or {}).get("stock_list") or []
-    return [{
-        "code": it.get("code", ""),
-        "name": it.get("name", ""),
-        "rank": it.get("order", 0),
-        "hot_value": it.get("hot_value", 0),
-        "change_pct": it.get("rate", ""),
-        "tags": it.get("tag", ""),
-    } for it in items[:limit]]
+    return [_normalize_ths_hot_list_item(item) for item in items[:limit]]
 
 
 def eastmoney_popularity(page_size: int = 30) -> list[dict]:
@@ -1201,6 +1143,24 @@ def hsgt_realtime() -> list[dict]:
 # ── Layer 1: 行情 — 百度 K 线（自带 MA5/10/20）─────────────────────
 
 
+def _parse_baidu_kline_payload(payload: dict[str, Any]) -> dict[str, list]:
+    result = payload.get("Result")
+    if not isinstance(result, dict):
+        return {"keys": [], "rows": []}
+    market_data = result.get("newMarketData")
+    if not isinstance(market_data, dict):
+        return {"keys": [], "rows": []}
+    keys = market_data.get("keys") or []
+    raw_rows = market_data.get("marketData") or ""
+    if isinstance(raw_rows, str):
+        rows = [row for row in raw_rows.split(";") if row]
+    elif isinstance(raw_rows, list):
+        rows = raw_rows
+    else:
+        rows = []
+    return {"keys": list(keys), "rows": rows}
+
+
 def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
     """百度股市通 K 线 — 自带 ma5/ma10/ma20 均价（不封 IP）。
     返回: {keys: [...], rows: [[...], ...]}
@@ -1225,12 +1185,7 @@ def baidu_kline_with_ma(code: str, start_time: str = "") -> dict:
     except Exception as e:
         logger.warning("百度K线请求失败: %s", e)
         return {"keys": [], "rows": []}
-    result = d.get("Result", {})
-    md = result.get("newMarketData", {})
-    keys = md.get("keys", [])
-    rows_raw = md.get("marketData", [])
-    rows = [r.split(";") if isinstance(r, str) else r for r in rows_raw]
-    return {"keys": keys, "rows": rows}
+    return _parse_baidu_kline_payload(d)
 
 
 # ── Layer 10: 舆情 — 互动易问答（巨潮官方）────────────────────────
@@ -1349,6 +1304,25 @@ def eastmoney_global_news(page_size: int = 50) -> list[dict]:
 # ── Layer 5: 新闻 — 东财个股新闻 ──────────────────────────────────
 
 
+def _parse_eastmoney_stock_news_payload(payload: dict[str, Any]) -> list[dict]:
+    articles = (payload.get("result") or {}).get("cmsArticleWebOld") or []
+    if isinstance(articles, dict):
+        articles = articles.get("list") or []
+    if not isinstance(articles, list):
+        return []
+    return [
+        {
+            "title": _strip_html(article.get("title")),
+            "summary": _strip_html(article.get("content"))[:200],
+            "date": str(article.get("date") or ""),
+            "source": str(article.get("mediaName") or ""),
+            "url": str(article.get("url") or ""),
+        }
+        for article in articles
+        if isinstance(article, dict)
+    ]
+
+
 def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
     """东财个股新闻流（走 em_get 限流）。"""
     url = "https://search-api-web.eastmoney.com/search/jsonp"
@@ -1371,11 +1345,4 @@ def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
     except Exception as e:
         logger.warning("东财个股新闻请求失败: %s", e)
         return []
-    articles = (d.get("result") or {}).get("cmsArticleWebOld") or {}
-    return [{
-        "title": a.get("title", ""),
-        "date": a.get("date", ""),
-        "url": a.get("url", ""),
-        "source": a.get("mediaName", ""),
-        "summary": (a.get("content") or "")[:200],
-    } for a in (articles.get("list") or [])]
+    return _parse_eastmoney_stock_news_payload(d)
