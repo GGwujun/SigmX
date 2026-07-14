@@ -35,6 +35,89 @@ def _upsert_daily(store: MarketStore, code: str, rows: list[dict], *, run_id: st
 def test_init_is_idempotent(store: MarketStore) -> None:
     # Second init must not raise (CREATE TABLE IF NOT EXISTS).
     store._init_db()
+
+
+def test_fund_flow_backup_preserves_total_net_amount(store: MarketStore) -> None:
+    store.upsert_fund_flow_daily(
+        "600519.SH",
+        [
+            {
+                "date": "2026-07-14",
+                "net_amount": 123456.0,
+                "turnover": 987654.0,
+                "source": "sina.backup",
+            }
+        ],
+    )
+
+    row = store._conn.execute(
+        "SELECT main_net, net_amount, turnover, source FROM fund_flow_daily "
+        "WHERE code = ? AND trade_date = ?",
+        ("600519.SH", "2026-07-14"),
+    ).fetchone()
+
+    assert row is not None
+    assert row["main_net"] is None
+    assert row["net_amount"] == 123456.0
+    assert row["turnover"] == 987654.0
+    assert row["source"] == "sina.backup"
+
+
+def test_replace_option_chain_keeps_all_months_and_sides(store: MarketStore) -> None:
+    rows = [
+        {"month": "2607", "code": "10001", "call_put": "call", "last": 0.1},
+        {"month": "2607", "code": "10002", "call_put": "put", "last": 0.2},
+        {"month": "2608", "code": "10003", "call_put": "call", "last": 0.3},
+    ]
+
+    assert store.replace_option_chain("510050", "2026-07-14", rows) == 3
+    stored = store._conn.execute(
+        "SELECT month, code, call_put FROM option_chain "
+        "WHERE underlying = ? AND trade_date = ? ORDER BY code",
+        ("510050", "2026-07-14"),
+    ).fetchall()
+
+    assert [tuple(row) for row in stored] == [
+        ("2607", "10001", "call"),
+        ("2607", "10002", "put"),
+        ("2608", "10003", "call"),
+    ]
+
+
+def test_lockup_round_trip_keeps_v34_fields(store: MarketStore) -> None:
+    store.upsert_lockup_expiry(
+        "600519.SH",
+        [
+            {
+                "date": "2026-07-20",
+                "shares": 100.0,
+                "able_shares": 80.0,
+                "ratio": 0.012,
+                "type": "首发原股东限售股份",
+            }
+        ],
+    )
+
+    row = store._conn.execute(
+        "SELECT free_shares, able_shares, free_ratio, lift_type FROM lockup_expiry "
+        "WHERE code = ? AND free_date = ?",
+        ("600519.SH", "2026-07-20"),
+    ).fetchone()
+
+    assert row is not None
+    assert tuple(row) == (100.0, 80.0, 0.012, "首发原股东限售股份")
+
+
+def test_rotating_dataset_codes_eventually_cover_universe(store: MarketStore) -> None:
+    codes = ["000001.SZ", "000002.SZ", "000003.SZ", "000004.SZ", "000005.SZ"]
+
+    first = store.next_dataset_codes("eps_forecast", codes, limit=2)
+    second = store.next_dataset_codes("eps_forecast", codes, limit=2)
+    third = store.next_dataset_codes("eps_forecast", codes, limit=2)
+
+    assert first == ["000001.SZ", "000002.SZ"]
+    assert second == ["000003.SZ", "000004.SZ"]
+    assert third == ["000005.SZ", "000001.SZ"]
     store._init_db()
 
 
