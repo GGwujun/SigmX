@@ -4655,6 +4655,258 @@ def _sync_hot_list(store: MarketStore, trade_date: str) -> int:
     return total
 
 
+def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
+    """同花顺一致预期 EPS — 对 security_master 中活跃股票批量拉取。"""
+    from src.data.astock_client import ths_eps_forecast
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT code FROM security_master WHERE is_active = 1 AND is_st = 0 "
+            "ORDER BY code LIMIT 200"
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            forecasts = ths_eps_forecast(code)
+            if forecasts:
+                total += store.upsert_eps_forecast(row["code"], trade_date, forecasts)
+        except Exception:
+            continue
+        time.sleep(0.3)
+    return total
+
+
+def _sync_financial_snapshot(store: MarketStore, trade_date: str) -> int:
+    """mootdx 37 字段财务快照 — 对最近有行情的股票批量拉取。"""
+    from src.data.astock_client import mootdx_finance
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? LIMIT 500",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            data = mootdx_finance(code)
+            if data:
+                total += store.upsert_financial_snapshot(row["code"], data)
+        except Exception:
+            continue
+        time.sleep(0.1)
+    return total
+
+
+def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
+    """新浪财报三表 — 对最近有行情的股票拉利润表。"""
+    from src.data.astock_client import sina_financial_report
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? LIMIT 100",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        for report_type in ("lrb", "fzb", "llb"):
+            try:
+                reports = sina_financial_report(code, report_type, num=2)
+                if reports:
+                    total += store.upsert_financial_statement(row["code"], report_type, reports)
+            except Exception:
+                continue
+            time.sleep(0.3)
+    return total
+
+
+def _sync_announcements(store: MarketStore, trade_date: str) -> int:
+    """巨潮公告 — 对最近有行情的股票拉公告。"""
+    from src.data.astock_client import cninfo_announcements
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? LIMIT 200",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            anns = cninfo_announcements(code, page_size=10)
+            if anns:
+                total += store.upsert_announcements(row["code"], anns)
+        except Exception:
+            continue
+        time.sleep(0.5)
+    return total
+
+
+def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
+    """新浪资金流备胎 — 对 stock_capital_rank 中的股票拉日级资金流。"""
+    from src.data.astock_client import fund_flow_backup
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            flows = fund_flow_backup(code, days=5)
+            if flows:
+                total += store.upsert_fund_flow_daily(row["code"], flows)
+        except Exception:
+            continue
+        time.sleep(0.3)
+    return total
+
+
+def _sync_margin_trading(store: MarketStore, trade_date: str) -> int:
+    """融资融券明细 — 东财。"""
+    from src.data.astock_client import margin_trading
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            data = margin_trading(code, page_size=5)
+            if data:
+                total += store.upsert_margin_trading(row["code"], data)
+        except Exception:
+            continue
+    return total
+
+
+def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
+    """大宗交易 — 东财。"""
+    from src.data.astock_client import block_trade
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            data = block_trade(code, page_size=5)
+            if data:
+                total += store.upsert_block_trade(row["code"], data)
+        except Exception:
+            continue
+    return total
+
+
+def _sync_holder_num(store: MarketStore, trade_date: str) -> int:
+    """股东户数变化 — 东财。"""
+    from src.data.astock_client import holder_num_change
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            data = holder_num_change(code, page_size=5)
+            if data:
+                total += store.upsert_holder_num(row["code"], data)
+        except Exception:
+            continue
+    return total
+
+
+def _sync_dividend_history(store: MarketStore, trade_date: str) -> int:
+    """分红送转历史 — 东财。"""
+    from src.data.astock_client import dividend_history
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            data = dividend_history(code, page_size=10)
+            if data:
+                total += store.upsert_dividend_history(row["code"], data)
+        except Exception:
+            continue
+    return total
+
+
+def _sync_option_chain(store: MarketStore, trade_date: str) -> int:
+    """ETF 期权合约 — 新浪（50ETF/300ETF/科创50ETF）。"""
+    from src.data.astock_client import sina_option_codes, sina_option_tquote, sina_option_greeks
+    total = 0
+    for underlying in ("510050", "510300", "588000"):
+        try:
+            for call in (True, False):
+                months = sina_option_codes(underlying, call=call)
+                for month, codes in months.items():
+                    rows = []
+                    for code in codes[:20]:
+                        tq = sina_option_tquote(code)
+                        gk = sina_option_greeks(code)
+                        if tq:
+                            rows.append({
+                                "month": month, "code": code,
+                                "call_put": "call" if call else "put",
+                                **tq, **gk,
+                            })
+                    if rows:
+                        total += store.upsert_option_chain(underlying, trade_date, rows)
+        except Exception as exc:
+            logger.debug("option_chain %s failed: %s", underlying, exc)
+    return total
+
+
+def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
+    """东财日级资金流 120 日。"""
+    from src.data.astock_client import stock_fund_flow_120d
+    total = 0
+    try:
+        codes = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 100",
+            (trade_date,),
+        ).fetchall()
+    except Exception:
+        return 0
+    for row in codes:
+        code = row["code"].split(".")[0]
+        try:
+            flows = stock_fund_flow_120d(code)
+            if flows:
+                total += store.upsert_fund_flow_daily(row["code"], flows)
+        except Exception:
+            continue
+    return total
+
+
 # ----------------------------------------------------------------------
 # run_daily_sync — the engine
 # ----------------------------------------------------------------------
@@ -4839,6 +5091,16 @@ def run_daily_sync(
     _run("ths_hot", lambda: _sync_ths_hot_reason(store, trade_date))
     _run("zt_pool", lambda: _sync_zt_pool(store, trade_date))
     _run("hot_list", lambda: _sync_hot_list(store, trade_date))
+    _run("eps_forecast", lambda: _sync_eps_forecast(store, trade_date))
+    _run("financial_snapshot", lambda: _sync_financial_snapshot(store, trade_date))
+    _run("financial_statement", lambda: _sync_financial_statement(store, trade_date))
+    _run("announcements", lambda: _sync_announcements(store, trade_date))
+    _run("fund_flow_daily", lambda: _sync_fund_flow_daily(store, trade_date))
+    _run("option_chain", lambda: _sync_option_chain(store, trade_date))
+    _run("margin_trading", lambda: _sync_margin_trading(store, trade_date))
+    _run("block_trade", lambda: _sync_block_trade(store, trade_date))
+    _run("holder_num", lambda: _sync_holder_num(store, trade_date))
+    _run("dividend_history", lambda: _sync_dividend_history(store, trade_date))
 
     return result
 

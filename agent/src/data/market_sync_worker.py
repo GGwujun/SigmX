@@ -77,6 +77,16 @@ _POST_CLOSE_DATASETS = {
     "ths_hot",
     "zt_pool",
     "hot_list",
+    "eps_forecast",
+    "financial_snapshot",
+    "financial_statement",
+    "announcements",
+    "fund_flow_daily",
+    "option_chain",
+    "margin_trading",
+    "block_trade",
+    "holder_num",
+    "dividend_history",
 }
 
 
