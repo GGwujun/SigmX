@@ -4655,23 +4655,42 @@ def _sync_hot_list(store: MarketStore, trade_date: str) -> int:
     return total
 
 
+def _rotating_query_codes(
+    store: MarketStore,
+    dataset: str,
+    sql: str,
+    params: tuple = (),
+    *,
+    limit: int,
+) -> list[str]:
+    """Query the eligible universe, then take a persisted rotating batch."""
+    try:
+        rows = store._conn.execute(sql, params).fetchall()
+    except Exception:
+        return []
+    return store.next_dataset_codes(
+        dataset,
+        [str(row["code"]) for row in rows],
+        limit=limit,
+    )
+
+
 def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
     """同花顺一致预期 EPS — 对 security_master 中活跃股票批量拉取。"""
     from src.data.astock_client import ths_eps_forecast
     total = 0
     try:
-        codes = store._conn.execute(
+        codes = _rotating_query_codes(store, "eps_forecast",
             "SELECT code FROM security_master WHERE is_active = 1 AND is_st = 0 "
-            "ORDER BY code LIMIT 200"
-        ).fetchall()
+            "ORDER BY code", limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             forecasts = ths_eps_forecast(code)
             if forecasts:
-                total += store.upsert_eps_forecast(row["code"], trade_date, forecasts)
+                total += store.upsert_eps_forecast(stored_code, trade_date, forecasts)
         except Exception:
             continue
         time.sleep(0.3)
@@ -4683,18 +4702,18 @@ def _sync_financial_snapshot(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import mootdx_finance
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? LIMIT 500",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "financial_snapshot",
+            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=500)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             data = mootdx_finance(code)
             if data:
-                total += store.upsert_financial_snapshot(row["code"], data)
+                total += store.upsert_financial_snapshot(stored_code, data)
         except Exception:
             continue
         time.sleep(0.1)
@@ -4706,19 +4725,19 @@ def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import sina_financial_report
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? LIMIT 100",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "financial_statement",
+            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=100)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         for report_type in ("lrb", "fzb", "llb"):
             try:
                 reports = sina_financial_report(code, report_type, num=2)
                 if reports:
-                    total += store.upsert_financial_statement(row["code"], report_type, reports)
+                    total += store.upsert_financial_statement(stored_code, report_type, reports)
             except Exception:
                 continue
             time.sleep(0.3)
@@ -4730,18 +4749,18 @@ def _sync_announcements(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import cninfo_announcements
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? LIMIT 200",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "announcements",
+            "SELECT DISTINCT code FROM bars_daily WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             anns = cninfo_announcements(code, page_size=10)
             if anns:
-                total += store.upsert_announcements(row["code"], anns)
+                total += store.upsert_announcements(stored_code, anns)
         except Exception:
             continue
         time.sleep(0.5)
@@ -4753,18 +4772,18 @@ def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import fund_flow_backup
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "fund_flow_daily",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             flows = fund_flow_backup(code, days=5)
             if flows:
-                total += store.upsert_fund_flow_daily(row["code"], flows)
+                total += store.upsert_fund_flow_daily(stored_code, flows)
         except Exception:
             continue
         time.sleep(0.3)
@@ -4776,18 +4795,18 @@ def _sync_margin_trading(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import margin_trading
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "margin_trading",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             data = margin_trading(code, page_size=5)
             if data:
-                total += store.upsert_margin_trading(row["code"], data)
+                total += store.upsert_margin_trading(stored_code, data)
         except Exception:
             continue
     return total
@@ -4798,18 +4817,18 @@ def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import block_trade
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "block_trade",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             data = block_trade(code, page_size=5)
             if data:
-                total += store.upsert_block_trade(row["code"], data)
+                total += store.upsert_block_trade(stored_code, data)
         except Exception:
             continue
     return total
@@ -4820,18 +4839,18 @@ def _sync_holder_num(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import holder_num_change
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "holder_num",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             data = holder_num_change(code, page_size=5)
             if data:
-                total += store.upsert_holder_num(row["code"], data)
+                total += store.upsert_holder_num(stored_code, data)
         except Exception:
             continue
     return total
@@ -4842,28 +4861,32 @@ def _sync_dividend_history(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import dividend_history
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 200",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "dividend_history",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=200)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             data = dividend_history(code, page_size=10)
             if data:
-                total += store.upsert_dividend_history(row["code"], data)
+                total += store.upsert_dividend_history(stored_code, data)
         except Exception:
             continue
     return total
+
+
+_OPTION_UNDERLYINGS = ("510050", "510300", "588000")
 
 
 def _sync_option_chain(store: MarketStore, trade_date: str) -> int:
     """ETF 期权合约 — 新浪（50ETF/300ETF/科创50ETF）。"""
     from src.data.astock_client import sina_option_codes, sina_option_tquote, sina_option_greeks
     total = 0
-    for underlying in ("510050", "510300", "588000"):
+    for underlying in _OPTION_UNDERLYINGS:
+        snapshot: list[dict] = []
         try:
             for call in (True, False):
                 months = sina_option_codes(underlying, call=call)
@@ -4878,8 +4901,8 @@ def _sync_option_chain(store: MarketStore, trade_date: str) -> int:
                                 "call_put": "call" if call else "put",
                                 **tq, **gk,
                             })
-                    if rows:
-                        total += store.upsert_option_chain(underlying, trade_date, rows)
+                    snapshot.extend(rows)
+            total += store.replace_option_chain(underlying, trade_date, snapshot)
         except Exception as exc:
             logger.debug("option_chain %s failed: %s", underlying, exc)
     return total
@@ -4890,18 +4913,18 @@ def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import stock_fund_flow_120d
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 100",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "fund_flow_120d",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=100)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             flows = stock_fund_flow_120d(code)
             if flows:
-                total += store.upsert_fund_flow_daily(row["code"], flows)
+                total += store.upsert_fund_flow_daily(stored_code, flows)
         except Exception:
             continue
     return total
@@ -4938,18 +4961,18 @@ def _sync_irm_qa(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import cninfo_irm
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 100",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "irm_qa",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=100)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             qas = cninfo_irm(code, page_size=10)
             if qas:
-                total += store.upsert_irm_qa(row["code"], qas)
+                total += store.upsert_irm_qa(stored_code, qas)
         except Exception:
             continue
         time.sleep(0.3)
@@ -4961,18 +4984,18 @@ def _sync_stock_news(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import eastmoney_stock_news
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 50",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "stock_news",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=50)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             news = eastmoney_stock_news(code, page_size=5)
             if news:
-                total += store.upsert_stock_news(row["code"], trade_date, news)
+                total += store.upsert_stock_news(stored_code, trade_date, news)
         except Exception:
             continue
     return total
@@ -4983,19 +5006,19 @@ def _sync_lockup_expiry(store: MarketStore, trade_date: str) -> int:
     from src.data.astock_client import lockup_expiry
     total = 0
     try:
-        codes = store._conn.execute(
-            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? LIMIT 100",
-            (trade_date,),
-        ).fetchall()
+        codes = _rotating_query_codes(
+            store, "lockup_expiry",
+            "SELECT DISTINCT code FROM stock_capital_rank WHERE trade_date = ? ORDER BY code",
+            (trade_date,), limit=100)
     except Exception:
         return 0
-    for row in codes:
-        code = row["code"].split(".")[0]
+    for stored_code in codes:
+        code = stored_code.split(".")[0]
         try:
             data = lockup_expiry(code, trade_date)
             all_items = data.get("history", []) + data.get("upcoming", [])
             if all_items:
-                total += store.upsert_lockup_expiry(row["code"], all_items)
+                total += store.upsert_lockup_expiry(stored_code, all_items)
         except Exception:
             continue
     return total
@@ -5190,6 +5213,7 @@ def run_daily_sync(
     _run("financial_statement", lambda: _sync_financial_statement(store, trade_date))
     _run("announcements", lambda: _sync_announcements(store, trade_date))
     _run("fund_flow_daily", lambda: _sync_fund_flow_daily(store, trade_date))
+    _run("fund_flow_120d", lambda: _sync_fund_flow_120d(store, trade_date))
     _run("option_chain", lambda: _sync_option_chain(store, trade_date))
     _run("margin_trading", lambda: _sync_margin_trading(store, trade_date))
     _run("block_trade", lambda: _sync_block_trade(store, trade_date))
@@ -5252,6 +5276,14 @@ _INTRADAY_DATASETS = {
     "sector_snapshot",
     "market_breadth",
     "stage_snapshot",
+    # Recommendation snapshots are generated at 09:27 and 14:30.  Refresh
+    # their event/sentiment inputs on the same five-minute cadence so those
+    # runs do not consume yesterday's post-close snapshot.
+    "ths_hot",
+    "zt_pool",
+    "hot_list",
+    "northbound",
+    "cls_telegraph",
 }
 _INTRADAY_SYNC_INTERVAL_MINUTES = 5
 

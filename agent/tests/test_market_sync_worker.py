@@ -16,6 +16,10 @@ from src.data.market_quality import (
 from src.data.market_store import MarketStore
 
 
+def test_post_close_worker_includes_long_horizon_fund_flow() -> None:
+    assert "fund_flow_120d" in worker._POST_CLOSE_DATASETS
+
+
 def _report(status: QualityStatus) -> DatasetQualityReport:
     return DatasetQualityReport(
         dataset="bars_daily",

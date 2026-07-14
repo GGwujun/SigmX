@@ -98,6 +98,63 @@ def test_today_daily_skips_before_post_close(store: MarketStore) -> None:
     assert store.get_daily_bars("600206.SH", start="2026-06-25", end="2026-06-25") is None
 
 
+def test_option_chain_replaces_snapshot_once_after_collecting_all_batches(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "src.data.astock_client.sina_option_codes",
+        lambda underlying, call: {
+            "202608": ["C1"] if call else ["P1"],
+            "202609": ["C2"] if call else ["P2"],
+        },
+    )
+    monkeypatch.setattr(
+        "src.data.astock_client.sina_option_tquote",
+        lambda code: {"last": float(len(code))},
+    )
+    monkeypatch.setattr("src.data.astock_client.sina_option_greeks", lambda code: {"delta": 0.5})
+    monkeypatch.setattr(ms, "_OPTION_UNDERLYINGS", ("510050",))
+
+    assert ms._sync_option_chain(store, "2026-07-14") == 4
+    rows = store._conn.execute(
+        "SELECT month, code, call_put FROM option_chain ORDER BY month, call_put"
+    ).fetchall()
+    assert {(r["month"], r["code"], r["call_put"]) for r in rows} == {
+        ("202608", "C1", "call"),
+        ("202608", "P1", "put"),
+        ("202609", "C2", "call"),
+        ("202609", "P2", "put"),
+    }
+
+
+def test_recommendation_input_datasets_are_refreshed_intraday() -> None:
+    assert {
+        "ths_hot",
+        "zt_pool",
+        "hot_list",
+        "northbound",
+        "cls_telegraph",
+    }.issubset(ms._INTRADAY_DATASETS)
+
+
+def test_bounded_sync_queries_rotate_instead_of_repeating_first_codes(
+    store: MarketStore,
+) -> None:
+    store.upsert_security_master(
+        [
+            {"code": f"00000{i}.SZ", "name": str(i), "list_status": "L"}
+            for i in range(1, 6)
+        ]
+    )
+    sql = "SELECT code FROM security_master WHERE is_active = 1 ORDER BY code"
+
+    first = ms._rotating_query_codes(store, "news", sql, limit=2)
+    second = ms._rotating_query_codes(store, "news", sql, limit=2)
+
+    assert first == ["000001.SZ", "000002.SZ"]
+    assert second == ["000003.SZ", "000004.SZ"]
+
+
 def test_daily_refreshes_existing_date_for_new_sync_run(store: MarketStore) -> None:
     """last_daily_date == trade_date → no fetch call."""
     store.upsert_daily_bars(

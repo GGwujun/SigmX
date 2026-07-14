@@ -82,6 +82,7 @@ _POST_CLOSE_DATASETS = {
     "financial_statement",
     "announcements",
     "fund_flow_daily",
+    "fund_flow_120d",
     "option_chain",
     "margin_trading",
     "block_trade",
