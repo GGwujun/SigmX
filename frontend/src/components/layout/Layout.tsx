@@ -48,6 +48,7 @@ const NAV_GROUPS = [
       { to: "/close-review", icon: BarChart3, label: "收盘复盘" },
       { to: "/recommendation-history", icon: BarChart3, label: "推荐历史" },
       { to: "/fund-opportunity", icon: Coins, label: "套利机会" },
+      { to: "/signals", icon: Zap, label: "套利信号" },
     ],
   },
   {

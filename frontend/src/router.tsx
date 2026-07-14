@@ -76,6 +76,9 @@ const FundArbitrage = lazy(() =>
 const FundOpportunity = lazy(() =>
   import("@/pages/FundOpportunity").then((m) => ({ default: m.FundOpportunity })),
 );
+const Signals = lazy(() =>
+  import("@/pages/Signals").then((m) => ({ default: m.Signals })),
+);
 const LoginPage = lazy(() =>
   import("@/pages/auth/LoginPage").then((m) => ({ default: m.LoginPage })),
 );
@@ -174,6 +177,7 @@ export const router = createBrowserRouter([
           { path: "/alpha-forge", element: wrap(AlphaForge) },
           { path: "/fund-arbitrage", element: wrap(FundArbitrage) },
           { path: "/fund-opportunity", element: wrap(FundOpportunity) },
+          { path: "/signals", element: wrap(Signals) },
           { path: "/account", element: wrap(Account) },
         ],
       },
