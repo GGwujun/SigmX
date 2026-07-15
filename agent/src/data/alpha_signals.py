@@ -71,72 +71,26 @@ _CACHE_TTL = 300  # 5 min
 # ---------------------------------------------------------------------------
 
 def _get_peer_codes(code: str, min_peers: int = 10, max_peers: int = 50) -> list[str]:
-    """Return peer stock codes (same industry) for cross-sectional comparison.
-
-    Uses mootdx block/industry data to find peer stocks. Falls back to
-    a broad CSI 300 blue-chip list if industry peers are too few.
-    """
-    raw = code.replace(".SZ", "").replace(".SH", "")
-
-    peers: list[str] = []
+    """Return persisted same-board peers without recommendation-time I/O."""
     try:
-        from src.data.mootdx_helper import get_quotes
-        client = get_quotes(timeout=10)
-        blocks = client.block()
-        if blocks and isinstance(blocks, dict):
-            for bk_name, bk_data in blocks.items():
-                if isinstance(bk_data, dict) and "code" in bk_data:
-                    codes = str(bk_data["code"]).split(",")
-                    if raw in codes:
-                        # Found industry block — collect peers
-                        for c in codes:
-                            c = c.strip()
-                            if c and len(c) == 6 and c != raw:
-                                prefix = c[0]
-                                suffix = ".SH" if prefix in ("6", "5", "9") else ".SZ"
-                                peers.append(c + suffix)
-                        break
-            # If exact block not found, collect from closely related blocks
-            if not peers:
-                raw_prefix = raw[:3]
-                for bk_name, bk_data in blocks.items():
-                    if isinstance(bk_data, dict) and "code" in bk_data:
-                        codes = str(bk_data["code"]).split(",")
-                        if raw in codes:
-                            continue  # already tried
-                        # Collect from blocks that share similar stocks
-                        for c in codes:
-                            c = c.strip()
-                            if c and len(c) == 6 and c[:3] == raw_prefix and c != raw:
-                                prefix = c[0]
-                                suffix = ".SH" if prefix in ("6", "5", "9") else ".SZ"
-                                peers.append(c + suffix)
+        from src.data.market_store import get_market_store
+
+        store = get_market_store()
+        conn = getattr(store, "_conn", None)
+        if conn is None:
+            return []
+        rows = conn.execute(
+            "SELECT DISTINCT peer.stock_code FROM board_members target "
+            "JOIN board_members peer ON peer.board_code = target.board_code "
+            "WHERE target.stock_code = ? AND peer.stock_code <> ? "
+            "ORDER BY peer.stock_code LIMIT ?",
+            (code, code, max_peers),
+        ).fetchall()
+        peers = list(dict.fromkeys(str(row["stock_code"]) for row in rows))[:max_peers]
+        return peers if len(peers) >= min_peers else []
     except Exception:
-        logger.debug("Peer lookup via mootdx failed", exc_info=True)
-
-    # Deduplicate and limit
-    peers = list(dict.fromkeys(peers))[:max_peers]
-
-    # Fallback: use hardcoded broad market peers if too few found
-    if len(peers) < min_peers:
-        fallback = [
-            "000001.SZ", "000002.SZ", "000063.SZ", "000333.SZ", "000651.SZ",
-            "000858.SZ", "002415.SZ", "002475.SZ", "002594.SZ", "300059.SZ",
-            "300124.SZ", "300750.SZ", "600000.SH", "600036.SH", "600276.SH",
-            "600519.SH", "600585.SH", "600887.SH", "601012.SH", "601088.SH",
-            "601166.SH", "601318.SH", "601398.SH", "601857.SH", "603259.SH",
-            "000568.SZ", "000725.SZ", "002142.SZ", "600030.SH", "600050.SH",
-            "600104.SH", "600309.SH", "600406.SH", "600438.SH", "600690.SH",
-            "600809.SH", "600900.SH", "601166.SH", "601328.SH", "601668.SH",
-            "601688.SH", "601818.SH", "603288.SH", "688981.SH",
-        ]
-        for c in fallback:
-            if c != code and c not in peers:
-                peers.append(c)
-        peers = peers[:max_peers]
-
-    return peers
-
+        logger.debug("Local peer lookup failed", exc_info=True)
+        return []
 
 # ---------------------------------------------------------------------------
 # Panel loading

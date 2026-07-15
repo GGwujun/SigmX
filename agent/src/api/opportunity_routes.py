@@ -382,9 +382,14 @@ def _detect_event_catalyst(s: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     hit: dict[str, Any] | None = None
+    symbol = str(s.get("symbol") or "").upper()
+    sector = str(s.get("industry") or s.get("sector") or "").strip().lower()
     for cat in cache.get("categories", []):
         for e in cat.get("events", []):
-            if abs(e.get("prob_change_24h", 0)) >= 0.10:
+            symbols = {str(value).upper() for value in e.get("symbols", [])}
+            sectors = {str(value).strip().lower() for value in e.get("sectors", [])}
+            attributed = symbol in symbols or bool(sector and sector in sectors)
+            if attributed and abs(e.get("prob_change_24h", 0)) >= 0.10:
                 if hit is None or abs(e["prob_change_24h"]) > abs(hit["prob_change_24h"]):
                     hit = e
 

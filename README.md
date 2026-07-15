@@ -226,7 +226,7 @@ docker compose --profile sync up -d market-sync
 
 在两端设置相同的高强度 `MARKET_INGEST_TOKEN`。发送端的 `MARKET_INGEST_URL` 指向接收 sidecar；如果通过 Nginx 暴露 `/market-ingest/`，需将此前缀剥离后代理到 `127.0.0.1:8898`。也可以通过受限专网直接连接 8898。不要把该端口公开到互联网明文访问。
 
-默认快照发送时点是 `09:26`、`14:29`、`15:20`，分别服务于 `09:27`、`14:30` 今日推荐和收盘后正式数据。可通过 `SNAPSHOT_PUSH_SLOTS` 调整。传输支持断点续传和幂等重试；接收端只有在 SHA-256、SQLite 完整性及对应 `sync_runs.status=published` 全部通过后才提交。
+`data-sync` 不再等待某个分钟点：它轮询最新 `sync_runs`，一旦新的运行进入 `published` 就立即发送，失败时按同一 `run_id` 重试，成功后不重复发送。`SNAPSHOT_PUSH_SLOTS` 保留为 `09:26`、`14:29`、`15:20` 的交付期限配置和运维提示，分别服务于 `09:27`、`14:30` 今日推荐和收盘后正式数据，不再作为发送触发器。传输支持断点续传和幂等重试；接收端只有在 SHA-256、SQLite 完整性及对应 `sync_runs.status=published` 全部通过后才提交。
 
 ```bash
 # 查询主机（业务查询 + 接收控制面，不拉行情）

@@ -63,3 +63,18 @@ def test_newer_partial_run_blocks_delivery_of_older_published_run(tmp_path: Path
 
     with pytest.raises(RuntimeError, match="latest.*not published"):
         module.build_snapshot(db, tmp_path / "out")
+
+
+def test_published_run_watcher_emits_new_run_immediately_and_once(tmp_path: Path) -> None:
+    module = _load_module()
+    db = tmp_path / "market.db"
+    store = MarketStore(db)
+    run_id = store.create_sync_run("2026-07-14", worker_id="test")
+    watcher = module.PublishedRunWatcher(db)
+
+    assert watcher.next_run_id() is None
+
+    store.finish_sync_run(run_id, QualityStatus.PUBLISHED)
+    assert watcher.next_run_id() == run_id
+    watcher.mark_sent(run_id)
+    assert watcher.next_run_id() is None

@@ -1044,9 +1044,6 @@ def ths_eps_forecast(code: str) -> list[dict]:
         logger.warning("同花顺一致预期请求失败: %s", e)
         return []
 
-    # 提取汇总预测: "预测2026年每股收益 68.83 元"
-    summary_match = _re.search(r'预测(\d{4})年每股收益.*?<strong>([\d.]+)</strong>', html)
-
     # 提取表格数据: forecast div 里的 td 序列
     # 格式: 机构数, min, mean, max, net_profit, 机构数, min, mean, max, net_profit...
     forecast_match = _re.search(r'id="forecast".*?</div>\s*<div', html, _re.DOTALL)
@@ -1091,17 +1088,6 @@ def ths_eps_forecast(code: str) -> list[dict]:
                     "net_profit": float(nums[4]) if len(nums) > 4 and nums[4] else 0,
                 })
 
-    # fallback: 从 summary 取当年预测
-    if not rows and summary_match:
-        rows.append({
-            "year": summary_match.group(1),
-            "count": 0,
-            "min_eps": 0,
-            "mean_eps": float(summary_match.group(2)),
-            "max_eps": 0,
-            "net_profit": 0,
-        })
-
     return rows
 
 
@@ -1125,12 +1111,13 @@ def hsgt_realtime() -> list[dict]:
         return []
     times = d.get("time", [])
     hgt = d.get("hgt", [])
-    sgt = d.get("sgt", [])
     return [
         {
             "time": t,
             "hgt_yi": hgt[i] if i < len(hgt) else None,
-            "sgt_yi": sgt[i] if i < len(sgt) else None,
+            # Upstream currently exposes an inconsistent Shenzhen series.
+            # Do not promote a reference-only value into a trusted net-flow field.
+            "sgt_yi": None,
         }
         for i, t in enumerate(times)
     ]

@@ -76,6 +76,33 @@ def _latest_published_run(snapshot_db: Path) -> tuple[str, str, str]:
     return str(row[0]), str(row[1]), str(row[3])
 
 
+def _published_run_id(source_db: Path) -> str | None:
+    if not Path(source_db).exists():
+        return None
+    with closing(sqlite3.connect(
+        f"file:{Path(source_db).as_posix()}?mode=ro", uri=True, timeout=10
+    )) as conn:
+        row = conn.execute(
+            "SELECT run_id, status FROM sync_runs ORDER BY started_at DESC, rowid DESC LIMIT 1"
+        ).fetchone()
+    return str(row[0]) if row and row[1] == "published" else None
+
+
+class PublishedRunWatcher:
+    """Emit each newly published run once, independent of wall-clock slots."""
+
+    def __init__(self, source_db: Path) -> None:
+        self.source_db = Path(source_db)
+        self._sent_run_id: str | None = None
+
+    def next_run_id(self) -> str | None:
+        run_id = _published_run_id(self.source_db)
+        return run_id if run_id and run_id != self._sent_run_id else None
+
+    def mark_sent(self, run_id: str) -> None:
+        self._sent_run_id = run_id
+
+
 def build_snapshot(source_db: Path, output_dir: Path) -> tuple[Path, dict[str, Any]]:
     output_dir = Path(output_dir)
     raw = output_dir / "market.snapshot.db"
@@ -176,28 +203,20 @@ def sync_once() -> dict[str, Any]:
         packed.unlink(missing_ok=True)
 
 
-def _due_slot(now: datetime) -> str | None:
-    current = now.strftime("%H:%M")
-    return current if current in PUSH_SLOTS else None
-
-
 def main() -> None:
     log("SigmX verified snapshot sender started")
-    log(f"DB={DB_PATH} receiver={SERVER_URL} slots={','.join(PUSH_SLOTS)}")
+    log(f"DB={DB_PATH} receiver={SERVER_URL} delivery_deadlines={','.join(PUSH_SLOTS)}")
     if not SERVER_URL or not INGEST_TOKEN:
         raise SystemExit("SERVER_URL and MARKET_INGEST_TOKEN are required")
-    completed: set[str] = set()
+    watcher = PublishedRunWatcher(DB_PATH)
     while True:
-        now = datetime.now(TZ_SH)
-        slot = _due_slot(now)
-        slot_key = f"{now:%Y-%m-%d}:{slot}" if slot else None
-        if slot_key and slot_key not in completed:
+        run_id = watcher.next_run_id()
+        if run_id:
             try:
                 sync_once()
-                completed.add(slot_key)
+                watcher.mark_sent(run_id)
             except Exception as exc:  # noqa: BLE001
-                log(f"snapshot delivery failed and will retry within this slot: {exc}")
-        completed = {key for key in completed if key.startswith(f"{now:%Y-%m-%d}:")}
+                log(f"snapshot delivery failed and will retry run={run_id}: {exc}")
         time.sleep(SYNC_INTERVAL)
 
 

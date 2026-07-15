@@ -400,7 +400,7 @@ def _record(
         "ai_review": {"score": ai_score},
         "factor_review": {"score": factor_score},
         "market_context": {"valid": True},
-        "scoring": {"model_version": "daily-v2"},
+        "scoring": {"model_version": routes._RECOMMENDATION_MODEL_VERSION},
         "performance": {"t1": {"return_pct": t1_return}},
     }
 
@@ -604,6 +604,62 @@ def test_reviewed_candidates_rejects_low_deterministic_score_before_ai(
     assert ai_called is False
 
 
+def test_reviewed_candidates_apply_guardrails_in_production_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        routes,
+        "_candidate_pool",
+        lambda slot: [
+            _candidate()
+            | {
+                "score": 0.90,
+                "category_id": "breakout",
+                "change_pct": 7.0,
+                "realtime_confirmation": {"score": 0.90},
+            }
+        ],
+    )
+    monkeypatch.setattr(routes, "_factor_review", lambda item: {"score": 0.90, "status": "ok"})
+    monkeypatch.setattr(routes, "_current_market_regime", lambda: {"regime": "neutral"})
+    monkeypatch.setattr(
+        routes,
+        "_ai_review_candidates",
+        lambda candidates, slot, limit: {
+            "600000.SH": {"score": 0.70, "decision": "recommend", "status": "ok"}
+        },
+    )
+
+    reviewed = routes._reviewed_candidates("morning", 5)
+
+    assert "morning_hot_signal_penalty" in reviewed[0]["attribution_adjustments"]
+    assert "chase_high_penalty" in reviewed[0]["attribution_adjustments"]
+
+
+def test_reviewed_candidates_keep_deterministic_pick_when_ai_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        routes,
+        "_candidate_pool",
+        lambda slot: [
+            _candidate()
+            | {
+                "score": 0.90,
+                "realtime_confirmation": {"score": 0.90},
+            }
+        ],
+    )
+    monkeypatch.setattr(routes, "_factor_review", lambda item: {"score": 0.90, "status": "ok"})
+    monkeypatch.setattr(routes, "_current_market_regime", lambda: {"regime": "neutral"})
+    monkeypatch.setattr(routes, "_ai_review_candidates", lambda *args: (_ for _ in ()).throw(RuntimeError("AI down")))
+
+    reviewed = routes._reviewed_candidates("afternoon", 5)
+
+    assert reviewed[0]["eligible"] is True
+    assert reviewed[0]["ai_review"]["status"] == "unavailable"
+
+
 def _candidate(symbol: str = "600000.SH") -> dict:
     return {
         "symbol": symbol,
@@ -648,7 +704,7 @@ def test_make_record_persists_market_context_and_scoring(monkeypatch: pytest.Mon
             "factor_score": 0.60,
             "ai_adjustment": 0.01,
             "final_score": 0.70,
-            "model_version": "daily-v2",
+            "model_version": routes._RECOMMENDATION_MODEL_VERSION,
         },
     }
 
@@ -656,8 +712,39 @@ def test_make_record_persists_market_context_and_scoring(monkeypatch: pytest.Mon
 
     assert record["market_context"]["valid"] is True
     assert record["market_context"]["daily_as_of"] == "2026-07-13"
-    assert record["scoring"]["model_version"] == "daily-v2"
+    assert record["scoring"]["model_version"] == routes._RECOMMENDATION_MODEL_VERSION
     assert record["scoring"]["final_score"] == 0.70
+
+
+def test_promotion_status_requires_forward_evidence() -> None:
+    records = [_record(slot="morning", category="trend", score=0.7, change_pct=1, t1_return=1.0)]
+
+    status = routes._promotion_status(records, min_samples=3)
+
+    assert status["decision"] == "insufficient_evidence"
+    assert status["completed_samples"] == 1
+
+
+def test_promotion_status_rejects_negative_expectancy() -> None:
+    records = [
+        _record(slot="morning", category="trend", score=0.7, change_pct=1, t1_return=value)
+        for value in (-1.0, -0.5, 0.2)
+    ]
+
+    status = routes._promotion_status(records, min_samples=3)
+
+    assert status["decision"] == "rejected"
+
+
+def test_promotion_status_promotes_positive_expectancy() -> None:
+    records = [
+        _record(slot="afternoon", category="trend", score=0.7, change_pct=1, t1_return=value)
+        for value in (1.0, 0.8, -0.1)
+    ]
+
+    status = routes._promotion_status(records, min_samples=3)
+
+    assert status["decision"] == "eligible"
 
 
 def test_summary_excludes_legacy_and_invalid_records() -> None:

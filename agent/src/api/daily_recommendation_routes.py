@@ -75,8 +75,9 @@ _RECOMMENDATION_FACTOR_POLARITY = {
     "qlib158_std60": -1,
     "qlib158_ma5": -1,
 }
-_RECOMMENDATION_MODEL_VERSION = "daily-v2"
+_RECOMMENDATION_MODEL_VERSION = "daily-v3"
 _MIN_DETERMINISTIC_SCORE = 0.62
+_MIN_EVIDENCE_COVERAGE = 0.75
 _MAX_CATEGORY_PICKS = 3
 _MAX_AFTERNOON_REPEATS = 2
 
@@ -103,10 +104,6 @@ def _normalize_phase(value: str) -> str:
 
 def _normalize_slot(slot: str) -> str:
     return _PHASES[_normalize_phase(slot)].analysis_slot
-
-
-def _slot_label(slot: str) -> str:
-    return {"morning": "9:27", "afternoon": "14:30", "manual": "手动生成"}.get(slot, slot)
 
 
 def _slot_label(slot: str) -> str:
@@ -898,28 +895,31 @@ def _deterministic_score(
 ) -> dict[str, Any]:
     base_score = float(item.get("score", item.get("confidence", 0.5)) or 0.5)
     realtime_score = float((item.get("realtime_confirmation") or {}).get("score", 0.5) or 0.5)
-    factor_score = float((item.get("factor_review") or {}).get("score", 0.5) or 0.5)
+    factor_review = item.get("factor_review") or {}
+    factor_score = float(factor_review.get("score", 0.5) or 0.5)
     regime = str((market_regime or {}).get("regime") or "neutral")
     regime_adjustment = -0.05 if regime == "risk_off" else 0.03 if regime == "risk_on" else 0.0
-    deterministic = max(
-        0.01,
-        min(
-            0.99,
-            base_score * 0.45
-            + realtime_score * 0.30
-            + factor_score * 0.20
-            + regime_adjustment,
-        ),
-    )
+    evidence = [("base", base_score, 0.45), ("realtime", realtime_score, 0.30)]
+    if factor_review.get("status") == "ok":
+        evidence.append(("factor", factor_score, 0.20))
+    available_weight = sum(weight for _, _, weight in evidence)
+    evidence_coverage = available_weight / 0.95
+    deterministic = sum(value * weight for _, value, weight in evidence) / available_weight
+    deterministic = max(0.01, min(0.99, deterministic + regime_adjustment))
     enriched = dict(item)
     enriched["deterministic_score"] = round(deterministic, 3)
-    enriched["eligible"] = deterministic >= _MIN_DETERMINISTIC_SCORE
+    enriched["eligible"] = (
+        deterministic >= _MIN_DETERMINISTIC_SCORE
+        and evidence_coverage >= _MIN_EVIDENCE_COVERAGE
+    )
     enriched["score"] = round(deterministic, 3)
     enriched["market_regime"] = market_regime or {"regime": "neutral"}
     enriched["scoring"] = {
         "base_score": round(base_score, 3),
         "realtime_score": round(realtime_score, 3),
         "factor_score": round(factor_score, 3),
+        "evidence_sources": [name for name, _, _ in evidence],
+        "evidence_coverage": round(evidence_coverage, 3),
         "regime_adjustment": round(regime_adjustment, 3),
         "deterministic_score": round(deterministic, 3),
         "ai_adjustment": 0.0,
@@ -1075,6 +1075,7 @@ def _reviewed_candidates(slot: str, limit: int) -> list[dict[str, Any]]:
     for item in shortlist:
         factor = _factor_review(item)
         item["factor_review"] = factor
+        item = _apply_attribution_guardrails(item, slot, market_regime)
         scored = _deterministic_score(item, market_regime)
         item.clear()
         item.update(scored)
@@ -1083,13 +1084,24 @@ def _reviewed_candidates(slot: str, limit: int) -> list[dict[str, Any]]:
     if not eligible:
         raise HTTPException(status_code=503, detail="没有达到确定性评分门槛的推荐标的")
     eligible.sort(key=lambda item: float(item.get("deterministic_score", 0) or 0), reverse=True)
-    ai_reviews = _ai_review_candidates(eligible, slot, limit)
+    try:
+        ai_reviews = _ai_review_candidates(eligible, slot, limit)
+    except Exception as exc:
+        logger.warning("daily recommendation AI review unavailable: %s", exc)
+        ai_reviews = {}
     reviewed: list[dict[str, Any]] = []
     for item in eligible:
         symbol = str(item.get("symbol", "")).upper()
         ai = ai_reviews.get(symbol)
         if not ai:
-            continue
+            ai = {
+                "score": 0.5,
+                "decision": "recommend",
+                "summary": "",
+                "risk": "",
+                "factor_note": "",
+                "status": "unavailable",
+            }
         item["ai_review"] = ai
         item = _apply_ai_adjustment(item)
         if item.get("eligible"):
@@ -1357,6 +1369,27 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "t1_count": len(t1_returns),
         "t1_win_rate": round(len(wins) / len(t1_returns) * 100, 1),
         "t1_avg_return": round(sum(t1_returns) / len(t1_returns), 2),
+    }
+
+
+def _promotion_status(records: list[dict[str, Any]], *, min_samples: int = 30) -> dict[str, Any]:
+    records = [record for record in records if _is_valid_model_record(record)]
+    completed = [record for record in records if record.get("performance", {}).get("t1")]
+    returns = [float(record["performance"]["t1"]["return_pct"]) for record in completed]
+    average = round(sum(returns) / len(returns), 2) if returns else None
+    if len(returns) < min_samples:
+        decision = "insufficient_evidence"
+    elif average is not None and average > 0:
+        decision = "eligible"
+    else:
+        decision = "rejected"
+    return {
+        "model_version": _RECOMMENDATION_MODEL_VERSION,
+        "decision": decision,
+        "completed_samples": len(returns),
+        "min_samples": min_samples,
+        "t1_avg_return": average,
+        "requires_positive_expectancy": True,
     }
 
 
@@ -1744,6 +1777,7 @@ def register_daily_recommendation_routes(
         return {
             "days": days,
             "summary": _summary(enriched),
+            "promotion_status": _promotion_status(enriched),
             "by_slot": slot_rows,
             "by_phase": phase_rows,
             "items": enriched,

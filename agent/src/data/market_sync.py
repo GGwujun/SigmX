@@ -2005,70 +2005,8 @@ def _sync_stock_capital(store: MarketStore, trade_date: str) -> int:
     return _sync_stock_capital_tpdog_current(store, trade_date)
 
 
-def _sync_stock_capital_rank(store: MarketStore, trade_date: str) -> int:
-    """Persist whole-market stock main-force inflow/outflow rankings."""
-    try:
-        import akshare as ak
-        df = ak.stock_individual_fund_flow_rank(indicator="今日")
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("stock capital rank sync failed: %s", exc)
-        return 0
-    if df is None or df.empty:
-        return 0
-
-    code_col = _pick_column(df, ("代码",), 1)
-    name_col = _pick_column(df, ("名称",), 2)
-    net_col = _pick_column(df, ("主力净流入", "净额"), None) or _pick_column(df, ("主力", "净流入"), 3)
-    pct_col = _pick_column(df, ("涨跌幅",), 4)
-    if not code_col or not net_col:
-        return 0
-
-    rows: list[dict[str, Any]] = []
-    working = df.copy()
-    working["_main_net"] = working[net_col].map(_num)
-    working["_change_pct"] = working[pct_col].map(_num) if pct_col else 0.0
-
-    def _row(raw: Any, rank_type: str) -> dict[str, Any]:
-        return {
-            "rank_type": rank_type,
-            "code": str(raw.get(code_col, "")),
-            "name": str(raw.get(name_col, "")) if name_col else "",
-            "main_net": raw.get("_main_net", 0.0),
-            "change_pct": raw.get("_change_pct", 0.0),
-            "source": "akshare.stock_individual_fund_flow_rank",
-        }
-
-    rows.extend(_row(raw, "inflow") for _, raw in working.sort_values("_main_net", ascending=False).head(50).iterrows())
-    rows.extend(_row(raw, "outflow") for _, raw in working.sort_values("_main_net", ascending=True).head(50).iterrows())
-    return store.upsert_stock_capital_rank(trade_date, rows)
 
 
-def _sync_sector_capital(store: MarketStore, trade_date: str) -> int:
-    """Persist industry sector fund-flow ranking."""
-    try:
-        import akshare as ak
-        df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("sector capital sync failed: %s", exc)
-        return 0
-    if df is None or df.empty:
-        return 0
-
-    name_col = _pick_column(df, ("名称",), 1)
-    net_col = _pick_column(df, ("主力净流入", "净额"), None) or _pick_column(df, ("主力", "净流入"), 3)
-    pct_col = _pick_column(df, ("涨跌幅",), 2)
-    if not name_col or not net_col:
-        return 0
-    rows = [
-        {
-            "sector": str(raw.get(name_col, "")),
-            "main_net": _num(raw.get(net_col)),
-            "change_pct": _num(raw.get(pct_col)) if pct_col else 0.0,
-            "source": "akshare.stock_sector_fund_flow_rank",
-        }
-        for _, raw in df.head(80).iterrows()
-    ]
-    return store.upsert_sector_capital(trade_date, rows)
 
 
 def _build_sector_snapshot_rows(df: Any, source: str) -> list[dict[str, Any]]:
@@ -2094,34 +2032,6 @@ def _build_sector_snapshot_rows(df: Any, source: str) -> list[dict[str, Any]]:
     return rows
 
 
-def _sync_sector_snapshot(store: MarketStore, trade_date: str) -> int:
-    """Persist industry and concept board snapshots for themes/heatmaps."""
-    try:
-        import akshare as ak
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("sector snapshot sync import failed: %s", exc)
-        return 0
-
-    total = 0
-    try:
-        industry = ak.stock_board_industry_name_em()
-        total += store.upsert_sector_snapshot(
-            trade_date,
-            "industry",
-            _build_sector_snapshot_rows(industry, "akshare.stock_board_industry_name_em"),
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("industry snapshot sync failed: %s", exc)
-    try:
-        concept = ak.stock_board_concept_name_em()
-        total += store.upsert_sector_snapshot(
-            trade_date,
-            "concept",
-            _build_sector_snapshot_rows(concept, "akshare.stock_board_concept_name_em"),
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("concept snapshot sync failed: %s", exc)
-    return total
 
 
 def _sync_stock_capital_rank_akshare(store: MarketStore, trade_date: str) -> int:
@@ -3299,37 +3209,6 @@ def _sync_us_theme_snapshot(store: MarketStore, trade_date: str) -> int:
     return store.upsert_us_theme_snapshot(trade_date, rows)
 
 
-def _sync_us_a_share_transmission(store: MarketStore, trade_date: str) -> int:
-    themes = store.get_us_theme_snapshot(trade_date, limit=80)
-    if not themes:
-        return 0
-    rows = []
-    for theme in themes:
-        change = _num(theme.get("change_pct"))
-        if change > 0.35:
-            direction = "positive"
-            reason = "美股代理题材收涨，A股对应方向盘前关注承接强弱。"
-        elif change < -0.35:
-            direction = "negative"
-            reason = "美股代理题材收跌，A股对应方向盘前关注风险释放。"
-        else:
-            direction = "neutral"
-            reason = "美股代理题材波动有限，A股对应方向不生成强传导结论。"
-        rows.append({
-            "theme_id": theme.get("theme_id"),
-            "us_theme": theme.get("theme_name"),
-            "a_share_themes": theme.get("a_share_mapping") or [],
-            "signal_strength": change,
-            "direction": direction,
-            "reason": reason,
-            "source_data": {
-                "proxy_symbol": theme.get("proxy_symbol"),
-                "proxy_name": theme.get("proxy_name"),
-                "change_pct": change,
-                "source": theme.get("source"),
-            },
-        })
-    return store.upsert_us_a_share_transmission(trade_date, rows)
 
 
 def _sync_us_a_share_transmission(store: MarketStore, trade_date: str) -> int:
@@ -3725,393 +3604,8 @@ def _sync_market_breadth_snapshot(store: MarketStore, trade_date: str) -> int:
     return written
 
 
-def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
-    """Materialize the four stage pages from already-synced formal tables."""
-    written = 0
-    pool = _pool_payload(store, trade_date)
-    breadth_snapshot = store.get_market_breadth_snapshot(trade_date) or {}
-    sector_capital = store.get_sector_capital(trade_date, limit=10)
-    stock_inflow = store.get_stock_capital_rank(trade_date, "inflow", limit=10)
-    stock_outflow = store.get_stock_capital_rank(trade_date, "outflow", limit=10)
-    concepts = store.get_sector_snapshot(trade_date, "concept", limit=40)
-    industries = store.get_sector_snapshot(trade_date, "industry", limit=20)
-
-    missing = []
-    if not pool["limit_up_count"] and not pool["limit_down_count"]:
-        missing.append("stock_pool")
-    if not sector_capital:
-        missing.append("sector_capital_flow")
-    if not stock_inflow and not stock_outflow:
-        missing.append("stock_capital_rank")
-    if not concepts and not industries:
-        missing.append("sector_snapshot")
-    if not breadth_snapshot:
-        missing.append("market_breadth_snapshot")
-
-    board_rows = concepts or industries
-    main_lines = [
-        {"name": r.get("name"), "change_pct": r.get("change_pct"), "leader": r.get("leader")}
-        for r in board_rows[:5]
-    ]
-
-    common = {
-        "trade_date": trade_date,
-        "data_status": "partial" if missing else "ok",
-        "missing_tables": missing,
-        "source_policy": "db_only",
-    }
-    emotion_score = min(100.0, max(0.0, 50.0 + pool["limit_up_count"] * 0.35 - pool["limit_down_count"] * 0.55 + pool["max_limit_up_height"] * 2.5))
-    if emotion_score >= 70:
-        emotion_phase = "升温"
-        emotion_note = "涨停与连板结构偏强，关注主线承接。"
-    elif emotion_score <= 35:
-        emotion_phase = "退潮"
-        emotion_note = "跌停或亏钱效应偏强，优先控制回撤。"
-    else:
-        emotion_phase = "震荡"
-        emotion_note = "情绪温和，观察资金是否形成一致方向。"
-    hot_boards = concepts[:8] or industries[:8]
-    limitup_ladder = pool.get("limitup_ladder") or []
-    tail_watch = []
-    for item in (pool.get("limit_up_list") or [])[:8]:
-        tail_watch.append({
-            "symbol": item.get("symbol"),
-            "name": item.get("name"),
-            "label": f"{item.get('days') or 1}板",
-            "basis": "来自 stock_pool 涨停池；仅作为观察池，不生成交易指令。",
-        })
-    close_topic_cards = [
-        {
-            "name": row.get("name"),
-            "change_pct": row.get("change_pct"),
-            "leader": row.get("leader"),
-            "basis": "来自 sector_snapshot 收盘题材/行业快照。",
-        }
-        for row in hot_boards[:6]
-    ]
-
-    snapshots = {
-        "morning-brief": {
-            **common,
-            "title": "早盘内参",
-            "brief": "盘前内参只展示已落库的隔夜、板块、资金和事件数据；缺失项不做推断。",
-            "indices": [],
-            "overnight_markets": [],
-            "mapped_themes": main_lines,
-            "key_events": [],
-            "risk_note": "缺少隔夜市场/事件正式快照表时，不生成盘前映射结论。",
-        },
-        "intraday-monitor": {
-            **common,
-            "title": "盘中监控",
-            "emotion": {
-                "score": round(emotion_score, 1),
-                "phase": emotion_phase,
-                "note": emotion_note,
-                "temperature": "高" if emotion_score >= 70 else ("低" if emotion_score <= 35 else "温和"),
-            },
-            "breadth": {
-                "total": breadth_snapshot.get("total"),
-                "advancers": breadth_snapshot.get("advancers"),
-                "decliners": breadth_snapshot.get("decliners"),
-                "unchanged": breadth_snapshot.get("unchanged"),
-                "limit_up": pool["limit_up_count"],
-                "limit_down": pool["limit_down_count"],
-                "max_limit_up_height": pool["max_limit_up_height"],
-                "turnover_billion": breadth_snapshot.get("turnover_billion"),
-                "source": breadth_snapshot.get("source"),
-            },
-            "hot_sectors": industries[:10],
-            "hot_themes": hot_boards,
-            "limitup_ladder": limitup_ladder,
-            "sector_capital_top": sector_capital[:5],
-            "stock_inflow_top": stock_inflow[:8],
-            "stock_outflow_top": stock_outflow[:8],
-            "alerts": [
-                {"title": emotion_phase, "message": emotion_note, "source": "stock_pool"},
-            ] if pool["limit_up_count"] or pool["limit_down_count"] else [],
-            "scheduled_tasks": [],
-        },
-        "tail-strategy": {
-            **common,
-            "title": "尾盘策略",
-            "pools": pool,
-            "emotion": {
-                "score": round(emotion_score, 1),
-                "phase": emotion_phase,
-                "note": emotion_note,
-                "temperature": "高" if emotion_score >= 70 else ("低" if emotion_score <= 35 else "温和"),
-            },
-            "sector_capital_top": sector_capital[:5],
-            "watchlist": tail_watch,
-            "next_day_plan": [
-                {
-                    "title": "强势延续观察",
-                    "items": [row.get("name") for row in tail_watch[:4] if row.get("name")],
-                    "basis": "来自涨停池和连板高度；次日仅观察竞价与承接。",
-                },
-                {
-                    "title": "风险规避",
-                    "items": [row.get("name") for row in (pool.get("limit_down_list") or [])[:4] if row.get("name")],
-                    "basis": "来自跌停池；情绪转弱时优先避开。",
-                },
-            ],
-            "risk_blocks": [
-                {"title": "亏钱效应", "value": pool["limit_down_count"], "basis": "stock_pool.limitdown"},
-                {"title": "连板高度", "value": pool["max_limit_up_height"], "basis": "stock_pool.limitup"},
-                {"title": "资金表", "value": "已同步" if sector_capital else "未同步", "basis": "sector_capital_flow"},
-            ],
-            "decisions": [],
-            "groups": {},
-            "rules": [
-                "尾盘动作卡必须来自正式策略/持仓/风险表；缺表时不生成候选。",
-                "涨跌停和连板只读取 stock_pool。",
-            ],
-        },
-        "close-review": {
-            **common,
-            "title": "收盘复盘",
-            "pools": pool,
-            "sector_capital_top": sector_capital[:5],
-            "themes": {"concept_sectors": concepts, "industry_sectors": industries, "main_lines": main_lines},
-            "topic_cards": close_topic_cards,
-            "summary": {
-                "emotion_score": round(emotion_score, 1),
-                "emotion_phase": emotion_phase,
-                "limit_up": pool["limit_up_count"],
-                "limit_down": pool["limit_down_count"],
-                "max_limit_up_height": pool["max_limit_up_height"],
-            },
-            "dig_records": close_topic_cards,
-            "tomorrow_watch": [],
-            "review_questions": [
-                "今日涨跌停与连板结构如何？",
-                "资金流正式表是否已同步？",
-                "主线/题材快照是否已同步？",
-            ],
-        },
-    }
-    for stage, payload in snapshots.items():
-        written += store.upsert_market_stage_snapshot(
-            trade_date,
-            stage,
-            payload,
-            source_tables=["stock_pool", "sector_capital_flow", "stock_capital_rank", "sector_snapshot"],
-        )
-    return written
 
 
-def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
-    """Materialize the four stage pages from already-synced formal tables."""
-    written = 0
-    pool = _pool_payload(store, trade_date)
-    sector_capital = store.get_sector_capital(trade_date, limit=10)
-    stock_inflow = store.get_stock_capital_rank(trade_date, "inflow", limit=10)
-    stock_outflow = store.get_stock_capital_rank(trade_date, "outflow", limit=10)
-    concepts = store.get_sector_snapshot(trade_date, "concept", limit=40)
-    industries = store.get_sector_snapshot(trade_date, "industry", limit=20)
-
-    missing = []
-    if not pool["limit_up_count"] and not pool["limit_down_count"]:
-        missing.append("stock_pool")
-    if not sector_capital:
-        missing.append("sector_capital_flow")
-    if not stock_inflow and not stock_outflow:
-        missing.append("stock_capital_rank")
-    if not concepts and not industries:
-        missing.append("sector_snapshot")
-
-    board_rows = concepts or industries
-    main_lines = [
-        {"name": r.get("name"), "change_pct": r.get("change_pct"), "leader": r.get("leader")}
-        for r in board_rows[:5]
-    ]
-    common = {
-        "trade_date": trade_date,
-        "data_status": "partial" if missing else "ok",
-        "missing_tables": missing,
-        "source_policy": "db_only",
-    }
-    morning_common = {
-        "trade_date": trade_date,
-        "data_status": "ok",
-        "missing_tables": [],
-        "source_policy": "db_only",
-    }
-    emotion_score = min(
-        100.0,
-        max(0.0, 50.0 + pool["limit_up_count"] * 0.35 - pool["limit_down_count"] * 0.55 + pool["max_limit_up_height"] * 2.5),
-    )
-    if emotion_score >= 70:
-        emotion_phase = "\u56de\u6696"
-        emotion_temperature = "\u504f\u70ed"
-        emotion_note = "\u6da8\u505c\u548c\u8fde\u677f\u7ed3\u6784\u504f\u5f3a\uff0c\u91cd\u70b9\u89c2\u5bdf\u4e3b\u7ebf\u627f\u63a5\u3002"
-    elif emotion_score <= 35:
-        emotion_phase = "\u9000\u6f6e"
-        emotion_temperature = "\u504f\u51b7"
-        emotion_note = "\u8dcc\u505c\u6216\u4e8f\u94b1\u6548\u5e94\u504f\u5f3a\uff0c\u4f18\u5148\u63a7\u5236\u56de\u64a4\u3002"
-    else:
-        emotion_phase = "\u9707\u8361"
-        emotion_temperature = "\u6e29\u548c"
-        emotion_note = "\u60c5\u7eea\u6e29\u548c\uff0c\u89c2\u5bdf\u8d44\u91d1\u662f\u5426\u5f62\u6210\u4e00\u81f4\u65b9\u5411\u3002"
-    emotion = {
-        "score": round(emotion_score, 1),
-        "phase": emotion_phase,
-        "temperature": emotion_temperature,
-        "note": emotion_note,
-    }
-    hot_themes = concepts[:8] or industries[:8]
-    tail_watch = [
-        {
-            "symbol": row.get("symbol"),
-            "name": row.get("name"),
-            "label": f"{row.get('days') or 1}\u677f",
-            "basis": "\u6765\u81ea stock_pool \u6da8\u505c\u6c60\uff1b\u4ec5\u4f5c\u89c2\u5bdf\uff0c\u4e0d\u751f\u6210\u4ea4\u6613\u6307\u4ee4\u3002",
-        }
-        for row in (pool.get("limit_up_list") or [])[:8]
-    ]
-    tail_candidates = []
-    for idx, row in enumerate((pool.get("limit_up_list") or [])[:6], start=1):
-        days = int(_num(row.get("days") or 1))
-        theme = (hot_themes[(idx - 1) % len(hot_themes)] if hot_themes else {}) or {}
-        category = "\u4e3b\u5347\u4e2d\u6bb5" if days >= 3 else ("\u52a0\u901f\u6bb5" if days == 2 else "\u8d8b\u52bf\u4e2d\u6bb5")
-        tail_candidates.append({
-            "rank": idx,
-            "symbol": row.get("symbol"),
-            "name": row.get("name"),
-            "theme": theme.get("name") or "\u8fde\u677f\u60c5\u7eea",
-            "line_type": "\u4e3b\u7ebf" if days >= 3 else "\u6b21\u4e3b\u7ebf",
-            "stage": category,
-            "reason": f"{days}\u677f\u8fde\u677f\u6c60\uff0c\u5c3e\u76d8\u89c2\u5bdf\u5c01\u677f\u5f3a\u5ea6\u548c\u6b21\u65e5\u627f\u63a5\u3002",
-            "position_note": "\u89c2\u5bdf\u4ed3\uff1b\u4e0d\u751f\u6210\u4e70\u5165\u6307\u4ee4",
-            "stop_note": "\u8dcc\u7834\u5c01\u677f\u627f\u63a5\u6216\u6b21\u65e5\u4f4e\u5f00\u4e0d\u4fee\u590d",
-            "risk": "\u9ad8\u4f4d\u8fde\u677f\u5206\u6b67\u98ce\u9669",
-            "rr": round(1.8 + min(days, 5) * 0.25, 1),
-            "source": "stock_pool.limitup",
-        })
-    watch_groups = [
-        {
-            "title": "\u5c3e\u76d8\u8d44\u91d1\u56de\u6d41",
-            "items": [
-                {
-                    "name": row.get("sector"),
-                    "note": f"\u4e3b\u529b\u51c0\u6d41 {round(_num(row.get('main_net')) / 100000000, 2)}\u4ebf\uff0c\u5c3e\u76d8\u89c2\u5bdf\u627f\u63a5\u3002",
-                }
-                for row in sector_capital[:2]
-            ],
-        },
-        {
-            "title": "\u6b21\u65e5\u6709\u9884\u671f",
-            "items": [
-                {"name": row.get("name"), "note": f"{row.get('label')}\u9ad8\u5ea6\uff0c\u6b21\u65e5\u770b\u5206\u6b67\u8f6c\u4e00\u81f4\u3002"}
-                for row in tail_watch[:2]
-            ],
-        },
-        {
-            "title": "\u5f3a\u52bf\u677f\u5757 \u00b7 \u53ef\u80fd\u5ef6\u7eed",
-            "items": [
-                {"name": row.get("name"), "note": f"\u677f\u5757\u6da8\u5e45 {round(_num(row.get('change_pct')), 2)}%\uff0c\u8ddf\u8e2a\u4e3b\u7ebf\u627f\u63a5\u3002"}
-                for row in hot_themes[:2]
-            ],
-        },
-        {
-            "title": "\u8d8b\u52bf\u7968 \u00b7 \u7ee7\u7eed\u8ddf\u8e2a",
-            "items": [
-                {"name": row.get("name"), "note": "\u8fde\u677f\u6c60\u5f3a\u52bf\u6837\u672c\uff0c\u4ec5\u505a\u8d8b\u52bf\u89c2\u5bdf\u3002"}
-                for row in tail_watch[2:4]
-            ],
-        },
-        {
-            "title": "\u9ad8\u76c8\u4e8f\u6bd4",
-            "items": [
-                {"name": row.get("name"), "note": f"\u76c8\u4e8f\u6bd4 {row.get('rr')}\uff0c\u98ce\u9669\uff1a{row.get('risk')}"}
-                for row in tail_candidates[:2]
-            ],
-        },
-    ]
-    next_day_plan = [
-        {
-            "title": "\u5f3a\u52bf\u5ef6\u7eed\u89c2\u5bdf",
-            "items": [row.get("name") for row in tail_watch[:4] if row.get("name")],
-            "basis": "\u6765\u81ea\u6da8\u505c\u6c60\u548c\u8fde\u677f\u9ad8\u5ea6\uff0c\u6b21\u65e5\u53ea\u89c2\u5bdf\u7ade\u4ef7\u4e0e\u627f\u63a5\u3002",
-        },
-        {
-            "title": "\u98ce\u9669\u89c4\u907f",
-            "items": [row.get("name") for row in (pool.get("limit_down_list") or [])[:4] if row.get("name")],
-            "basis": "\u6765\u81ea\u8dcc\u505c\u6c60\uff1b\u60c5\u7eea\u8f6c\u5f31\u65f6\u4f18\u5148\u89c4\u907f\u3002",
-        },
-    ]
-    risk_blocks = [
-        {"title": "\u8dcc\u505c\u5bb6\u6570", "value": pool["limit_down_count"], "basis": "stock_pool.limitdown"},
-        {"title": "\u8fde\u677f\u9ad8\u5ea6", "value": pool["max_limit_up_height"], "basis": "stock_pool.limitup"},
-        {"title": "\u884c\u4e1a\u8d44\u91d1", "value": "\u5df2\u540c\u6b65" if sector_capital else "\u672a\u540c\u6b65", "basis": "sector_capital_flow"},
-    ]
-    topic_cards = [
-        {
-            "name": row.get("name"),
-            "change_pct": row.get("change_pct"),
-            "leader": row.get("leader"),
-            "basis": "\u6765\u81ea sector_snapshot \u9898\u6750/\u884c\u4e1a\u5feb\u7167\u3002",
-        }
-        for row in hot_themes[:6]
-    ]
-    snapshots = {
-        "morning-brief": _build_morning_brief_payload(store, trade_date, morning_common),
-        "intraday-monitor": {
-            **common,
-            "title": "盘中监控",
-            "breadth": {
-                "limit_up": pool["limit_up_count"],
-                "limit_down": pool["limit_down_count"],
-                "max_limit_up_height": pool["max_limit_up_height"],
-            },
-            "hot_sectors": industries[:10],
-            "sector_capital_top": sector_capital[:5],
-            "stock_inflow_top": stock_inflow[:8],
-            "stock_outflow_top": stock_outflow[:8],
-            "alerts": [],
-            "scheduled_tasks": [],
-        },
-        "tail-strategy": {
-            **common,
-            "title": "尾盘策略",
-            "pools": pool,
-            "sector_capital_top": sector_capital[:5],
-            "decisions": [],
-            "groups": {},
-            "rules": [
-                "尾盘动作卡必须来自正式策略/持仓/风险表；缺表时不生成候选。",
-                "涨跌停和连板只读取 stock_pool。",
-            ],
-        },
-        "close-review": {
-            **common,
-            "title": "收盘复盘",
-            "pools": pool,
-            "sector_capital_top": sector_capital[:5],
-            "themes": {"concept_sectors": concepts, "industry_sectors": industries, "main_lines": main_lines},
-            "summary": {},
-            "tomorrow_watch": [],
-            "review_questions": [
-                "今日涨跌停与连板结构如何？",
-                "资金流正式表是否已同步？",
-                "主线/题材快照是否已同步？",
-            ],
-        },
-    }
-    for stage, payload in snapshots.items():
-        source_tables = (
-            ["global_market_index_daily", "us_theme_snapshot", "us_a_share_transmission", "premarket_news"]
-            if stage == "morning-brief"
-            else ["stock_pool", "sector_capital_flow", "stock_capital_rank", "sector_snapshot"]
-        )
-        written += store.upsert_market_stage_snapshot(
-            trade_date,
-            stage,
-            payload,
-            source_tables=source_tables,
-        )
-    return written
 
 
 def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
@@ -4597,6 +4091,39 @@ def _sync_fund_premium_snapshot(store: MarketStore, trade_date: str) -> int:
 # ── a-stock-data 扩展 sync 函数 ───────────────────────────────────
 
 
+def _contract_rows(
+    store: MarketStore,
+    dataset: str,
+    providers: list[tuple[str, Any]],
+    trade_date: str,
+    *,
+    identity: str = "market",
+) -> list[dict[str, Any]]:
+    from src.data.dataset_contracts import run_provider_chain
+
+    result = run_provider_chain(dataset, providers, trade_date=trade_date)
+    diagnostics = {
+        "dataset": dataset,
+        "identity": identity,
+        "trade_date": trade_date,
+        "selected_source": result.source,
+        "attempts": [
+            {
+                "source": attempt.source,
+                "valid": attempt.valid,
+                "row_count": attempt.row_count,
+                "reasons": list(attempt.reasons),
+            }
+            for attempt in result.attempts
+        ],
+    }
+    store.set_meta(
+        f"provider_diagnostic:{dataset}:{trade_date}:{identity}",
+        json.dumps(diagnostics, ensure_ascii=False, sort_keys=True),
+    )
+    return [{**row, "source": result.source} for row in result.rows]
+
+
 def _sync_ths_hot_reason(store: MarketStore, trade_date: str) -> int:
     """同花顺强势股题材归因（不封 IP）。"""
     try:
@@ -4693,7 +4220,13 @@ def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
     for stored_code in codes:
         code = stored_code.split(".")[0]
         try:
-            forecasts = ths_eps_forecast(code)
+            forecasts = _contract_rows(
+                store,
+                "eps_forecast",
+                [("ths", lambda: ths_eps_forecast(code))],
+                trade_date,
+                identity=stored_code,
+            )
             if forecasts:
                 total += store.upsert_eps_forecast(stored_code, trade_date, forecasts)
         except Exception:
@@ -4915,7 +4448,7 @@ def _sync_option_chain(store: MarketStore, trade_date: str) -> int:
 
 def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
     """东财日级资金流 120 日。"""
-    from src.data.astock_client import stock_fund_flow_120d
+    from src.data.astock_client import fund_flow_backup, stock_fund_flow_120d
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4927,7 +4460,16 @@ def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
     for stored_code in codes:
         code = stored_code.split(".")[0]
         try:
-            flows = stock_fund_flow_120d(code)
+            flows = _contract_rows(
+                store,
+                "fund_flow_daily",
+                [
+                    ("eastmoney", lambda: stock_fund_flow_120d(code)),
+                    ("sina", lambda: fund_flow_backup(code, days=120)),
+                ],
+                trade_date,
+                identity=stored_code,
+            )
             if flows:
                 total += store.upsert_fund_flow_daily(stored_code, flows)
         except Exception:
@@ -4939,7 +4481,12 @@ def _sync_northbound(store: MarketStore, trade_date: str) -> int:
     """同花顺北向资金分钟流向（不封 IP）。"""
     from src.data.astock_client import hsgt_realtime
     try:
-        rows = hsgt_realtime()
+        rows = _contract_rows(
+            store,
+            "northbound_flow",
+            [("ths", hsgt_realtime)],
+            trade_date,
+        )
     except Exception as exc:
         logger.debug("hsgt_realtime failed: %s", exc)
         return 0
