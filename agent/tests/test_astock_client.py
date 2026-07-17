@@ -3,8 +3,25 @@ from __future__ import annotations
 import ast
 import json
 from pathlib import Path
+from unittest import mock
 
 from src.data import astock_client as client
+
+
+def test_tencent_quote_preserves_volume() -> None:
+    fields = [""] * 53
+    fields[1] = "PF Bank"
+    fields[3] = "10.00"
+    fields[4] = "9.00"
+    fields[36] = "123456"
+    payload = f'v_sh600000="{"~".join(fields)}";'.encode("gbk")
+    response = mock.MagicMock()
+    response.read.return_value = payload
+
+    with mock.patch("urllib.request.urlopen", return_value=response):
+        result = client.tencent_quote(["600000"])
+
+    assert result["600000"]["volume"] == 123456.0
 
 
 def test_stock_news_payload_accepts_direct_article_list() -> None:

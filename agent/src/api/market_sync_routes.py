@@ -91,18 +91,29 @@ def _latest_synced() -> dict[str, str]:
 
 
 def _expected_settled_date(store) -> str | None:
-    """Resolve the expected date from the local canonical calendar only."""
-    from src.data.market_sync import _now_cst
+    """Resolve the expected settled date from the akshare calendar.
 
+    Same source as the sync scheduler and ``is_trading_day``; the DB table is a
+    cross-check fallback only.
+    """
+    from src.data.market_sync import _now_cst
+    from src.data.trade_calendar import expected_settled_date
+
+    settled = expected_settled_date(_now_cst())
+    if settled:
+        return settled
     now = _now_cst()
     cutoff = now.date().isoformat()
     if now.hour < 15 or (now.hour == 15 and now.minute < 5):
         cutoff = (now.date() - timedelta(days=1)).isoformat()
-    row = store._conn.execute(
-        "SELECT MAX(trade_date) AS d FROM trade_calendar "
-        "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
-        (cutoff,),
-    ).fetchone()
+    try:
+        row = store._conn.execute(
+            "SELECT MAX(trade_date) AS d FROM trade_calendar "
+            "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
+            (cutoff,),
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
     return str(row["d"]) if row and row["d"] else None
 
 
@@ -138,6 +149,68 @@ def _raise_worker_required() -> None:
             "message": "The business API is read-only; run synchronization through vibe-trading-sync.",
         },
     )
+
+
+def _dataset_status_payload(store, dataset: str, expected_date: str | None) -> dict[str, Any]:
+    from src.data.dataset_registry import contract_for
+
+    contract = contract_for(dataset)
+    entry: dict[str, Any] = {
+        "dataset": dataset,
+        "expected_date": expected_date,
+        "ready": False,
+        "status": "unknown",
+        "valid_rows": 0,
+        "expected_rows": contract.minimum_rows,
+        "blocking": contract.blocking,
+        "recommendation_input": contract.recommendation_input,
+        "blocking_reasons": [],
+        "sync_errors": [],
+    }
+    if not expected_date:
+        entry["blocking_reasons"] = ["canonical_trade_calendar_unavailable"]
+        entry["sync_errors"] = store.list_sync_errors(dataset)
+        return entry
+    readiness = store.get_data_readiness(dataset, expected_date)
+    entry.update(
+        {
+            "as_of": readiness.as_of,
+            "ready": readiness.ready,
+            "status": readiness.status.value,
+            "valid_rows": readiness.valid_rows,
+            "published_rows": readiness.published_rows,
+            "source": readiness.source,
+            "run_id": readiness.run_id,
+            "blocking_reasons": readiness.blocking_reasons,
+            "sync_errors": store.list_sync_errors(dataset),
+        }
+    )
+    return entry
+
+
+@router.get("/datasets", dependencies=[Depends(require_admin)])
+async def dataset_status() -> dict[str, Any]:
+    """Per-dataset readiness + active provider failures for diagnostics.
+
+    Lists every dataset the publication gate and the recommendation pipeline
+    care about (union of the registry's critical/advisory sets and the
+    recommendation inputs), so a single call reveals why a run is not published
+    or why recommendations collapsed.
+    """
+    store = _store()
+    if store is None:
+        raise HTTPException(status_code=503, detail="market store unavailable")
+    from src.data import dataset_registry
+
+    critical = getattr(dataset_registry, "_CRITICAL", {})
+    advisory = getattr(dataset_registry, "_ADVISORY", {})
+    inputs = getattr(dataset_registry, "_RECOMMENDATION_INPUTS", {})
+    datasets = sorted(set(critical) | set(advisory) | set(inputs))
+    expected_date = _expected_settled_date(store)
+    return {
+        "expected_date": expected_date,
+        "datasets": [_dataset_status_payload(store, ds, expected_date) for ds in datasets],
+    }
 
 
 @router.get("/status", response_model=StatusResponse, dependencies=[Depends(require_admin)])

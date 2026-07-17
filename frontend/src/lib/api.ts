@@ -1806,7 +1806,7 @@ export interface DailyRecommendationItem {
   slot_label: string;
   generation_phase?: string;
   phase_label?: string;
-  status?: "draft" | "final" | "superseded";
+  status?: "draft" | "shadow" | "final" | "superseded";
   version?: number;
   supersedes_id?: string | null;
   superseded_by?: string | null;

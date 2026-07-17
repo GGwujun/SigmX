@@ -79,6 +79,10 @@ class SnapshotReceiver:
         except sqlite3.Error:
             return False
 
+    def _cleanup_staging(self, snapshot_id: str) -> None:
+        self._part_path(snapshot_id).unlink(missing_ok=True)
+        self._manifest_path(snapshot_id).unlink(missing_ok=True)
+
     def start(self, manifest: SnapshotManifest) -> dict[str, Any]:
         self._safe_id(manifest.snapshot_id)
         if manifest.size_bytes > self.max_size_bytes:
@@ -87,6 +91,7 @@ class SnapshotReceiver:
             self.staging_dir.mkdir(parents=True, exist_ok=True)
             self.live_db.parent.mkdir(parents=True, exist_ok=True)
             if self._already_committed(manifest):
+                self._cleanup_staging(manifest.snapshot_id)
                 return {"ok": True, "committed": True, "offset": manifest.size_bytes}
             manifest_path = self._manifest_path(manifest.snapshot_id)
             part_path = self._part_path(manifest.snapshot_id)
@@ -131,6 +136,7 @@ class SnapshotReceiver:
         with self._lock:
             manifest = self._load_manifest(snapshot_id)
             if self._already_committed(manifest):
+                self._cleanup_staging(snapshot_id)
                 return {"ok": True, "committed": True, "idempotent": True}
             packed = self._part_path(snapshot_id)
             if packed.stat().st_size != manifest.size_bytes:
@@ -194,6 +200,7 @@ class SnapshotReceiver:
                     # Windows can briefly retain a SQLite mapping after close;
                     # the next start/commit safely overwrites this staging file.
                     pass
+            self._cleanup_staging(snapshot_id)
             return {"ok": True, "committed": True, "idempotent": False}
 
 

@@ -17,7 +17,9 @@ import time
 from pathlib import Path
 from typing import Iterable
 
+from src.data.dataset_contracts import validate_dataset
 from src.data.market_store import MarketStore
+from src.data.dataset_registry import contract_for
 from src.data.market_quality import (
     DatasetQualityReport,
     QualityStatus,
@@ -32,6 +34,7 @@ from src.data.market_sync import (
     _now_cst,
     _today_cst_str,
     fetch_daily_reference_closes,
+    fetch_tdx_reference_closes,
     fetch_suspended_codes,
     run_daily_sync,
     select_daily_reference_sample,
@@ -46,11 +49,14 @@ os.environ.setdefault("NO_PROXY", "*")
 
 logger = logging.getLogger(__name__)
 
+_REALTIME_MIN_COVERAGE = float(os.getenv("MARKET_SYNC_REALTIME_MIN_COVERAGE", "0.90"))
+
 _POST_CLOSE_DATASETS = {
     "calendar",
     "master",
     "index_master",
     "board_master",
+    "board_members",
     "daily",
     "daily_basic",
     "dragon",
@@ -95,27 +101,6 @@ _POST_CLOSE_DATASETS = {
     "lockup_expiry",
 }
 
-# A zero row count from these market-wide datasets is not a legitimate
-# successful sync on a trading day.  They directly feed ranking and today's
-# recommendation, so publishing yesterday's values under a fresh run marker
-# would be worse than withholding the new snapshot.
-_BLOCKING_DATASET_MIN_ROWS = {
-    "calendar": 1,
-    "master": 1,
-    "daily_basic": 1,
-    "index": 1,
-    "capital_rank": 1,
-    "sector_capital": 1,
-    "sector_snapshot": 1,
-    "market_breadth": 1,
-    "stage_snapshot": 1,
-    "ths_hot": 1,
-    "zt_pool": 1,
-    "hot_list": 1,
-    "cls_telegraph": 1,
-}
-
-
 class MarketDataQualityError(RuntimeError):
     """Raised when a sync attempt cannot be proven safe to publish."""
 
@@ -129,6 +114,39 @@ class MarketDataQualityError(RuntimeError):
         else:
             message = str(report_or_message)
         super().__init__(message)
+
+
+def _semantic_rows(
+    store: MarketStore,
+    dataset: str,
+    trade_date: str,
+) -> list[dict] | None:
+    """Read critical rows back from the shadow DB for semantic validation."""
+    if dataset == "realtime":
+        return store.get_realtime_quotes(trade_date, limit=10000)
+    if dataset == "capital_rank":
+        rows = []
+        for rank_type in ("inflow", "outflow"):
+            for row in store.get_stock_capital_rank(trade_date, rank_type, limit=500):
+                rows.append({**row, "code": row.get("symbol"), "rank_type": rank_type})
+        return rows
+    if dataset == "sector_capital":
+        return store.get_sector_capital(trade_date, limit=500)
+    if dataset == "market_breadth":
+        row = store.get_market_breadth_snapshot(trade_date)
+        return [row] if row else []
+    if dataset == "master":
+        # security_master is a trade-date-independent universe table; validate a
+        # sample so corruption (null/placeholder rows) is caught even though the
+        # row count alone would pass.
+        return store.list_security_master()[:5000]
+    if dataset == "board_members":
+        rows = store._conn.execute(
+            "SELECT board_code, board_type, stock_code, stock_name, stock_exchange "
+            "FROM board_members ORDER BY board_code LIMIT 5000"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    return None
 
 
 def _worker_id() -> str:
@@ -230,10 +248,39 @@ def _run_post_close_shadow_sync(
             )
 
         failed_contracts: list[str] = []
-        for dataset in sorted(datasets - {"daily"}):
+        reported_datasets = (datasets | set(rows)) - {"daily"}
+        for dataset in sorted(reported_datasets):
             received = max(int(rows.get(dataset, 0)), 0)
-            minimum = _BLOCKING_DATASET_MIN_ROWS.get(dataset, 0)
-            reasons = ["row_count_below_minimum"] if received < minimum else []
+            contract = contract_for(dataset)
+            minimum = contract.minimum_rows
+            valid_rows = received
+            reasons: list[str] = []
+            try:
+                semantic_rows = _semantic_rows(shadow_store, dataset, trade_date)
+                if semantic_rows is not None:
+                    validation = validate_dataset(
+                        dataset,
+                        semantic_rows,
+                        trade_date=trade_date,
+                    )
+                    valid_rows = len(validation.rows)
+                    reasons.extend(validation.reasons)
+            except Exception as exc:  # noqa: BLE001
+                valid_rows = 0
+                reasons.append(f"semantic_validation_error:{exc}")
+            expected_rows = minimum
+            if dataset == "realtime":
+                active_rows = shadow_store._conn.execute(
+                    "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
+                ).fetchone()
+                active_codes = int(active_rows[0] or 0) if active_rows else 0
+                coverage_minimum = int(active_codes * _REALTIME_MIN_COVERAGE + 0.999999)
+                expected_rows = max(minimum, coverage_minimum)
+                if active_codes and valid_rows < coverage_minimum:
+                    reasons.append("realtime_universe_coverage_below_threshold")
+            if valid_rows < minimum:
+                reasons.append("row_count_below_minimum")
+            reasons = list(dict.fromkeys(reasons))
             status = QualityStatus.PARTIAL if reasons else QualityStatus.VERIFIED
             shadow_store.record_dataset_result(
                 run_id,
@@ -241,16 +288,21 @@ def _run_post_close_shadow_sync(
                     dataset=dataset,
                     trade_date=trade_date,
                     status=status,
-                    expected_rows=minimum,
+                    expected_rows=expected_rows,
                     received_rows=received,
-                    valid_rows=received,
+                    valid_rows=valid_rows,
                     blocking_reasons=reasons,
                     source="configured-provider-chain",
                 ),
             )
-            if reasons:
+            # A blocking contract fails the run on any degradation.  An
+            # advisory contract only fails the run when the provider returned
+            # rows but every one was rejected as corrupt — coverage shortfall or
+            # an empty result degrades (PARTIAL + readiness) but still publishes.
+            corrupt = received > 0 and valid_rows == 0
+            if reasons and (contract.blocking or (contract.hard_fail_on_zero_valid and corrupt)):
                 failed_contracts.append(
-                    f"{dataset} received={received} minimum={minimum}"
+                    f"{dataset} received={received} valid={valid_rows} minimum={minimum}"
                 )
 
         if failed_contracts:
@@ -278,13 +330,22 @@ def _run_post_close_shadow_sync(
                 for row in daily_rows
                 if row.get("source") == "tushare.daily"
             ]
-            reference_sample = select_daily_reference_sample(tushare_codes)
-            if active_expected and not reference_sample:
+            fallback_codes = [
+                str(row["code"])
+                for row in daily_rows
+                if str(row.get("source") or "").startswith("tpdog.")
+            ]
+            reference_sample = select_daily_reference_sample(tushare_codes, seed=trade_date)
+            if active_expected and not reference_sample and not fallback_codes:
                 reference_result = ReferenceResult.unavailable(
                     "no independent reference sample for active daily universe"
                 )
             else:
                 reference_result = fetch_daily_reference_closes(trade_date, reference_sample)
+            fallback_reference_result = fetch_tdx_reference_closes(
+                trade_date,
+                sorted(set(fallback_codes)),
+            )
             report = validate_daily_dataset(
                 shadow_store,
                 trade_date,
@@ -292,6 +353,7 @@ def _run_post_close_shadow_sync(
                 run_id,
                 suspension_result=suspension_result,
                 reference_result=reference_result,
+                fallback_reference_result=fallback_reference_result,
             )
             shadow_store.record_dataset_result(run_id, report)
             if report.status is not QualityStatus.VERIFIED:

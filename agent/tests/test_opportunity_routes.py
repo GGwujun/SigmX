@@ -85,6 +85,51 @@ def test_quality_score_penalizes_hot_breakout_chase() -> None:
     assert calm_score > hot_score
 
 
+def test_pullback_reversal_fires_on_uptrend_volume_dry_up() -> None:
+    # Gentle uptrend, then a pullback that revisits MA20 on shrinking volume and
+    # holds above its 10-day low. A lower-risk entry the momentum-only detectors
+    # (breakout/trend) miss because the stock is not surging.
+    closes = [10 + i * 0.08 for i in range(20)]  # slow rise to 11.52
+    closes += [11.5, 11.45, 11.4, 11.42, 11.45]  # shallow pullback to ~MA20
+    volumes = [2000.0] * 20 + [1200.0, 900.0, 700.0, 650.0, 600.0]  # dry-up
+    df = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [v * 1.01 for v in closes],
+            "low": [v * 0.99 for v in closes],
+            "close": closes,
+            "volume": volumes,
+        },
+        index=pd.date_range("2026-01-01", periods=25, freq="D"),
+    )
+
+    signal = routes._detect_pullback_reversal({"df": df})
+
+    assert signal is not None
+    assert "缩量回调" in signal["reason"]
+    assert 0.0 < signal["confidence"] <= 0.82
+
+
+def test_pullback_reversal_rejects_distribution_high_volume() -> None:
+    # Same pullback shape but on *rising* volume = distribution, not a low-risk
+    # entry. The detector must stay silent.
+    closes = [10 + i * 0.08 for i in range(20)]
+    closes += [11.5, 11.45, 11.4, 11.42, 11.45]
+    volumes = [2000.0] * 20 + [2500.0, 2800.0, 3000.0, 3200.0, 3500.0]  # ramp up
+    df = pd.DataFrame(
+        {
+            "open": closes,
+            "high": [v * 1.01 for v in closes],
+            "low": [v * 0.99 for v in closes],
+            "close": closes,
+            "volume": volumes,
+        },
+        index=pd.date_range("2026-01-01", periods=25, freq="D"),
+    )
+
+    assert routes._detect_pullback_reversal({"df": df}) is None
+
+
 def test_build_opportunities_scores_full_pool_before_top10(monkeypatch):
     stocks = [{"symbol": f"600{i:03d}.SH", "name": f"S{i}", "close": 10, "change_pct": 1} for i in range(12)]
 

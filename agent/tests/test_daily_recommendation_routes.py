@@ -36,6 +36,9 @@ class _FakeStore:
             "source": "test",
         }
 
+    def get_recommendation_history_coverage(self, min_bars: int = 60):
+        return {"active_codes": 4000, "covered_codes": 3990, "coverage": 0.9975}
+
 
 def test_candidate_market_data_freshness_rejects_unverified_daily(monkeypatch: pytest.MonkeyPatch) -> None:
     import src.data.market_store as market_store
@@ -58,6 +61,25 @@ def test_candidate_market_data_freshness_allows_published_exact_date(monkeypatch
     monkeypatch.setattr(routes, "_expected_settled_date", lambda store: "2026-07-14")
 
     routes._assert_candidate_market_data_fresh()
+
+
+def test_candidate_market_data_freshness_rejects_incomplete_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    import src.data.market_store as market_store
+
+    store = _FakeStore(QualityStatus.PUBLISHED)
+    store.get_recommendation_history_coverage = lambda min_bars=60: {
+        "active_codes": 4000,
+        "covered_codes": 1200,
+        "coverage": 0.3,
+    }
+    monkeypatch.setattr(market_store, "get_market_store", lambda: store)
+    monkeypatch.setattr(routes, "_expected_settled_date", lambda value: "2026-07-14")
+
+    with pytest.raises(HTTPException) as exc:
+        routes._assert_candidate_market_data_fresh()
+
+    assert exc.value.detail["dataset"] == "bars_daily_history"
+    assert "history_coverage_below_threshold" in exc.value.detail["blocking_reasons"]
 
 
 def test_refresh_candidate_quote_uses_today_realtime_price(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -532,6 +554,20 @@ def test_ai_cannot_rescue_candidate_below_deterministic_floor() -> None:
     assert scored["scoring"]["ai_adjustment"] <= 0.02
 
 
+def test_candidate_without_exact_date_local_evidence_is_ineligible() -> None:
+    item = _candidate() | {
+        "score": 0.95,
+        "realtime_confirmation": {"score": 0.95},
+        "factor_review": {"score": 0.95, "status": "ok"},
+        "local_evidence": {"score": 0.5, "status": "limited", "signals": []},
+    }
+
+    scored = routes._deterministic_score(item, {"regime": "risk_on"})
+
+    assert scored["eligible"] is False
+    assert "local" not in scored["scoring"]["evidence_sources"]
+
+
 def test_selection_caps_each_category_at_three() -> None:
     candidates = [_scored(f"60000{i}.SH", "breakout", 0.90 - i / 100) for i in range(5)]
     candidates.append(_scored("000001.SZ", "trend", 0.70))
@@ -671,6 +707,7 @@ def _candidate(symbol: str = "600000.SH") -> dict:
         "reason": "trend setup",
         "ai_review": {"summary": "ok", "risk": "risk", "score": 0.7, "decision": "recommend"},
         "factor_review": {"summary": "factor ok", "score": 0.7},
+        "local_evidence": {"status": "ok", "score": 0.7, "signals": []},
     }
 
 
@@ -745,6 +782,19 @@ def test_promotion_status_promotes_positive_expectancy() -> None:
     status = routes._promotion_status(records, min_samples=3)
 
     assert status["decision"] == "eligible"
+    assert status["t1_win_rate"] >= 50
+    assert status["t1_median_return"] > 0
+
+
+def test_promotion_status_rejects_positive_mean_with_bad_hit_rate() -> None:
+    records = [
+        _record(slot="afternoon", category="trend", score=0.7, change_pct=1, t1_return=value)
+        for value in (10.0, -1.0, -1.0, -1.0)
+    ]
+
+    status = routes._promotion_status(records, min_samples=4)
+
+    assert status["decision"] == "rejected"
 
 
 def test_summary_excludes_legacy_and_invalid_records() -> None:
@@ -829,6 +879,40 @@ def test_generate_for_phase_versions_and_supersedes(monkeypatch: pytest.MonkeyPa
     draft = next(record for record in storage if record["id"] == second[0]["id"])
     assert final[0]["status"] == "final"
     assert draft["status"] == "superseded"
+
+
+def test_autorun_keeps_unpromoted_model_in_shadow(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage: list[dict] = []
+    monkeypatch.setattr(routes, "_reviewed_candidates", lambda slot, limit: [_candidate()])
+    monkeypatch.setattr(routes, "_load_records", lambda: list(storage))
+    monkeypatch.setattr(routes, "_save_records", lambda records: storage.__setitem__(slice(None), records))
+
+    generated = routes._generate_for_phase(
+        "morning_final", 1, target_date="2026-07-14", shadow_until_promoted=True
+    )
+
+    assert generated[0]["status"] == "shadow"
+    assert generated[0]["promotion_decision"] == "insufficient_evidence"
+
+
+def test_autorun_publishes_after_shadow_evidence_is_eligible(monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = [
+        _record(slot="morning", category="trend", score=0.7, change_pct=1, t1_return=1.0)
+        for _ in range(30)
+    ]
+    for record in storage:
+        record["status"] = "shadow"
+    monkeypatch.setattr(routes, "_reviewed_candidates", lambda slot, limit: [_candidate()])
+    monkeypatch.setattr(routes, "_with_performance", lambda records: records)
+    monkeypatch.setattr(routes, "_load_records", lambda: list(storage))
+    monkeypatch.setattr(routes, "_save_records", lambda records: storage.__setitem__(slice(None), records))
+
+    generated = routes._generate_for_phase(
+        "morning_final", 1, target_date="2026-07-14", shadow_until_promoted=True
+    )
+
+    assert generated[0]["status"] == "final"
+    assert generated[0]["promotion_decision"] == "eligible"
 
 
 def test_generate_for_phase_applies_portfolio_constraints(monkeypatch: pytest.MonkeyPatch) -> None:

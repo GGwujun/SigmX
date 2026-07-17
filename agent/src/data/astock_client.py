@@ -142,6 +142,7 @@ def tencent_quote(codes: list[str]) -> dict[str, dict]:
             "change_pct": float(vals[32]) if vals[32] else 0,
             "high": float(vals[33]) if vals[33] else 0,
             "low": float(vals[34]) if vals[34] else 0,
+            "volume": float(vals[36]) if vals[36] else 0,
             "amount_wan": float(vals[37]) if vals[37] else 0,
             "turnover_pct": float(vals[38]) if vals[38] else 0,
             "pe_ttm": float(vals[39]) if vals[39] else 0,

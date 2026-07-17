@@ -865,6 +865,28 @@ class MarketStore:
         return df
 
     @_synchronized
+    def get_recommendation_history_coverage(self, min_bars: int = 60) -> dict[str, float | int]:
+        """Measure usable daily-history coverage across the active stock universe."""
+        row = self._conn.execute(
+            "WITH active AS ("
+            " SELECT code FROM security_master WHERE is_active = 1 AND is_st = 0"
+            " AND is_delisting = 0 AND is_bj = 0"
+            "), covered AS ("
+            " SELECT code FROM bars_daily WHERE code IN (SELECT code FROM active)"
+            " GROUP BY code HAVING COUNT(*) >= ?"
+            ") SELECT (SELECT COUNT(*) FROM active) AS active_codes,"
+            " (SELECT COUNT(*) FROM covered) AS covered_codes",
+            (int(min_bars),),
+        ).fetchone()
+        active = int(row["active_codes"] or 0)
+        covered = int(row["covered_codes"] or 0)
+        return {
+            "active_codes": active,
+            "covered_codes": covered,
+            "coverage": covered / active if active else 0.0,
+        }
+
+    @_synchronized
     def last_daily_date(self, code: str) -> Optional[str]:
         row = self._conn.execute(
             "SELECT MAX(trade_date) AS d FROM bars_daily WHERE code = ?", (code,)
@@ -2852,6 +2874,37 @@ class MarketStore:
                 "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
                 (key, value, _now_iso()),
             )
+
+    def list_sync_errors(self, dataset: str | None = None) -> list[dict]:
+        """Return persisted provider failure records written by _set_sync_error.
+
+        Each ``sync_error:{dataset}:{source}`` meta key is one failure.  An
+        empty-message entry (written by _clear_sync_error) signals recovery and
+        is excluded so the caller sees only active failures.
+        """
+        prefix = "sync_error:" + (f"{dataset}:" if dataset else "")
+        rows = self._conn.execute(
+            "SELECT key, value, updated_at FROM sync_meta "
+            "WHERE key LIKE ? ORDER BY updated_at DESC",
+            (prefix + "%",),
+        ).fetchall()
+        errors: list[dict] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["value"] or "{}")
+            except (TypeError, ValueError):
+                continue
+            if payload.get("ok") or not payload.get("message"):
+                continue
+            errors.append(
+                {
+                    "dataset": payload.get("dataset") or str(row["key"]).split(":", 2)[1],
+                    "source": payload.get("source") or str(row["key"]).split(":", 2)[2],
+                    "message": payload.get("message"),
+                    "at": row["updated_at"],
+                }
+            )
+        return errors
 
     @_synchronized
     def next_dataset_codes(

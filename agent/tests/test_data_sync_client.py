@@ -70,7 +70,8 @@ def test_published_run_watcher_emits_new_run_immediately_and_once(tmp_path: Path
     db = tmp_path / "market.db"
     store = MarketStore(db)
     run_id = store.create_sync_run("2026-07-14", worker_id="test")
-    watcher = module.PublishedRunWatcher(db)
+    state = tmp_path / "sender-state.json"
+    watcher = module.PublishedRunWatcher(db, state)
 
     assert watcher.next_run_id() is None
 
@@ -78,3 +79,17 @@ def test_published_run_watcher_emits_new_run_immediately_and_once(tmp_path: Path
     assert watcher.next_run_id() == run_id
     watcher.mark_sent(run_id)
     assert watcher.next_run_id() is None
+    assert module.PublishedRunWatcher(db, state).next_run_id() is None
+
+
+def test_sync_once_rejects_snapshot_race(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    module = _load_module()
+    db = tmp_path / "market.db"
+    store = MarketStore(db)
+    run_id = store.create_sync_run("2026-07-14", worker_id="test")
+    store.finish_sync_run(run_id, QualityStatus.PUBLISHED)
+    monkeypatch.setattr(module, "DB_PATH", db)
+    monkeypatch.setattr(module, "WORK_DIR", tmp_path / "out")
+
+    with pytest.raises(RuntimeError, match="changed while snapshot was being built"):
+        module.sync_once("older-run")

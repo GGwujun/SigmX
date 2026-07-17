@@ -131,6 +131,35 @@ def previous_trading_day(date_str: str) -> str:
     return cur.strftime("%Y-%m-%d")
 
 
+def expected_settled_date(now: Optional[datetime] = None) -> Optional[str]:
+    """The latest trading day whose close should be settled as of ``now``.
+
+    Same akshare (sina) source of truth as :func:`is_trading_day`, so the date
+    used to gate readiness checks never disagrees with the date used to decide
+    whether to sync.  Before 15:05 CST the prior trading day is expected (the
+    current day's bar has not settled); from 15:05 onward the current trading
+    day is expected.
+
+    Returns None when the akshare calendar is unavailable (empty trading-day
+    set).  In that case ``is_trading_day`` would fall back to the weekend rule,
+    which treats a Monday holiday as a trading day and makes readiness look for
+    a date that will never have data — so callers must fall back to the
+    persisted ``trade_calendar`` table instead (see _expected_settled_date in
+    the API routes).
+    """
+    now_dt = now or now_cn()
+    if now_dt.tzinfo is None:
+        now_dt = now_dt.replace(tzinfo=CN_TZ)
+    else:
+        now_dt = now_dt.astimezone(CN_TZ)
+    if not _trading_days(now_dt.year):
+        return None
+    if now_dt.hour < 15 or (now_dt.hour == 15 and now_dt.minute < 5):
+        return previous_trading_day(now_dt.date().isoformat())
+    today = now_dt.date().isoformat()
+    return today if is_trading_day(today) else previous_trading_day(today)
+
+
 def cn_market_phase(now: Optional[datetime] = None) -> str:
     """Return the current A-share market phase.
 

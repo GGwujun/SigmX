@@ -75,7 +75,7 @@ _RECOMMENDATION_FACTOR_POLARITY = {
     "qlib158_std60": -1,
     "qlib158_ma5": -1,
 }
-_RECOMMENDATION_MODEL_VERSION = "daily-v3"
+_RECOMMENDATION_MODEL_VERSION = "daily-v4"
 _MIN_DETERMINISTIC_SCORE = 0.62
 _MIN_EVIDENCE_COVERAGE = 0.75
 _MAX_CATEGORY_PICKS = 3
@@ -336,16 +336,32 @@ def _slot_adjusted_score(item: dict[str, Any], slot: str) -> float:
 
 
 def _expected_settled_date(store) -> str | None:
-    """Resolve the required daily date from the local canonical calendar."""
+    """Resolve the required daily date.
+
+    Uses the akshare (sina) calendar — the same source ``is_trading_day`` and
+    the sync scheduler use — so the readiness date never disagrees with the
+    sync date.  The DB ``trade_calendar`` table is consulted only as a
+    cross-check, because its rows historically came from an unreliable provider
+    (see trade_calendar._load_all_trading_days).
+    """
+    from src.data.trade_calendar import expected_settled_date
+
+    settled = expected_settled_date(_now_cst())
+    if settled:
+        return settled
+    # Calendar source unavailable — fall back to the persisted table.
     now = _now_cst()
     cutoff = now.date().isoformat()
     if now.hour < 15 or (now.hour == 15 and now.minute < 5):
         cutoff = (now.date() - timedelta(days=1)).isoformat()
-    row = store._conn.execute(
-        "SELECT MAX(trade_date) AS d FROM trade_calendar "
-        "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
-        (cutoff,),
-    ).fetchone()
+    try:
+        row = store._conn.execute(
+            "SELECT MAX(trade_date) AS d FROM trade_calendar "
+            "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
+            (cutoff,),
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
     return str(row["d"]) if row and row["d"] else None
 
 
@@ -368,6 +384,9 @@ def _assert_candidate_market_data_fresh() -> None:
                 },
             )
         readiness = store.get_data_readiness("bars_daily", expected_date)
+        from src.data.recommendation_features import history_readiness
+
+        history = history_readiness(store)
     except HTTPException:
         raise
     except Exception as exc:
@@ -391,6 +410,17 @@ def _assert_candidate_market_data_fresh() -> None:
                 "status": readiness.status.value,
                 "run_id": readiness.run_id,
                 "blocking_reasons": readiness.blocking_reasons,
+            },
+        )
+    if not history["ready"]:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "dataset": "bars_daily_history",
+                "expected_date": expected_date,
+                "status": "partial",
+                **history,
             },
         )
 
@@ -535,6 +565,11 @@ def _attach_intraday_history_metrics(item: dict[str, Any]) -> dict[str, Any]:
             "synthetic_ma20": ma20,
             "distance_ma20": price / ma20 - 1.0 if ma20 > 0 else 0.0,
             "daily_volume_avg_5": avg_volume,
+            # The MA20 mixes 19 settled closes with the live intraday price, so
+            # scoring and backtest evaluation are NOT on the same information
+            # face. Flag the basis so downstream attribution can align them and
+            # avoid treating an intraday-driven score as a close-driven one.
+            "ma20_basis": "synthetic_intraday",
         }
     )
     market_context = dict(enriched.get("market_context") or {})
@@ -609,6 +644,22 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
                 continue
             item["score"] = round(_slot_adjusted_score(item, slot), 3)
             items.append(item)
+
+    if items:
+        from src.data.market_store import get_market_store
+        from src.data.recommendation_features import load_recommendation_features
+
+        feature_date = _today_cst()
+        features = load_recommendation_features(
+            get_market_store(),
+            [str(item.get("symbol") or "") for item in items],
+            feature_date,
+        )
+        for item in items:
+            item["local_evidence"] = features.get(
+                str(item.get("symbol") or "").upper(),
+                {"status": "limited", "score": 0.5, "signals": [], "as_of": feature_date},
+            )
 
     seen: set[str] = set()
     unique: list[dict[str, Any]] = []
@@ -897,13 +948,23 @@ def _deterministic_score(
     realtime_score = float((item.get("realtime_confirmation") or {}).get("score", 0.5) or 0.5)
     factor_review = item.get("factor_review") or {}
     factor_score = float(factor_review.get("score", 0.5) or 0.5)
+    local_evidence = item.get("local_evidence") or {}
+    local_score = float(local_evidence.get("score", 0.5) or 0.5)
+    local_status = str(local_evidence.get("status") or "limited")
     regime = str((market_regime or {}).get("regime") or "neutral")
     regime_adjustment = -0.05 if regime == "risk_off" else 0.03 if regime == "risk_on" else 0.0
-    evidence = [("base", base_score, 0.45), ("realtime", realtime_score, 0.30)]
+    evidence = [("base", base_score, 0.35), ("realtime", realtime_score, 0.25)]
     if factor_review.get("status") == "ok":
         evidence.append(("factor", factor_score, 0.20))
+    # Local evidence is a soft gate: full weight when well-evidenced, reduced
+    # weight when only partially evidenced, no weight (and ineligible) when no
+    # per-symbol signal fired.  A missing market_breadth row no longer forces
+    # every candidate below the eligibility floor.
+    local_weight = {"ok": 0.20, "partial": 0.12}.get(local_status, 0.0)
+    if local_weight:
+        evidence.append(("local", local_score, local_weight))
     available_weight = sum(weight for _, _, weight in evidence)
-    evidence_coverage = available_weight / 0.95
+    evidence_coverage = available_weight
     deterministic = sum(value * weight for _, value, weight in evidence) / available_weight
     deterministic = max(0.01, min(0.99, deterministic + regime_adjustment))
     enriched = dict(item)
@@ -911,6 +972,7 @@ def _deterministic_score(
     enriched["eligible"] = (
         deterministic >= _MIN_DETERMINISTIC_SCORE
         and evidence_coverage >= _MIN_EVIDENCE_COVERAGE
+        and local_status in ("ok", "partial")
     )
     enriched["score"] = round(deterministic, 3)
     enriched["market_regime"] = market_regime or {"regime": "neutral"}
@@ -918,6 +980,7 @@ def _deterministic_score(
         "base_score": round(base_score, 3),
         "realtime_score": round(realtime_score, 3),
         "factor_score": round(factor_score, 3),
+        "local_evidence_score": round(local_score, 3),
         "evidence_sources": [name for name, _, _ in evidence],
         "evidence_coverage": round(evidence_coverage, 3),
         "regime_adjustment": round(regime_adjustment, 3),
@@ -1293,8 +1356,20 @@ def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
 
     price = float(record.get("price_at_pick", 0) or 0)
     symbol = str(record.get("symbol", ""))
+    # Surface the scoring basis so attribution consumers can tell that returns
+    # are measured from an intraday pick price against settled daily closes —
+    # the two are NOT on the same information face, and mixing them silently is
+    # what makes backtest look better than live. Downstream filters/weighting
+    # can use this to avoid cross-basis aggregation.
+    scoring = record.get("scoring") or {}
+    market_context = record.get("market_context") or {}
+    price_basis = (
+        record.get("ma20_basis")
+        or scoring.get("ma20_basis")
+        or ("intraday" if market_context.get("snapshot_at") else "close")
+    )
     if not symbol or price <= 0:
-        return {"status": "missing_price"}
+        return {"status": "missing_price", "price_basis": price_basis}
 
     pick_date = str(record.get("date", ""))
     df = latest_daily_bars(symbol, days=40)
@@ -1322,6 +1397,7 @@ def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         "status": "ok",
+        "price_basis": price_basis,
         "latest_date": rows[-1]["date"],
         "latest_return_pct": round((rows[-1]["close"] - price) / price * 100, 2),
         "max_gain_pct": round((max(r["high"] for r in rows) - price) / price * 100, 2),
@@ -1377,9 +1453,11 @@ def _promotion_status(records: list[dict[str, Any]], *, min_samples: int = 30) -
     completed = [record for record in records if record.get("performance", {}).get("t1")]
     returns = [float(record["performance"]["t1"]["return_pct"]) for record in completed]
     average = round(sum(returns) / len(returns), 2) if returns else None
+    median = _median(returns)
+    win_rate = round(sum(value > 0 for value in returns) / len(returns) * 100, 1) if returns else None
     if len(returns) < min_samples:
         decision = "insufficient_evidence"
-    elif average is not None and average > 0:
+    elif average is not None and average > 0 and median is not None and median > 0 and win_rate >= 50:
         decision = "eligible"
     else:
         decision = "rejected"
@@ -1389,7 +1467,9 @@ def _promotion_status(records: list[dict[str, Any]], *, min_samples: int = 30) -
         "completed_samples": len(returns),
         "min_samples": min_samples,
         "t1_avg_return": average,
-        "requires_positive_expectancy": True,
+        "t1_median_return": median,
+        "t1_win_rate": win_rate,
+        "requirements": {"positive_mean": True, "positive_median": True, "min_win_rate": 50},
     }
 
 
@@ -1624,7 +1704,13 @@ def _cap_latest_final_per_slot(records: list[dict[str, Any]], per_slot: int = _M
     return capped
 
 
-def _generate_for_phase(phase_id: str, limit: int, *, target_date: str | None = None) -> list[dict[str, Any]]:
+def _generate_for_phase(
+    phase_id: str,
+    limit: int,
+    *,
+    target_date: str | None = None,
+    shadow_until_promoted: bool = False,
+) -> list[dict[str, Any]]:
     phase = _PHASES[_normalize_phase(phase_id)]
     target = target_date or _target_date_for_phase(phase.id)
     slot = phase.analysis_slot
@@ -1642,7 +1728,18 @@ def _generate_for_phase(phase_id: str, limit: int, *, target_date: str | None = 
             _make_record(item, phase.id, target, rank + 1, version)
             for rank, item in enumerate(selected)
         ]
-        _mark_superseded(records, new_records, phase)
+        promotion = (
+            _promotion_status(_with_performance(records))
+            if shadow_until_promoted
+            else {"decision": "manual_publish"}
+        )
+        publish_final = not shadow_until_promoted or promotion["decision"] == "eligible"
+        for record in new_records:
+            record["promotion_decision"] = promotion["decision"]
+            if phase.status == "final" and not publish_final:
+                record["status"] = "shadow"
+        if publish_final:
+            _mark_superseded(records, new_records, phase)
         existing = {str(r.get("id")): r for r in records}
         for record in new_records:
             existing[record["id"]] = record
@@ -1738,7 +1835,8 @@ def register_daily_recommendation_routes(
         with _STORE_LOCK:
             rolling_records = [
                 r for r in _load_records()
-                if str(r.get("date", "")) >= cutoff and r.get("status", "final") == "final"
+                if str(r.get("date", "")) >= cutoff
+                and r.get("status", "final") == "final"
             ]
         rolling_enriched = _with_performance(rolling_records)
         return {
@@ -1757,7 +1855,8 @@ def register_daily_recommendation_routes(
         with _STORE_LOCK:
             records = [
                 r for r in _load_records()
-                if str(r.get("date", "")) >= cutoff and r.get("status", "final") == "final"
+                if str(r.get("date", "")) >= cutoff
+                and r.get("status", "final") in {"final", "shadow"}
             ]
         enriched = _with_performance(records)
 
@@ -1794,7 +1893,8 @@ def register_daily_recommendation_routes(
         with _STORE_LOCK:
             records = [
                 r for r in _load_records()
-                if str(r.get("date", "")) >= cutoff and r.get("status", "final") == "final"
+                if str(r.get("date", "")) >= cutoff
+                and r.get("status", "final") in {"final", "shadow"}
             ]
         enriched = _with_performance(records)
         return {
@@ -1826,11 +1926,11 @@ def register_daily_recommendation_routes(
                         due = now.hour > phase.hour or (now.hour == phase.hour and now.minute >= phase.minute)
                         if not due or _has_phase_record(records, target_date, phase.id):
                             continue
+                        from functools import partial
+
                         await asyncio.get_running_loop().run_in_executor(
                             None,
-                            _generate_for_phase,
-                            phase.id,
-                            5,
+                            partial(_generate_for_phase, phase.id, 5, shadow_until_promoted=True),
                         )
                         logger.info(
                             "daily recommendations generated phase=%s target_date=%s",
@@ -1838,8 +1938,14 @@ def register_daily_recommendation_routes(
                             target_date,
                         )
                     await asyncio.sleep(60)
+                except HTTPException as exc:
+                    if exc.status_code == 503:
+                        logger.info("daily recommendation waiting for ready data: %s", exc.detail)
+                    else:
+                        logger.exception("daily recommendation scheduler request failed")
+                    await asyncio.sleep(15)
                 except Exception:
                     logger.exception("daily recommendation scheduler tick failed")
-                    await asyncio.sleep(300)
+                    await asyncio.sleep(60)
 
         asyncio.create_task(_loop())

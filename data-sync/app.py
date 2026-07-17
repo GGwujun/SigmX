@@ -33,6 +33,7 @@ INGEST_TOKEN = os.getenv("MARKET_INGEST_TOKEN", "").strip()
 SYNC_INTERVAL = int(os.getenv("SYNC_INTERVAL", "30"))
 CHUNK_BYTES = int(os.getenv("SNAPSHOT_CHUNK_BYTES", str(4 << 20)))
 WORK_DIR = Path(os.getenv("SNAPSHOT_WORK_DIR", "/tmp/sigmx-data-sync"))
+SYNC_LOG_PATH = Path(os.getenv("SYNC_LOG_PATH", "/data/sync.log"))
 PUSH_SLOTS = tuple(
     slot.strip() for slot in os.getenv("SNAPSHOT_PUSH_SLOTS", "09:26,14:29,15:20").split(",")
     if slot.strip()
@@ -41,7 +42,16 @@ TZ_SH = timezone(timedelta(hours=8))
 
 
 def log(message: str) -> None:
-    print(f"[{datetime.now(TZ_SH):%Y-%m-%d %H:%M:%S}] {message}", flush=True)
+    line = f"[{datetime.now(TZ_SH):%Y-%m-%d %H:%M:%S}] {message}"
+    print(line, flush=True)
+    # Persist to disk so failures are observable without attaching to the
+    # container's stdout.  A write failure must never kill the sync loop.
+    try:
+        SYNC_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with SYNC_LOG_PATH.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+    except OSError:
+        pass
 
 
 def _sha256_file(path: Path) -> str:
@@ -91,9 +101,15 @@ def _published_run_id(source_db: Path) -> str | None:
 class PublishedRunWatcher:
     """Emit each newly published run once, independent of wall-clock slots."""
 
-    def __init__(self, source_db: Path) -> None:
+    def __init__(self, source_db: Path, state_path: Path | None = None) -> None:
         self.source_db = Path(source_db)
+        self.state_path = Path(state_path or (WORK_DIR / "sender-state.json"))
         self._sent_run_id: str | None = None
+        try:
+            state = json.loads(self.state_path.read_text(encoding="utf-8"))
+            self._sent_run_id = str(state.get("sent_run_id") or "") or None
+        except (OSError, ValueError, TypeError):
+            self._sent_run_id = None
 
     def next_run_id(self) -> str | None:
         run_id = _published_run_id(self.source_db)
@@ -101,6 +117,13 @@ class PublishedRunWatcher:
 
     def mark_sent(self, run_id: str) -> None:
         self._sent_run_id = run_id
+        self.state_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_path.with_suffix(self.state_path.suffix + ".tmp")
+        temporary.write_text(
+            json.dumps({"sent_run_id": run_id, "updated_at": datetime.now(TZ_SH).isoformat()}),
+            encoding="utf-8",
+        )
+        temporary.replace(self.state_path)
 
 
 def build_snapshot(source_db: Path, output_dir: Path) -> tuple[Path, dict[str, Any]]:
@@ -187,11 +210,16 @@ class SnapshotClient:
         )
 
 
-def sync_once() -> dict[str, Any]:
+def sync_once(expected_run_id: str | None = None) -> dict[str, Any]:
     if not DB_PATH.exists():
         raise RuntimeError(f"market database does not exist: {DB_PATH}")
     packed, manifest = build_snapshot(DB_PATH, WORK_DIR)
     try:
+        if expected_run_id and manifest["run_id"] != expected_run_id:
+            raise RuntimeError(
+                "published run changed while snapshot was being built; "
+                f"expected={expected_run_id} actual={manifest['run_id']}"
+            )
         log(
             f"upload snapshot={manifest['snapshot_id']} trade_date={manifest['trade_date']} "
             f"compressed={manifest['size_bytes']}"
@@ -213,7 +241,7 @@ def main() -> None:
         run_id = watcher.next_run_id()
         if run_id:
             try:
-                sync_once()
+                sync_once(run_id)
                 watcher.mark_sent(run_id)
             except Exception as exc:  # noqa: BLE001
                 log(f"snapshot delivery failed and will retry run={run_id}: {exc}")

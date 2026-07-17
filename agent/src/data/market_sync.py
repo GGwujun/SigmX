@@ -26,6 +26,8 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from src.data.dataset_registry import contract_for
+from src.data.sector_matching import match_sector_row, sector_name_keys
 from src.data.market_quality import (
     DatasetQualityReport,
     QualityStatus,
@@ -41,6 +43,7 @@ _SYNC_TICK_SECONDS = 60
 _TICK_DEADLINE_SECONDS = 600  # one sync tick must not run longer than 10 min
 _POOL_TYPES = ("limitup", "limitdown", "strong", "fire", "secnew", "previous")
 _SLEEP_BETWEEN_CALLS = 0.05  # tpdog caps at 30 calls/sec
+_DAILY_COMPENSATION_LIMIT = 200
 # akshare 同花顺单股资金流兜底：限流 ~1 QPS 易被封，sleep 比较保守
 _AKSHARE_CAPITAL_SLEEP = float(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_SLEEP", "0.6"))
 _AKSHARE_CAPITAL_BUDGET = int(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_BUDGET", "1500"))  # 25 分钟时间盒
@@ -227,6 +230,49 @@ def _sync_trade_calendar_tpdog(store: MarketStore, trade_date: str) -> int:
     written = store.upsert_trade_calendar(payload, market="CN")
     if written:
         _clear_sync_error(store, "calendar", "tpdog.trading_day_year")
+    return written
+
+
+def _sync_trade_calendar_akshare(store: MarketStore, trade_date: str) -> int:
+    """Sync the CN trading calendar from akshare (sina) — the reliable source.
+
+    ``is_trading_day`` and the sync scheduler both use this same akshare
+    calendar; writing the DB from it keeps the persisted table consistent with
+    the in-memory decisions (the tpdog writer is an unreliable fallback — see
+    trade_calendar._load_all_trading_days).  Trades in the full calendar set are
+    marked ``is_trading=True``; the surrounding year is backfilled with
+    ``is_trading=False`` so MAX(trade_date ... is_trading=1) queries are bounded.
+
+    We persist every year akshare returns (not just ``trade_date``'s year) so a
+    fresh deployment in early January still has the prior December on disk for
+    fallback ``MAX(trade_date)`` queries, and we reuse the hourly-cached
+    ``_trading_days()`` rather than hitting akshare twice.
+    """
+    from datetime import date, timedelta
+
+    from src.data.trade_calendar import _trading_days
+
+    trading_days = _trading_days(int(trade_date[:4]))
+    if not trading_days:
+        _set_sync_error(store, "calendar", "akshare.trade_date_hist", "empty trading-day set")
+        return 0
+    years = sorted({d.year for d in trading_days})
+    payload: list[dict] = []
+    for year in years:
+        cur = date(year, 1, 1)
+        end = date(year, 12, 31)
+        while cur <= end:
+            payload.append(
+                {
+                    "trade_date": cur.isoformat(),
+                    "is_trading": cur in trading_days,
+                    "market": "CN",
+                }
+            )
+            cur = cur + timedelta(days=1)
+    written = store.upsert_trade_calendar(payload, market="CN")
+    if written:
+        _clear_sync_error(store, "calendar", "akshare.trade_date_hist")
     return written
 
 
@@ -654,6 +700,32 @@ def _sync_daily_for_code(
     )
 
 
+def _daily_compensation_candidates(
+    store: MarketStore,
+    trade_date: str,
+    sync_run_id: str,
+    attempted_codes: list[str],
+    *,
+    limit: int = _DAILY_COMPENSATION_LIMIT,
+) -> list[str]:
+    """Return isolated misses worth retrying once inside the current run."""
+    if not attempted_codes or limit <= 0:
+        return []
+    written = {
+        str(code).upper()
+        for code in store.daily_codes_for_run(trade_date, sync_run_id)
+    }
+    missing = [code for code in attempted_codes if code.upper() not in written]
+    if len(missing) > limit:
+        logger.warning(
+            "daily compensation skipped: %d missing codes exceeds limit %d",
+            len(missing),
+            limit,
+        )
+        return []
+    return missing
+
+
 def fetch_suspended_codes(trade_date: str, candidate_codes: list[str]) -> SuspensionResult:
     """Resolve whether missing codes were effectively suspended on a date."""
     if not candidate_codes:
@@ -726,11 +798,87 @@ def fetch_daily_reference_closes(
     return ReferenceResult.success(closes)
 
 
-def select_daily_reference_sample(expected_codes: list[str], *, limit: int = 10) -> list[str]:
-    """Choose a stable, reproducible cross-source sample from the strict universe."""
+def fetch_tdx_reference_closes(
+    trade_date: str,
+    codes: list[str],
+) -> ReferenceResult:
+    """Fetch exact-date closes from TongdaXin for TPDog fallback verification."""
+    if not codes:
+        return ReferenceResult.success({})
+    from src.data.astock_client import tdx_client
+
+    closes: dict[str, float] = {}
+    errors: list[str] = []
+    try:
+        client = tdx_client()
+    except Exception as exc:  # noqa: BLE001
+        return ReferenceResult.unavailable(str(exc))
+    for code in codes:
+        try:
+            frame = client.bars(symbol=code.split(".", 1)[0], frequency=9, offset=30)
+            if frame is None or frame.empty:
+                raise ValueError("empty daily bars")
+            date_column = next(
+                (name for name in ("datetime", "date", "trade_date") if name in frame.columns),
+                None,
+            )
+            if date_column is None:
+                raise ValueError("missing date column")
+            matched = frame[
+                frame[date_column].astype(str).str.slice(0, 10) == trade_date
+            ]
+            if matched.empty:
+                raise ValueError("missing exact-date bar")
+            close = _num(matched.iloc[-1].get("close"))
+            if close <= 0:
+                raise ValueError("missing positive exact-date close")
+            closes[code.upper()] = close
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"{code}: {exc}")
+    if errors:
+        return ReferenceResult.unavailable("; ".join(errors), closes=closes)
+    return ReferenceResult.success(closes)
+
+
+def select_daily_reference_sample(
+    expected_codes: list[str],
+    *,
+    limit: int = 10,
+    seed: str = "",
+) -> list[str]:
+    """Choose a date-rotating, board-stratified cross-source sample."""
     if limit <= 0:
         return []
-    return sorted({code.upper() for code in expected_codes})[:limit]
+    import hashlib
+
+    codes = sorted({code.upper() for code in expected_codes})
+
+    def board(code: str) -> str:
+        short = code.split(".", 1)[0]
+        if code.endswith(".BJ"):
+            return "bj"
+        if short.startswith("688"):
+            return "star"
+        if short.startswith(("300", "301")):
+            return "chinext"
+        if code.endswith(".SH"):
+            return "sh_main"
+        return "sz_main"
+
+    def rank(code: str) -> str:
+        return hashlib.sha256(f"{seed}:{code}".encode()).hexdigest()
+
+    groups: dict[str, list[str]] = {}
+    for code in codes:
+        groups.setdefault(board(code), []).append(code)
+    selected: list[str] = []
+    for name in ("sh_main", "star", "sz_main", "chinext", "bj"):
+        candidates = groups.get(name, [])
+        if candidates and len(selected) < limit:
+            selected.append(min(candidates, key=rank))
+    remaining = [code for code in codes if code not in selected]
+    selected.extend(sorted(remaining, key=rank)[: max(0, limit - len(selected))])
+    return selected
 
 
 def _sync_dragon_tiger(store: MarketStore, trade_date: str) -> int:
@@ -1666,10 +1814,77 @@ def _sync_realtime_quotes_tpdog(store: MarketStore, trade_date: str) -> int:
                     "snapshot_at": snapshot_at,
                 }
             )
-    written = store.upsert_realtime_quotes(trade_date, rows, snapshot_at=snapshot_at)
-    if written:
+    expected_codes = [
+        str(row["code"])
+        for row in store._conn.execute(
+            "SELECT code FROM security_master WHERE is_active = 1 ORDER BY code"
+        ).fetchall()
+    ]
+    expected_set = set(expected_codes)
+
+    def sufficient(candidate_rows: list[dict[str, Any]]) -> bool:
+        from src.data.dataset_contracts import validate_dataset
+
+        valid = validate_dataset("realtime", candidate_rows).rows
+        if expected_set:
+            covered = {str(row.get("code") or "") for row in valid} & expected_set
+            required = max(1, (len(expected_set) * 9 + 9) // 10)
+            return len(covered) >= required
+        return len(valid) >= 3000
+
+    if sufficient(rows):
+        written = store.upsert_realtime_quotes(trade_date, rows, snapshot_at=snapshot_at)
         _clear_sync_error(store, "realtime", "tpdog.current_funds")
         return written
+    _set_sync_error(
+        store,
+        "realtime",
+        "tpdog.current_funds",
+        f"insufficient coverage rows={len(rows)} expected={len(expected_set)}",
+    )
+
+    try:
+        from src.data.astock_client import tencent_quote
+
+        tencent_rows: list[dict[str, Any]] = []
+        for offset in range(0, len(expected_codes), 200):
+            batch = expected_codes[offset:offset + 200]
+            quotes = tencent_quote([code.split(".", 1)[0] for code in batch])
+            for stored_code in batch:
+                short = stored_code.split(".", 1)[0]
+                raw = quotes.get(short)
+                if not raw:
+                    continue
+                tencent_rows.append({
+                    "code": stored_code,
+                    "name": raw.get("name"),
+                    "price": raw.get("price"),
+                    "pre_close": raw.get("last_close"),
+                    "open": raw.get("open"),
+                    "high": raw.get("high"),
+                    "low": raw.get("low"),
+                    "volume": raw.get("volume", 0),
+                    "total_amt": _num(raw.get("amount_wan")) * 10000,
+                    "rise": raw.get("change_amt"),
+                    "rise_rate": raw.get("change_pct"),
+                    "turnover_rate": raw.get("turnover_pct"),
+                    "source": "tencent.quote",
+                    "snapshot_at": snapshot_at,
+                })
+        if sufficient(tencent_rows):
+            written = store.upsert_realtime_quotes(
+                trade_date, tencent_rows, snapshot_at=snapshot_at
+            )
+            _clear_sync_error(store, "realtime", "tencent.quote")
+            return written
+        _set_sync_error(
+            store,
+            "realtime",
+            "tencent.quote",
+            f"insufficient coverage rows={len(tencent_rows)} expected={len(expected_set)}",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _set_sync_error(store, "realtime", "tencent.quote", exc)
     return _sync_realtime_quotes_akshare(store, trade_date)
 
 
@@ -2131,7 +2346,7 @@ def _eastmoney_clist_rows(
     source: str,
     store: MarketStore,
 ) -> list[dict[str, Any]]:
-    import requests
+    from src.data.astock_client import em_get
 
     headers = {
         "User-Agent": (
@@ -2141,23 +2356,19 @@ def _eastmoney_clist_rows(
         "Accept": "application/json,text/plain,*/*",
         "Referer": "https://quote.eastmoney.com/center/boardlist.html",
     }
-    last_exc: Any = None
-    for _ in range(3):
-        try:
-            resp = requests.get(url, params=params, headers=headers, timeout=15)
-            resp.raise_for_status()
-            data = resp.json()
-            diff = ((data or {}).get("data") or {}).get("diff") or []
-            if isinstance(diff, dict):
-                diff = list(diff.values())
-            if isinstance(diff, list):
-                return [row for row in diff if isinstance(row, dict)]
-            return []
-        except Exception as exc:  # noqa: BLE001
-            last_exc = exc
-            time.sleep(0.8)
-    _set_sync_error(store, dataset, source, last_exc or "empty result")
-    return []
+    try:
+        resp = em_get(url, params=params, headers=headers, timeout=15)
+        resp.raise_for_status()
+        data = resp.json()
+        diff = ((data or {}).get("data") or {}).get("diff") or []
+        if isinstance(diff, dict):
+            diff = list(diff.values())
+        if isinstance(diff, list):
+            return [row for row in diff if isinstance(row, dict)]
+        return []
+    except Exception as exc:  # noqa: BLE001
+        _set_sync_error(store, dataset, source, exc)
+        return []
 
 
 def _sync_stock_capital_rank_eastmoney(store: MarketStore, trade_date: str) -> int:
@@ -2854,20 +3065,35 @@ def _sync_sector_snapshot_tushare(store: MarketStore, trade_date: str) -> int:
     return total
 
 
-def _sync_sector_snapshot(store: MarketStore, trade_date: str) -> int:
-    written = _sync_sector_snapshot_akshare(store, trade_date)
-    if written:
-        return written
-    written = _sync_sector_snapshot_eastmoney(store, trade_date)
-    if written:
-        return written
-    written = _sync_sector_snapshot_ths(store, trade_date)
-    if written:
-        return written
-    written = _sync_sector_snapshot_tpdog(store, trade_date)
-    if written:
-        return written
-    return _sync_sector_snapshot_tushare(store, trade_date)
+def _sync_sector_snapshot(store: MarketStore, trade_date: str) -> dict[str, int]:
+    minimums = {
+        board_type: contract_for(f"sector_snapshot_{board_type}").minimum_rows
+        for board_type in ("industry", "concept")
+    }
+    counts = {"industry": 0, "concept": 0}
+    providers = (
+        _sync_sector_snapshot_akshare,
+        _sync_sector_snapshot_eastmoney,
+        _sync_sector_snapshot_ths,
+        _sync_sector_snapshot_tpdog,
+        _sync_sector_snapshot_tushare,
+    )
+    for provider in providers:
+        provider(store, trade_date)
+        counts = {
+            board_type: len(
+                store.get_sector_snapshot(trade_date, board_type, limit=500)
+            )
+            for board_type in counts
+        }
+        if all(counts[key] >= minimums[key] for key in counts):
+            break
+    complete = all(counts[key] >= minimums[key] for key in counts)
+    return {
+        "sector_snapshot": sum(counts.values()) if complete else 0,
+        "sector_snapshot_industry": counts["industry"],
+        "sector_snapshot_concept": counts["concept"],
+    }
 
 
 _GLOBAL_INDEX_SYMBOLS = (
@@ -3608,6 +3834,16 @@ def _sync_market_breadth_snapshot(store: MarketStore, trade_date: str) -> int:
 
 
 
+def _sector_name_keys(value: Any) -> tuple[str, str]:
+    """Build exact and conservative cross-provider sector matching keys."""
+    return sector_name_keys(value)
+
+
+def _match_sector_row(name: str, rows: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Match a sector only when exact or canonical identity is unambiguous."""
+    return match_sector_row(name, rows)
+
+
 def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
     """Materialize the four stage pages from synced DB tables only."""
     written = 0
@@ -3880,8 +4116,6 @@ def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
             leader = str(row.get("leader") or "").strip()
             if leader and leader not in board_by_leader:
                 board_by_leader[leader] = row
-        capital_by_sector = {str(row.get("sector") or ""): row for row in sector_capital}
-
         for item in watchlist[:20]:
             symbol = str(item.get("symbol") or "").upper()
             if not symbol:
@@ -3926,8 +4160,8 @@ def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
             pnl_pct = round((close - cost) / cost * 100, 2) if close and cost else None
             market_value = round(close * shares, 2) if close and shares else None
 
-            sector_row = next((row for row in [*concepts, *industries] if str(row.get("name") or "") == sector), None) or leader_board
-            capital_row = capital_by_sector.get(sector)
+            sector_row = _match_sector_row(sector, [*concepts, *industries]) or leader_board
+            capital_row = _match_sector_row(sector, sector_capital)
             strength_bits = []
             if sector_row:
                 strength_bits.append(f"板块涨幅 {round(_num(sector_row.get('change_pct')), 2)}%")
@@ -4137,54 +4371,60 @@ def _sync_ths_hot_reason(store: MarketStore, trade_date: str) -> int:
     return store.upsert_ths_hot_reason(trade_date, rows)
 
 
-def _sync_zt_pool(store: MarketStore, trade_date: str) -> int:
+def _sync_zt_pool(store: MarketStore, trade_date: str) -> dict[str, int]:
     """涨停池 + 炸板 + 跌停 + 昨日涨停 + 同花顺涨停揭秘。"""
     from src.data.astock_client import em_zt_pool, em_zb_pool, em_dt_pool, em_yzt_pool, ths_limit_up_pool
     date_str = trade_date.replace("-", "")
-    total = 0
+    counts = {
+        "zt_pool_eastmoney": 0,
+        "zb_pool_eastmoney": 0,
+        "dt_pool_eastmoney": 0,
+        "yzt_pool_eastmoney": 0,
+        "zt_pool_ths": 0,
+    }
     try:
         zt = em_zt_pool(date_str)
-        total += store.upsert_zt_pool(trade_date, zt, source="eastmoney")
+        counts["zt_pool_eastmoney"] = store.upsert_zt_pool(trade_date, zt, source="eastmoney")
     except Exception as exc:
         logger.debug("em_zt_pool failed: %s", exc)
     try:
         zb = em_zb_pool(date_str)
-        total += store.upsert_zb_pool(trade_date, zb)
+        counts["zb_pool_eastmoney"] = store.upsert_zb_pool(trade_date, zb)
     except Exception as exc:
         logger.debug("em_zb_pool failed: %s", exc)
     try:
         dt = em_dt_pool(date_str)
-        total += store.upsert_dt_pool(trade_date, dt)
+        counts["dt_pool_eastmoney"] = store.upsert_dt_pool(trade_date, dt)
     except Exception as exc:
         logger.debug("em_dt_pool failed: %s", exc)
     try:
         yzt = em_yzt_pool(date_str)
-        total += store.upsert_yzt_pool(trade_date, yzt)
+        counts["yzt_pool_eastmoney"] = store.upsert_yzt_pool(trade_date, yzt)
     except Exception as exc:
         logger.debug("em_yzt_pool failed: %s", exc)
     try:
         ths = ths_limit_up_pool(date_str)
-        total += store.upsert_zt_pool(trade_date, ths, source="ths")
+        counts["zt_pool_ths"] = store.upsert_zt_pool(trade_date, ths, source="ths")
     except Exception as exc:
         logger.debug("ths_limit_up_pool failed: %s", exc)
-    return total
+    return {"zt_pool": sum(counts.values()), **counts}
 
 
-def _sync_hot_list(store: MarketStore, trade_date: str) -> int:
+def _sync_hot_list(store: MarketStore, trade_date: str) -> dict[str, int]:
     """同花顺热榜 + 东财人气榜。"""
     from src.data.astock_client import ths_hot_list, eastmoney_popularity
-    total = 0
+    counts = {"hot_list_ths": 0, "hot_list_eastmoney": 0}
     try:
         ths = ths_hot_list()
-        total += store.upsert_hot_list(trade_date, ths, source="ths")
+        counts["hot_list_ths"] = store.upsert_hot_list(trade_date, ths, source="ths")
     except Exception as exc:
         logger.debug("ths_hot_list failed: %s", exc)
     try:
         em = eastmoney_popularity()
-        total += store.upsert_popularity_rank(trade_date, em)
+        counts["hot_list_eastmoney"] = store.upsert_popularity_rank(trade_date, em)
     except Exception as exc:
         logger.debug("eastmoney_popularity failed: %s", exc)
-    return total
+    return {"hot_list": sum(counts.values()), **counts}
 
 
 def _rotating_query_codes(
@@ -4319,9 +4559,19 @@ def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
     for stored_code in codes:
         code = stored_code.split(".")[0]
         try:
-            flows = fund_flow_backup(code, days=5)
-            if flows:
-                total += store.upsert_fund_flow_daily(stored_code, flows)
+            flows = _contract_rows(
+                store,
+                "fund_flow_daily",
+                [("sina", lambda code=code: fund_flow_backup(code, days=5))],
+                trade_date,
+                identity=stored_code,
+            )
+            current_rows = [
+                row for row in flows if str(row.get("date") or "")[:10] == trade_date
+            ]
+            if current_rows:
+                store.upsert_fund_flow_daily(stored_code, flows)
+                total += len(current_rows)
         except Exception:
             continue
         time.sleep(0.3)
@@ -4499,7 +4749,12 @@ def _sync_cls_telegraph(store: MarketStore, trade_date: str) -> int:
     """财联社电报（全市场实时快讯）。"""
     from src.data.astock_client import cls_telegraph
     try:
-        rows = cls_telegraph()
+        rows = _contract_rows(
+            store,
+            "cls_telegraph",
+            [("cls", cls_telegraph)],
+            trade_date,
+        )
     except Exception as exc:
         logger.debug("cls_telegraph failed: %s", exc)
         return 0
@@ -4652,17 +4907,29 @@ def run_daily_sync(
         if time.monotonic() > deadline or name not in datasets:
             return
         try:
-            result[name] = fn()
+            value = fn()
+            if isinstance(value, dict):
+                result.update({str(key): int(count or 0) for key, count in value.items()})
+            else:
+                result[name] = value
         except Exception:  # noqa: BLE001
             logger.exception("market_sync: %s dataset failed", name)
 
-    _run("calendar", lambda: _sync_trade_calendar_tpdog(store, trade_date))
+    def _run_calendar() -> int:
+        written = _sync_trade_calendar_akshare(store, trade_date)
+        if written:
+            return written
+        # akshare unavailable — fall back to the (less reliable) tpdog calendar
+        # so the persisted table is populated rather than empty.
+        return _sync_trade_calendar_tpdog(store, trade_date)
+
+    _run("calendar", _run_calendar)
     _run("index_master", lambda: _sync_index_master_tpdog(store))
     _run("board_master", lambda: _sync_board_master_tpdog(store))
     _run("board_members", lambda: _sync_board_members_tpdog(store))
-    _run("realtime", lambda: _sync_realtime_quotes_tpdog(store, trade_date))
 
     if "daily" in datasets:
+        result["daily_compensated"] = 0
         latest_settled = _latest_settled_date_for_sync(trade_date, today_str)
         if latest_settled is None:
             result["daily"] = 0
@@ -4690,7 +4957,9 @@ def run_daily_sync(
             )
         if universe_codes:
             written = 0
+            attempted_codes: list[str] = []
             for i, code in enumerate(universe_codes):
+                attempted_codes.append(code)
                 written += _sync_daily_for_code(
                     store,
                     code,
@@ -4706,15 +4975,44 @@ def run_daily_sync(
                     logger.warning("daily sync hit deadline at %d/%d codes", i, len(universe_codes))
                     break
             result["daily"] = result.get("daily", 0) + written
+            if time.monotonic() <= deadline:
+                compensation_codes = _daily_compensation_candidates(
+                    store,
+                    trade_date,
+                    sync_run_id,
+                    attempted_codes,
+                )
+                compensated = 0
+                for code in compensation_codes:
+                    if time.monotonic() > deadline:
+                        break
+                    compensated += _sync_daily_for_code(
+                        store,
+                        code,
+                        trade_date,
+                        today_str,
+                        lookback_days=lookback_days,
+                        deadline=deadline,
+                        sync_run_id=sync_run_id,
+                    )
+                result["daily_compensated"] = compensated
+                result["daily"] += compensated
 
     def _run(name: str, fn: Any) -> None:
         """Run one dataset, capture failures so they don't block siblings."""
         if time.monotonic() > deadline or name not in datasets:
             return
         try:
-            result[name] = fn()
-        except Exception:  # noqa: BLE001 — one dataset failing must not abort the rest
+            value = fn()
+            if isinstance(value, dict):
+                result.update({str(key): int(count or 0) for key, count in value.items()})
+            else:
+                result[name] = value
+        except Exception as exc:  # noqa: BLE001 — one dataset failing must not abort the rest
             logger.exception("market_sync: %s dataset failed", name)
+            # Surface the failure to /market-sync/datasets via sync_meta so a
+            # run blocked on row count is diagnosable without grepping logs.
+            _set_sync_error(store, name, "run_daily_sync", exc)
 
     _run("daily_basic", lambda: _sync_stock_daily_basic_tushare_by_date(store, trade_date, codes=codes))
     _run("etf_master", lambda: _sync_etf_master(store))
@@ -4776,6 +5074,10 @@ def run_daily_sync(
     _run("irm_qa", lambda: _sync_irm_qa(store, trade_date))
     _run("stock_news", lambda: _sync_stock_news(store, trade_date))
     _run("lockup_expiry", lambda: _sync_lockup_expiry(store, trade_date))
+    # Quotes are intentionally refreshed last.  Recommendation generation is
+    # gated on this published run, so an early quote would already be stale by
+    # the time slower sentiment/fund-flow datasets finish.
+    _run("realtime", lambda: _sync_realtime_quotes_tpdog(store, trade_date))
 
     return result
 
@@ -4918,9 +5220,12 @@ def _maybe_run_intraday_sync(store: MarketStore) -> None:
             sync_run_id=run_id,
         )
         failed: list[str] = []
-        for dataset in sorted(_INTRADAY_DATASETS):
+        from src.data.dataset_registry import contract_for
+
+        reported_datasets = _INTRADAY_DATASETS | set(rows)
+        for dataset in sorted(reported_datasets):
             received = max(int(rows.get(dataset, 0)), 0)
-            required = 1 if dataset in _INTRADAY_BLOCKING_DATASETS else 0
+            required = contract_for(dataset).minimum_rows
             reasons = ["row_count_below_minimum"] if received < required else []
             status = QualityStatus.PARTIAL if reasons else QualityStatus.VERIFIED
             store.record_dataset_result(
@@ -4936,7 +5241,7 @@ def _maybe_run_intraday_sync(store: MarketStore) -> None:
                     source="intraday-provider-chain",
                 ),
             )
-            if reasons:
+            if reasons and dataset in _INTRADAY_BLOCKING_DATASETS:
                 failed.append(dataset)
         if failed:
             store.finish_sync_run(

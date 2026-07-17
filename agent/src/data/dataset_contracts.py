@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from datetime import datetime
+import math
 from typing import Any, Callable, Mapping, Sequence
 
 
@@ -51,6 +53,21 @@ def _valid_iso_date(value: Any) -> bool:
         return False
 
 
+def _finite(value: Any) -> bool:
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _positive(value: Any) -> bool:
+    return _finite(value) and float(value) > 0
+
+
+def _non_negative(value: Any) -> bool:
+    return _finite(value) and float(value) >= 0
+
+
 def validate_dataset(name: str, value: Any, *, trade_date: str | None = None) -> ValidationResult:
     rows = _rows(value)
     reasons: list[str] = []
@@ -80,6 +97,81 @@ def validate_dataset(name: str, value: Any, *, trade_date: str | None = None) ->
         if trade_date and rows and max(str(row[date_key])[:10] for row in rows) < trade_date:
             rows = []
             reasons.append("latest row is older than requested trade date")
+    elif name == "realtime":
+        rows = [
+            row for row in rows
+            if str(row.get("code") or "").strip()
+            and _positive(row.get("price"))
+            and _positive(row.get("pre_close"))
+            and _non_negative(row.get("volume", 0))
+        ]
+        if not rows:
+            reasons.append("no valid realtime quote rows")
+    elif name == "market_breadth":
+        valid_rows = []
+        for row in rows:
+            if not all(_non_negative(row.get(key)) for key in ("total", "advancers", "decliners")):
+                continue
+            total = float(row.get("total") or 0)
+            classified = float(row.get("advancers") or 0) + float(row.get("decliners") or 0)
+            if total <= 0 or classified > total * 1.02:
+                continue
+            valid_rows.append(row)
+        rows = valid_rows
+        if not rows:
+            reasons.append("breadth counts exceed total")
+    elif name == "capital_rank":
+        rows = [
+            row for row in rows
+            if str(row.get("code") or "").strip()
+            and row.get("rank_type") in {"inflow", "outflow"}
+            and _finite(row.get("main_net"))
+        ]
+        if not rows:
+            reasons.append("no valid capital rank rows")
+    elif name == "sector_capital":
+        rows = [
+            row for row in rows
+            if str(row.get("sector") or "").strip() and _finite(row.get("main_net"))
+        ]
+        if not rows:
+            reasons.append("no valid sector capital rows")
+    elif name == "cls_telegraph":
+        valid_rows = []
+        for row in rows:
+            try:
+                parsed = datetime.fromisoformat(str(row.get("time") or "").replace("Z", "+00:00"))
+            except (TypeError, ValueError):
+                continue
+            if trade_date and parsed.date().isoformat() != trade_date:
+                continue
+            if str(row.get("title") or row.get("content") or "").strip():
+                valid_rows.append(row)
+        rows = valid_rows
+        if not rows:
+            reasons.append("no fresh timestamped news rows")
+    elif name == "master":
+        # A security-master row is only usable when it carries a non-empty code
+        # and a recognizable list status. This catches "3000 rows written but
+        # every row is null/placeholder" corruption that a bare row count misses,
+        # without rejecting legitimate variations (nameless codes, etc.).
+        valid_rows = [
+            row for row in rows
+            if str(row.get("code") or "").strip()
+            and str(row.get("list_status") or "").strip() in {"L", "D", "P", ""}
+        ]
+        rows = valid_rows
+        if not rows:
+            reasons.append("no master rows with a usable code")
+    elif name == "board_members":
+        valid_rows = [
+            row for row in rows
+            if str(row.get("board_code") or row.get("stock_code") or "").strip()
+            and str(row.get("stock_code") or "").strip()
+        ]
+        rows = valid_rows
+        if not rows:
+            reasons.append("no board-member rows with a stock code")
 
     deduped: list[dict[str, Any]] = []
     seen: set[tuple[tuple[str, str], ...]] = set()

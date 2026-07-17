@@ -73,6 +73,8 @@ def test_commit_verifies_and_atomically_imports_snapshot(tmp_path: Path) -> None
         "SELECT name FROM security_master WHERE code='600000.SH'"
     ).fetchone()["name"] == "PF Bank"
     assert store.get_meta(f"ingest:snapshot:{manifest.snapshot_id}") == manifest.sha256
+    assert not receiver._part_path(manifest.snapshot_id).exists()
+    assert not receiver._manifest_path(manifest.snapshot_id).exists()
 
 
 def test_commit_rejects_unpublished_or_corrupt_snapshot(tmp_path: Path) -> None:
