@@ -113,3 +113,61 @@ def test_index_history_not_in_run_daily_sync_chain():
     src = inspect.getsource(ms.run_daily_sync)
     assert '_run("index_history"' not in src, "index_history must be removed from run_daily_sync"
     assert hasattr(ms, "_maybe_run_index_history_sync"), "dedicated channel must exist"
+
+
+# ---------------------------------------------------------------------------
+# ⑤b daily reference: source-unavailable degrades, data-shortage blocks
+# ---------------------------------------------------------------------------
+
+
+def test_daily_reference_source_unavailable_does_not_block(monkeypatch):
+    """A PARTIAL caused only by unavailable reference SOURCES (weekend / third-party
+    down) must publish in lenient mode — not freeze the backfill."""
+    import src.data.market_sync_worker as mw
+
+    class _Report:
+        status = mw.QualityStatus.PARTIAL
+        blocking_reasons = ["suspension_reference_unavailable", "cross_source_reference_unavailable"]
+
+    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: _Report())
+    # Stub the fetchers validate_daily_reference calls before the report.
+    from src.data.market_quality import ReferenceResult, SuspensionResult
+
+    monkeypatch.setattr(mw, "fetch_suspended_codes", lambda *a, **k: SuspensionResult.success(set()))
+    monkeypatch.setattr(mw, "fetch_daily_reference_closes", lambda *a, **k: ReferenceResult.success({}))
+    monkeypatch.setattr(mw, "fetch_tdx_reference_closes", lambda *a, **k: ReferenceResult.success({}))
+
+    class _Shadow:
+        def daily_codes_for_run(self, *a): return []
+        def daily_rows_for_run(self, *a): return []
+        def record_dataset_result(self, *a, **k): pass
+
+    # Must NOT raise — source-unavailable is environmental, publishes in lenient mode.
+    mw._validate_daily_reference(_Shadow(), "2026-07-17", "run-x", [])
+
+
+def test_daily_reference_data_shortage_still_blocks(monkeypatch):
+    """A PARTIAL caused by genuine missing data (not just source availability)
+    must still block publish — only source-unavailability degrades."""
+    import src.data.market_sync_worker as mw
+    from src.data.market_quality import ReferenceResult, SuspensionResult
+
+    class _Report:
+        status = mw.QualityStatus.PARTIAL
+        blocking_reasons = ["unexplained_missing_codes"]  # real data shortage
+
+    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: _Report())
+    monkeypatch.setattr(mw, "fetch_suspended_codes", lambda *a, **k: SuspensionResult.success(set()))
+    monkeypatch.setattr(mw, "fetch_daily_reference_closes", lambda *a, **k: ReferenceResult.success({}))
+    monkeypatch.setattr(mw, "fetch_tdx_reference_closes", lambda *a, **k: ReferenceResult.success({}))
+
+    class _Shadow:
+        def daily_codes_for_run(self, *a): return []
+        def daily_rows_for_run(self, *a): return []
+        def record_dataset_result(self, *a, **k): pass
+        def finish_sync_run(self, *a, **k): pass
+        _conn = None
+
+    with pytest.raises(mw.MarketDataQualityError):
+        mw._validate_daily_reference(_Shadow(), "2026-07-17", "run-x", [])
+

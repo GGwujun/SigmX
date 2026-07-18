@@ -343,13 +343,45 @@ def _validate_daily_reference(
         fallback_reference_result=fallback_reference_result,
     )
     shadow_store.record_dataset_result(run_id, report)
-    if report.status is not QualityStatus.VERIFIED:
+    if report.status is QualityStatus.VERIFIED:
+        return
+    # QUARANTINED = genuine data corruption (bad OHLC / close mismatch / wrong
+    # date). Always blocks — never ship known-bad rows.
+    if report.status is QualityStatus.QUARANTINED:
         shadow_store.finish_sync_run(
             run_id,
             report.status,
             error_summary="; ".join(report.blocking_reasons),
         )
         raise MarketDataQualityError(report)
+    # PARTIAL can mean either (a) a reference SOURCE was unavailable
+    # (weekend / third-party down) — environmental, not a data fault — or
+    # (b) the data itself is short while sources WERE available. Only (a) is
+    # safe to downgrade. When a source is unavailable, `unexplained_missing_codes`
+    # is a *symptom* (we can't tell which codes are suspended vs. truly missing),
+    # so its presence alongside source-unavailability still counts as (a).
+    # If sources WERE available and codes are still missing, that's real (b).
+    # Set MARKET_SYNC_DAILY_REFERENCE_STRICT=1 to hard-block on any non-VERIFIED.
+    _SOURCE_UNAVAILABLE_REASONS = {
+        "suspension_reference_unavailable",
+        "cross_source_reference_unavailable",
+        "fallback_reference_coverage_too_low",
+    }
+    reasons = set(report.blocking_reasons)
+    source_down = bool(reasons & _SOURCE_UNAVAILABLE_REASONS)
+    strict = os.getenv("MARKET_SYNC_DAILY_REFERENCE_STRICT", "0") == "1"
+    if (not source_down) or strict:
+        shadow_store.finish_sync_run(
+            run_id,
+            report.status,
+            error_summary="; ".join(report.blocking_reasons),
+        )
+        raise MarketDataQualityError(report)
+    logger.warning(
+        "daily reference check PARTIAL (reference sources unavailable), "
+        "publishing in lenient mode: %s",
+        "; ".join(report.blocking_reasons) or "(no reasons)",
+    )
 
 
 def _split_deadline(
