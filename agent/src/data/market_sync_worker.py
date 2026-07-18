@@ -484,8 +484,14 @@ def _run_one_tier(
     logger.info("post-close %s tier publishing %s rows=%s", tier_name, trade_date, rows)
     _publish_shadow(shadow_db, live_db)
     published_store = MarketStore(live_db)
+    # Post-publish readiness recheck. Only enforced in strict mode: in lenient
+    # mode the daily dataset may legitimately be PARTIAL (reference sources
+    # unavailable), which makes `.ready` False even though the rows published
+    # fine — re-checking would spuriously reject a successful publish.
+    strict = os.getenv("MARKET_SYNC_DAILY_REFERENCE_STRICT", "0") == "1"
     if (
-        enable_daily_reference
+        strict
+        and enable_daily_reference
         and "daily" in tier_datasets
         and not published_store.get_data_readiness("bars_daily", trade_date).ready
     ):
