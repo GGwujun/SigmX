@@ -23,6 +23,7 @@ import os
 import threading
 import time
 import json
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -35,12 +36,23 @@ from src.data.market_quality import (
     SuspensionResult,
 )
 from src.data.market_store import MarketStore, get_market_store
+from src.data import _net_timeout
+
+# Must run before any akshare/requests call: injects a default connect/read
+# timeout on HTTPAdapter.send so a hung upstream (SYN_SENT / stalled recv)
+# raises instead of blocking forever. See _net_timeout.py.
+_net_timeout.install()
 
 logger = logging.getLogger(__name__)
 
 _CST = timezone(timedelta(hours=8))
 _SYNC_TICK_SECONDS = 60
 _TICK_DEADLINE_SECONDS = 600  # one sync tick must not run longer than 10 min
+# 单个 dataset 在 run_daily_sync 里的硬超时上限（秒）。到点未完成则放弃该 dataset、
+# 记 sync_error、继续下一个兄弟 dataset，避免一个挂死的尾部任务拖住整轮。
+# 与 _net_timeout 的 per-request timeout 配合：请求级 30s 让阻塞 socket 解除，
+# 这里再兜一个 dataset 总时长上限。env 可调，设 0 关闭（退回无硬超时）。
+_DATASET_TIMEOUT = float(os.getenv("MARKET_SYNC_DATASET_TIMEOUT", "120"))
 _POOL_TYPES = ("limitup", "limitdown", "strong", "fire", "secnew", "previous")
 _SLEEP_BETWEEN_CALLS = 0.05  # tpdog caps at 30 calls/sec
 _DAILY_COMPENSATION_LIMIT = 200
@@ -4999,15 +5011,50 @@ def run_daily_sync(
                 result["daily"] += compensated
 
     def _run(name: str, fn: Any) -> None:
-        """Run one dataset, capture failures so they don't block siblings."""
+        """Run one dataset in an isolated worker with a hard timeout.
+
+        Failures (exception OR timeout) are captured so they don't block
+        sibling datasets. The per-dataset timeout caps how long one dataset may
+        run: it cannot exceed the remaining sync budget (``deadline - now``).
+        Combined with _net_timeout's per-request timeout (which unblocks a
+        stalled socket ~30s in), this guarantees a hung dataset is abandoned
+        instead of hanging the whole run. See plan step ①②.
+        """
         if time.monotonic() > deadline or name not in datasets:
             return
+        if _DATASET_TIMEOUT <= 0:
+            budget = None  # disabled — fall back to unbounded (legacy behavior)
+        else:
+            budget = max(1.0, min(_DATASET_TIMEOUT, deadline - time.monotonic()))
         try:
-            value = fn()
+            if budget is None:
+                value = fn()
+            else:
+                # Run fn() in a worker thread so we can apply future.result(timeout).
+                # A thread cannot be force-killed mid blocking-I/O, but the per-request
+                # timeout from _net_timeout ensures the socket unblocks and the thread
+                # unwinds shortly after `budget` elapses.
+                #
+                # NB: do NOT use `with ThreadPoolExecutor(...)` — its __exit__ calls
+                # shutdown(wait=True), which blocks until the worker finishes, defeating
+                # the timeout. We shutdown(wait=False, cancel_futures=True) so the main
+                # flow returns immediately; the orphaned thread winds down on its own
+                # once _net_timeout's socket timeout fires.
+                ex = ThreadPoolExecutor(max_workers=1)
+                future = ex.submit(fn)
+                try:
+                    value = future.result(timeout=budget)
+                finally:
+                    ex.shutdown(wait=False, cancel_futures=True)
             if isinstance(value, dict):
                 result.update({str(key): int(count or 0) for key, count in value.items()})
             else:
                 result[name] = value
+        except FutureTimeout:
+            logger.warning(
+                "market_sync: %s dataset timed out after %.0fs, skipping", name, budget or 0
+            )
+            _set_sync_error(store, name, "run_daily_sync", TimeoutError(f"dataset timeout {budget}s"))
         except Exception as exc:  # noqa: BLE001 — one dataset failing must not abort the rest
             logger.exception("market_sync: %s dataset failed", name)
             # Surface the failure to /market-sync/datasets via sync_meta so a
@@ -5041,7 +5088,9 @@ def run_daily_sync(
     _run("fund_daily", lambda: _sync_fund_daily_from_etf_daily(store, trade_date))
     _run("etf_size", lambda: _sync_etf_share_size_by_date(store, trade_date))
     _run("index", lambda: _sync_index_daily(store, trade_date))
-    _run("index_history", lambda: _backfill_index_history_akshare(store))
+    # index_history (long-term akshare backfill) is intentionally NOT in this chain:
+    # it's a slow, idempotent historical enhancement that must not block the day's
+    # core snapshot publish. It runs via _maybe_run_index_history_sync instead.
     _run("board", lambda: _sync_board_daily_tpdog(store, trade_date))
     _run("capital", lambda: _sync_stock_capital(store, trade_date))
     _run("capital_rank", lambda: _sync_stock_capital_rank(store, trade_date))
@@ -5270,6 +5319,39 @@ def _maybe_run_intraday_sync(store: MarketStore) -> None:
         }:
             store.finish_sync_run(run_id, QualityStatus.FAILED, error_summary=str(exc))
         logger.exception("market-sync daemon intraday tick failed")
+
+
+def _maybe_run_index_history_sync(store: MarketStore) -> None:
+    """Backfill long-term index history (akshare) once per trading day, post-close.
+
+    ``_backfill_index_history_akshare`` pulls 2019+ daily K for any index with
+    fewer than ``min_rows`` rows. It's slow (akshare, one request per index) and
+    purely historical — it must NOT run inside ``run_daily_sync``'s core chain,
+    where a stalled akshare request would block the day's snapshot publish.
+
+    Runs on its own cadence/meta_key (one shot per trading day, after close),
+    writes the live ``index_daily`` table directly via upsert (INSERT OR REPLACE,
+    so it never disturbs already-published core rows). Idempotent and safe to
+    retry. See plan step ③.
+    """
+    from src.data.trade_calendar import cn_market_phase, is_trading_day
+
+    now = _now_cst()
+    today = now.strftime("%Y-%m-%d")
+    if not is_trading_day(today):
+        return
+    if cn_market_phase(now) != "post_close":
+        return
+    meta_key = f"daemon:index_history:{today}"
+    if store.get_meta(meta_key):
+        return
+    try:
+        logger.info("market-sync daemon: starting index-history backfill for %s", today)
+        _backfill_index_history_akshare(store)
+        store.set_meta(meta_key, _now_cst().isoformat())
+        logger.info("market-sync daemon: index-history backfill done for %s", today)
+    except Exception:  # noqa: BLE001
+        logger.exception("market-sync daemon index-history tick failed")
 
 
 def _maybe_run_fund_premium_sync(store: MarketStore) -> None:

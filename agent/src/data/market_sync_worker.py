@@ -29,6 +29,7 @@ from src.data.market_quality import (
 from src.data.market_sync import (
     _all_a_share_codes,
     _maybe_run_fund_premium_sync,
+    _maybe_run_index_history_sync,
     _maybe_run_intraday_sync,
     _maybe_run_premarket_sync,
     _now_cst,
@@ -99,6 +100,20 @@ _POST_CLOSE_DATASETS = {
     "irm_qa",
     "stock_news",
     "lockup_expiry",
+}
+
+# Tier-1 datasets: the day's core snapshot. Validated and published FIRST so the
+# live DB has a usable universe even if a slow/stalled enhanced dataset (e.g.
+# akshare fund-flow) hasn't finished. Mirrors _CRITICAL (calendar/master/
+# daily_basic/index) plus `daily`, which has its own dedicated reference check.
+# Everything else in _POST_CLOSE_DATASETS is Tier-2 (enhanced) and publishes
+# after the core. See plan step ⑤.
+_POST_CLOSE_CORE = {
+    "calendar",
+    "master",
+    "daily_basic",
+    "index",
+    "daily",
 }
 
 class MarketDataQualityError(RuntimeError):
@@ -204,107 +219,201 @@ def _integrity_ok(db_path: Path) -> bool:
     return bool(row and row[0] == "ok")
 
 
-def _run_post_close_shadow_sync(
+def _validate_tier_quality(
+    shadow_store: MarketStore,
     trade_date: str,
+    run_id: str,
+    tier_datasets: set[str],
+    rows: dict[str, int],
+) -> list[str]:
+    """Per-dataset contract loop for one tier. Persists each dataset's quality
+    report and returns the list of violating-contract strings (empty = pass).
+
+    Verbatim extraction of the original per-dataset loop; the caller owns the
+    run lifecycle (it decides whether to finish_sync_run + raise on non-empty).
+    """
+    failed_contracts: list[str] = []
+    reported_datasets = (tier_datasets | set(rows)) - {"daily"}
+    for dataset in sorted(reported_datasets):
+        received = max(int(rows.get(dataset, 0)), 0)
+        contract = contract_for(dataset)
+        minimum = contract.minimum_rows
+        valid_rows = received
+        reasons: list[str] = []
+        try:
+            semantic_rows = _semantic_rows(shadow_store, dataset, trade_date)
+            if semantic_rows is not None:
+                validation = validate_dataset(
+                    dataset,
+                    semantic_rows,
+                    trade_date=trade_date,
+                )
+                valid_rows = len(validation.rows)
+                reasons.extend(validation.reasons)
+        except Exception as exc:  # noqa: BLE001
+            valid_rows = 0
+            reasons.append(f"semantic_validation_error:{exc}")
+        expected_rows = minimum
+        if dataset == "realtime":
+            active_rows = shadow_store._conn.execute(
+                "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
+            ).fetchone()
+            active_codes = int(active_rows[0] or 0) if active_rows else 0
+            coverage_minimum = int(active_codes * _REALTIME_MIN_COVERAGE + 0.999999)
+            expected_rows = max(minimum, coverage_minimum)
+            if active_codes and valid_rows < coverage_minimum:
+                reasons.append("realtime_universe_coverage_below_threshold")
+        if valid_rows < minimum:
+            reasons.append("row_count_below_minimum")
+        reasons = list(dict.fromkeys(reasons))
+        status = QualityStatus.PARTIAL if reasons else QualityStatus.VERIFIED
+        shadow_store.record_dataset_result(
+            run_id,
+            DatasetQualityReport(
+                dataset=dataset,
+                trade_date=trade_date,
+                status=status,
+                expected_rows=expected_rows,
+                received_rows=received,
+                valid_rows=valid_rows,
+                blocking_reasons=reasons,
+                source="configured-provider-chain",
+            ),
+        )
+        # A blocking contract fails the run on any degradation.  An
+        # advisory contract only fails the run when the provider returned
+        # rows but every one was rejected as corrupt — coverage shortfall or
+        # an empty result degrades (PARTIAL + readiness) but still publishes.
+        corrupt = received > 0 and valid_rows == 0
+        if reasons and (contract.blocking or (contract.hard_fail_on_zero_valid and corrupt)):
+            failed_contracts.append(
+                f"{dataset} received={received} valid={valid_rows} minimum={minimum}"
+            )
+    return failed_contracts
+
+
+def _validate_daily_reference(
+    shadow_store: MarketStore,
+    trade_date: str,
+    run_id: str,
+    expected_codes: list[str],
+) -> None:
+    """Daily reference cross-check (suspended codes + reference closes + tdx +
+    validate_daily_dataset). Verbatim extraction; raises MarketDataQualityError
+    on non-VERIFIED (after finishing the run). Only meaningful for a tier that
+    includes ``daily``.
+    """
+    received_codes = set(shadow_store.daily_codes_for_run(trade_date, run_id))
+    suspension_result = fetch_suspended_codes(
+        trade_date,
+        sorted(set(expected_codes) - received_codes),
+    )
+    active_expected = set(expected_codes)
+    if suspension_result.available:
+        active_expected -= set(suspension_result.codes)
+    daily_rows = shadow_store.daily_rows_for_run(trade_date, run_id)
+    tushare_codes = [
+        str(row["code"])
+        for row in daily_rows
+        if row.get("source") == "tushare.daily"
+    ]
+    fallback_codes = [
+        str(row["code"])
+        for row in daily_rows
+        if str(row.get("source") or "").startswith("tpdog.")
+    ]
+    reference_sample = select_daily_reference_sample(tushare_codes, seed=trade_date)
+    if active_expected and not reference_sample and not fallback_codes:
+        reference_result = ReferenceResult.unavailable(
+            "no independent reference sample for active daily universe"
+        )
+    else:
+        reference_result = fetch_daily_reference_closes(trade_date, reference_sample)
+    fallback_reference_result = fetch_tdx_reference_closes(
+        trade_date,
+        sorted(set(fallback_codes)),
+    )
+    report = validate_daily_dataset(
+        shadow_store,
+        trade_date,
+        expected_codes,
+        run_id,
+        suspension_result=suspension_result,
+        reference_result=reference_result,
+        fallback_reference_result=fallback_reference_result,
+    )
+    shadow_store.record_dataset_result(run_id, report)
+    if report.status is not QualityStatus.VERIFIED:
+        shadow_store.finish_sync_run(
+            run_id,
+            report.status,
+            error_summary="; ".join(report.blocking_reasons),
+        )
+        raise MarketDataQualityError(report)
+
+
+def _split_deadline(
+    total: int, core_done: bool, enhanced_datasets: set[str]
+) -> tuple[int, int]:
+    """Split the post-close deadline budget across core/enhanced tiers.
+
+    Core gets the majority (it carries the daily reference check and is
+    readiness-critical). Both have floors so a fast path isn't starved.
+    See plan step ⑤ / blueprint §6.
+    """
+    if core_done:
+        return (0, total)  # all remaining budget to enhanced retry
+    if not enhanced_datasets:
+        return (total, 0)  # core-only mode (e.g. CLI --datasets daily)
+    core = max(int(total * 0.6), 300)
+    enhanced = max(total - core, 120)
+    return (core, enhanced)
+
+
+def _run_one_tier(
     *,
+    tier_name: str,
+    trade_date: str,
     live_db: Path,
     shadow_db: Path,
-    datasets: set[str],
+    tier_datasets: set[str],
     deadline_seconds: int,
     lookback_days: int,
+    universe: str,
+    expected_codes: list[str],
+    enable_daily_reference: bool,
+    tier_meta_key: str,
 ) -> dict[str, int]:
-    live_store = MarketStore(live_db)
-    meta_key = f"daemon:{trade_date}"
-    if live_store.get_meta(meta_key):
-        live_store._conn.close()
-        return {}
-    live_store._conn.close()
+    """Run one tier end-to-end: prepare → sync → validate → publish.
 
-    logger.info("post-close shadow sync preparing %s -> %s", live_db, shadow_db)
+    On success, sets ``tier_meta_key``. Does NOT touch the aggregate
+    ``daemon:{date}`` key (the orchestrator owns that). Raises on failure.
+    See plan step ⑤ / blueprint §2.
+    """
+    logger.info("post-close %s tier preparing %s -> %s", tier_name, live_db, shadow_db)
     _prepare_shadow(live_db, shadow_db)
     shadow_store = MarketStore(shadow_db)
     run_id = shadow_store.create_sync_run(trade_date, worker_id=_worker_id())
-    universe = os.getenv("MARKET_SYNC_POSTCLOSE_UNIVERSE", "all")
-    expected_codes = (
-        _all_a_share_codes(shadow_store, default_only=(universe == "default"))
-        if "daily" in datasets
-        else []
-    )
     try:
         rows = run_daily_sync(
             trade_date,
             store=shadow_store,
-            codes=expected_codes if "daily" in datasets else None,
-            datasets=datasets,
+            codes=expected_codes if "daily" in tier_datasets else None,
+            datasets=tier_datasets,
             universe=universe,
             deadline_seconds=deadline_seconds,
             lookback_days=lookback_days,
             sync_run_id=run_id,
         )
-        missing_results = sorted(datasets - rows.keys())
+        missing_results = sorted(tier_datasets - rows.keys())
         if missing_results:
             raise MarketDataQualityError(
                 f"missing dataset results after sync: {', '.join(missing_results)}"
             )
 
-        failed_contracts: list[str] = []
-        reported_datasets = (datasets | set(rows)) - {"daily"}
-        for dataset in sorted(reported_datasets):
-            received = max(int(rows.get(dataset, 0)), 0)
-            contract = contract_for(dataset)
-            minimum = contract.minimum_rows
-            valid_rows = received
-            reasons: list[str] = []
-            try:
-                semantic_rows = _semantic_rows(shadow_store, dataset, trade_date)
-                if semantic_rows is not None:
-                    validation = validate_dataset(
-                        dataset,
-                        semantic_rows,
-                        trade_date=trade_date,
-                    )
-                    valid_rows = len(validation.rows)
-                    reasons.extend(validation.reasons)
-            except Exception as exc:  # noqa: BLE001
-                valid_rows = 0
-                reasons.append(f"semantic_validation_error:{exc}")
-            expected_rows = minimum
-            if dataset == "realtime":
-                active_rows = shadow_store._conn.execute(
-                    "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
-                ).fetchone()
-                active_codes = int(active_rows[0] or 0) if active_rows else 0
-                coverage_minimum = int(active_codes * _REALTIME_MIN_COVERAGE + 0.999999)
-                expected_rows = max(minimum, coverage_minimum)
-                if active_codes and valid_rows < coverage_minimum:
-                    reasons.append("realtime_universe_coverage_below_threshold")
-            if valid_rows < minimum:
-                reasons.append("row_count_below_minimum")
-            reasons = list(dict.fromkeys(reasons))
-            status = QualityStatus.PARTIAL if reasons else QualityStatus.VERIFIED
-            shadow_store.record_dataset_result(
-                run_id,
-                DatasetQualityReport(
-                    dataset=dataset,
-                    trade_date=trade_date,
-                    status=status,
-                    expected_rows=expected_rows,
-                    received_rows=received,
-                    valid_rows=valid_rows,
-                    blocking_reasons=reasons,
-                    source="configured-provider-chain",
-                ),
-            )
-            # A blocking contract fails the run on any degradation.  An
-            # advisory contract only fails the run when the provider returned
-            # rows but every one was rejected as corrupt — coverage shortfall or
-            # an empty result degrades (PARTIAL + readiness) but still publishes.
-            corrupt = received > 0 and valid_rows == 0
-            if reasons and (contract.blocking or (contract.hard_fail_on_zero_valid and corrupt)):
-                failed_contracts.append(
-                    f"{dataset} received={received} valid={valid_rows} minimum={minimum}"
-                )
-
+        failed_contracts = _validate_tier_quality(
+            shadow_store, trade_date, run_id, tier_datasets, rows
+        )
         if failed_contracts:
             shadow_store.finish_sync_run(
                 run_id,
@@ -312,57 +421,11 @@ def _run_post_close_shadow_sync(
                 error_summary="; ".join(failed_contracts),
             )
             raise MarketDataQualityError(
-                "blocking dataset quality contracts failed: " + "; ".join(failed_contracts)
+                f"blocking dataset quality contracts failed: {'; '.join(failed_contracts)}"
             )
 
-        if "daily" in datasets:
-            received_codes = set(shadow_store.daily_codes_for_run(trade_date, run_id))
-            suspension_result = fetch_suspended_codes(
-                trade_date,
-                sorted(set(expected_codes) - received_codes),
-            )
-            active_expected = set(expected_codes)
-            if suspension_result.available:
-                active_expected -= set(suspension_result.codes)
-            daily_rows = shadow_store.daily_rows_for_run(trade_date, run_id)
-            tushare_codes = [
-                str(row["code"])
-                for row in daily_rows
-                if row.get("source") == "tushare.daily"
-            ]
-            fallback_codes = [
-                str(row["code"])
-                for row in daily_rows
-                if str(row.get("source") or "").startswith("tpdog.")
-            ]
-            reference_sample = select_daily_reference_sample(tushare_codes, seed=trade_date)
-            if active_expected and not reference_sample and not fallback_codes:
-                reference_result = ReferenceResult.unavailable(
-                    "no independent reference sample for active daily universe"
-                )
-            else:
-                reference_result = fetch_daily_reference_closes(trade_date, reference_sample)
-            fallback_reference_result = fetch_tdx_reference_closes(
-                trade_date,
-                sorted(set(fallback_codes)),
-            )
-            report = validate_daily_dataset(
-                shadow_store,
-                trade_date,
-                expected_codes,
-                run_id,
-                suspension_result=suspension_result,
-                reference_result=reference_result,
-                fallback_reference_result=fallback_reference_result,
-            )
-            shadow_store.record_dataset_result(run_id, report)
-            if report.status is not QualityStatus.VERIFIED:
-                shadow_store.finish_sync_run(
-                    run_id,
-                    report.status,
-                    error_summary="; ".join(report.blocking_reasons),
-                )
-                raise MarketDataQualityError(report)
+        if enable_daily_reference and "daily" in tier_datasets:
+            _validate_daily_reference(shadow_store, trade_date, run_id, expected_codes)
         shadow_store.finish_sync_run(run_id, QualityStatus.VERIFIED)
     except Exception as exc:
         run_row = shadow_store._conn.execute(
@@ -386,16 +449,115 @@ def _run_post_close_shadow_sync(
         shadow_store._conn.close()
         raise RuntimeError(f"shadow DB integrity check failed: {shadow_db}")
     shadow_store._conn.close()
-    logger.info("post-close shadow sync publishing %s rows=%s", trade_date, rows)
+    logger.info("post-close %s tier publishing %s rows=%s", tier_name, trade_date, rows)
     _publish_shadow(shadow_db, live_db)
     published_store = MarketStore(live_db)
-    if "daily" in datasets and not published_store.get_data_readiness("bars_daily", trade_date).ready:
+    if (
+        enable_daily_reference
+        and "daily" in tier_datasets
+        and not published_store.get_data_readiness("bars_daily", trade_date).ready
+    ):
         published_store._conn.close()
         raise RuntimeError("post-publication readiness verification failed")
     published_store.finish_sync_run(run_id, QualityStatus.PUBLISHED)
-    published_store.set_meta(meta_key, _now_cst().isoformat())
+    published_store.set_meta(tier_meta_key, _now_cst().isoformat())
     published_store._conn.close()
     return rows
+
+
+def _run_post_close_shadow_sync(
+    trade_date: str,
+    *,
+    live_db: Path,
+    shadow_db: Path,
+    datasets: set[str],
+    deadline_seconds: int,
+    lookback_days: int,
+) -> dict[str, int]:
+    """Tiered post-close sync: publish the CORE snapshot first, then ENHANCED.
+
+    Core (calendar/master/daily_basic/index/daily) validates and publishes
+    independently so a slow/stalled enhanced dataset (akshare fund-flow, etc.)
+    can no longer block the day's core snapshot. Enhanced datasets publish
+    afterward; if enhanced fails, the core stays published and the next worker
+    tick retries only enhanced. See plan step ⑤.
+    """
+    # 3-state idempotency gate (blueprint §7)
+    probe = MarketStore(live_db)
+    aggregate_done = bool(probe.get_meta(f"daemon:{trade_date}"))
+    core_done = bool(probe.get_meta(f"daemon:post_close:core:{trade_date}"))
+    probe._conn.close()
+    if aggregate_done:
+        return {}
+
+    # Derive tier partition. Honor an explicit caller subset: a request for
+    # only enhanced datasets (e.g. tests, or CLI --datasets zt_pool) must NOT
+    # be force-expanded to the full core set. The worker path passes the full
+    # _POST_CLOSE_DATASETS, so both tiers run there.
+    core_datasets = datasets & _POST_CLOSE_CORE
+    enhanced_datasets = datasets - _POST_CLOSE_CORE
+    universe = os.getenv("MARKET_SYNC_POSTCLOSE_UNIVERSE", "all")
+
+    core_budget, enhanced_budget = _split_deadline(
+        deadline_seconds, core_done, enhanced_datasets
+    )
+
+    # Tier-1 (core): re-raise on failure — live DB keeps yesterday's snapshot,
+    # next tick retries both tiers. Skipped when the caller asked for no core
+    # datasets (explicit enhanced-only subset) or core already published.
+    core_rows: dict[str, int] = {}
+    if core_datasets and not core_done:
+        expected_codes_core: list[str] = []
+        if "daily" in core_datasets:
+            # Read the security_master universe from the live DB (shadow not
+            # prepared yet). Hold the connection only for this read.
+            codes_store = MarketStore(live_db)
+            try:
+                expected_codes_core = _all_a_share_codes(
+                    codes_store, default_only=(universe == "default")
+                )
+            finally:
+                codes_store._conn.close()
+        core_rows = _run_one_tier(
+            tier_name="core",
+            trade_date=trade_date,
+            live_db=live_db,
+            shadow_db=shadow_db,
+            tier_datasets=core_datasets,
+            deadline_seconds=core_budget,
+            lookback_days=lookback_days,
+            universe=universe,
+            expected_codes=expected_codes_core,
+            enable_daily_reference=True,
+            tier_meta_key=f"daemon:post_close:core:{trade_date}",
+        )
+
+    # Tier-2 (enhanced): a failure here re-raises, but because the core tier
+    # already published and set daemon:post_close:core:{date}, the next worker
+    # tick skips core and retries ONLY enhanced. Corrupt-data failures
+    # (hard_fail_on_zero_valid) MUST still surface — they are never silently
+    # swallowed. See plan step ⑤ / blueprint §8.
+    enhanced_rows: dict[str, int] = {}
+    if enhanced_datasets:
+        enhanced_rows = _run_one_tier(
+            tier_name="enhanced",
+            trade_date=trade_date,
+            live_db=live_db,
+            shadow_db=shadow_db,
+            tier_datasets=enhanced_datasets,
+            deadline_seconds=enhanced_budget,
+            lookback_days=lookback_days,
+            universe=universe,
+            expected_codes=[],  # enhanced has no daily
+            enable_daily_reference=False,
+            tier_meta_key=f"daemon:post_close:enhanced:{trade_date}",
+        )
+
+    # Aggregate back-compat marker — set only when BOTH tiers succeed.
+    agg = MarketStore(live_db)
+    agg.set_meta(f"daemon:{trade_date}", _now_cst().isoformat())
+    agg._conn.close()
+    return {**core_rows, **enhanced_rows}
 
 
 def run_once(
@@ -449,6 +611,10 @@ def run_worker(interval_seconds: int = 60) -> None:
                         deadline_seconds=int(os.getenv("MARKET_SYNC_POSTCLOSE_DEADLINE", "3600")),
                         lookback_days=int(os.getenv("MARKET_SYNC_POSTCLOSE_LOOKBACK_DAYS", "365")),
                     )
+                    # Long-term index history backfill (akshare) — runs AFTER the core
+                    # snapshot publish, on its own idempotent meta_key. Slow/idempotent;
+                    # must never block the day's core publish. See plan step ③.
+                    _maybe_run_index_history_sync(live_store)
             except Exception:
                 logger.exception("market sync worker tick failed")
             time.sleep(interval_seconds)
