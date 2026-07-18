@@ -437,10 +437,16 @@ def _run_one_tier(
             lookback_days=lookback_days,
             sync_run_id=run_id,
         )
+        # A dataset with no result row either failed or returned nothing. For
+        # CORE (critical) datasets that's fatal — refuse to publish. For
+        # advisory/enhanced datasets it's a normal degradation (rate-limited
+        # provider, empty news day) and is recorded PARTIAL by the contract
+        # loop below rather than aborting the whole tier.
         missing_results = sorted(tier_datasets - rows.keys())
-        if missing_results:
+        missing_critical = [d for d in missing_results if contract_for(d).blocking]
+        if missing_critical:
             raise MarketDataQualityError(
-                f"missing dataset results after sync: {', '.join(missing_results)}"
+                f"missing critical dataset results after sync: {', '.join(missing_critical)}"
             )
 
         failed_contracts = _validate_tier_quality(

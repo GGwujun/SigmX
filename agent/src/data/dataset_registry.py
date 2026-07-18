@@ -26,10 +26,13 @@ class DatasetContract:
 # Datasets whose absence means the snapshot is structurally unusable.  A
 # failed *critical* contract blocks publication of the whole run — the live DB
 # keeps the previous verified snapshot rather than shipping a broken one.
+# NOTE: daily_basic is intentionally NOT critical — it's tushare-only with no
+# fallback source, and tushare rate-limits it to ~1 call/min, so making it
+# blocking lets a single rate-limited fetch freeze the whole core publish.
+# It degrades to advisory instead (PARTIAL when absent, but core still ships).
 _CRITICAL: dict[str, int] = {
     "calendar": 1,
     "master": 3000,
-    "daily_basic": 1000,
     "index": 4,
 }
 
@@ -44,6 +47,7 @@ _CRITICAL: dict[str, int] = {
 _ADVISORY: dict[str, int] = {
     "board_members": 3000,
     "realtime": 3000,
+    "daily_basic": 1000,
     "capital_rank": 20,
     "sector_capital": 10,
     "sector_snapshot": 10,

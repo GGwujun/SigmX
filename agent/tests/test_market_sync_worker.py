@@ -337,7 +337,7 @@ def test_swallowed_dataset_failure_blocks_publication(tmp_path: Path, monkeypatc
     _seed_live(live)
     monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"daily": 1})
 
-    with pytest.raises(worker.MarketDataQualityError, match="missing dataset results"):
+    with pytest.raises(worker.MarketDataQualityError, match="missing critical dataset results"):
         worker._run_post_close_shadow_sync(
             "2026-07-14",
             live_db=live,
