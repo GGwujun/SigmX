@@ -91,6 +91,9 @@ const Account = lazy(() =>
 const RedeemCodes = lazy(() =>
   import("@/pages/RedeemCodes").then((m) => ({ default: m.RedeemCodes })),
 );
+const BigScreen = lazy(() =>
+  import("@/pages/BigScreen").then((m) => ({ default: m.default })),
+);
 const RiskDashboard = lazy(() =>
   import("@/pages/RiskDashboard").then((m) => ({ default: m.default })),
 );
@@ -158,6 +161,7 @@ export const router = createBrowserRouter([
         children: [
           { path: "/", element: wrap(Home) },
           { path: "/market-dashboard", element: wrap(MarketDashboard) },
+          { path: "/big-screen", element: wrap(BigScreen) },
           { path: "/morning-brief", element: wrap(MorningBrief) },
           { path: "/intraday-monitor", element: wrap(IntradayMonitor) },
           { path: "/tail-strategy", element: wrap(TailStrategy) },
