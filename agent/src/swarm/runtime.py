@@ -305,6 +305,59 @@ class SwarmRuntime:
                             worker_iterations=result.iterations,
                         )
                         resolve_dependencies(run_dir / "tasks", tid)
+
+                        # ── 辩论状态追踪 ──
+                        # 对辩论层 Agent 的输出解析 DEBATE_STATE 标记
+                        task_obj = task_store.load_task(tid)
+                        agent = agent_map.get(task_obj.agent_id) if task_obj else None
+                        debate_agent_ids = {
+                            "bull_case", "bear_case",
+                            "bull_rebuttal", "bear_rebuttal",
+                            "neutral_synthesis",
+                        }
+                        if agent and agent.id in debate_agent_ids:
+                            try:
+                                from src.swarm.debate import parse_debate_payload, strip_debate_markers
+                                payload, cleaned = parse_debate_payload(result.summary)
+                                if payload:
+                                    # 发射辩论事件
+                                    self._emit_event(
+                                        run_id,
+                                        self._make_event(
+                                            "debate_state_update",
+                                            agent_id=agent.id,
+                                            task_id=tid,
+                                            data={
+                                                "new_claims": payload.get("new_claims", []),
+                                                "responded_claim_ids": payload.get("responded_claim_ids", []),
+                                                "resolved_claim_ids": payload.get("resolved_claim_ids", []),
+                                                "round_summary": payload.get("round_summary", ""),
+                                                "speaker_key": agent.id.replace("_case", "").replace("_rebuttal", "").replace("_synthesis", ""),
+                                            },
+                                        ),
+                                    )
+                                    # 保存辩论状态到 run_dir
+                                    import json
+                                    debate_path = run_dir / "debate_state.json"
+                                    existing = {}
+                                    if debate_path.exists():
+                                        try:
+                                            existing = json.loads(debate_path.read_text(encoding="utf-8"))
+                                        except Exception:
+                                            pass
+                                    existing.setdefault("updates", []).append({
+                                        "agent": agent.id,
+                                        "task_id": tid,
+                                        "payload": payload,
+                                        "timestamp": now_iso,
+                                    })
+                                    debate_path.write_text(
+                                        json.dumps(existing, ensure_ascii=False, indent=2),
+                                        encoding="utf-8",
+                                    )
+                            except Exception:
+                                logger.debug("debate state parsing failed for %s", agent.id, exc_info=True)
+
                         self._emit_event(
                             run_id,
                             self._make_event(

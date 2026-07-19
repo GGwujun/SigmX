@@ -840,6 +840,21 @@ agents:
       7. **Recommended Action**: long / accumulate / wait with specific price triggers
 
       Respond in Chinese. Be persuasive but rigorous.
+
+      ## 结构化辩论标记（必须）
+      在 report.md 末尾附加以下标记，用于辩论状态追踪和前端可视化：
+      ```
+      <!-- DEBATE_STATE: {
+        "responded_claim_ids": [],
+        "new_claims": [
+          {"claim": "核心论点（30字以内）", "evidence": ["证据1", "证据2"], "confidence": 0.7, "target_claim_ids": []}
+        ],
+        "resolved_claim_ids": [],
+        "unresolved_claim_ids": [],
+        "round_summary": "本轮总结"
+      } -->
+      ```
+      每个 new_claim 必须有具体证据。confidence 如实反映证据强度（0-1）。
     tools: [read_file, write_file, load_skill]
     skills: [strategy-generate]
     max_iterations: 40
@@ -891,6 +906,21 @@ agents:
       7. **Recommended Risk Management**: specific hedges or exit triggers
 
       Respond in Chinese. Be rigorous and evidence-driven.
+
+      ## 结构化辩论标记（必须）
+      在 report.md 末尾附加以下标记：
+      ```
+      <!-- DEBATE_STATE: {
+        "responded_claim_ids": [],
+        "new_claims": [
+          {"claim": "核心论点（30字以内）", "evidence": ["证据1", "证据2"], "confidence": 0.7, "target_claim_ids": []}
+        ],
+        "resolved_claim_ids": [],
+        "unresolved_claim_ids": [],
+        "round_summary": "本轮总结"
+      } -->
+      ```
+      你的 new_claims 应与多方的论点形成对立。
     tools: [read_file, write_file, load_skill]
     skills: [risk-analysis, volatility]
     max_iterations: 40
@@ -924,6 +954,21 @@ agents:
       4. **修订目标价**：若承认了部分风险，给出修正后的多方目标价
 
       回复用中文。这是一场对抗性辩论，不是自我安慰——用证据说话。
+
+      ## 结构化辩论标记（必须）
+      在 report.md 末尾附加标记，**必须**在 responded_claim_ids 中列出你回应的空方 claim_id，
+      在 target_claim_ids 中标明你反驳了哪个具体空方论点：
+      ```
+      <!-- DEBATE_STATE: {
+        "responded_claim_ids": ["BEAR-1", "BEAR-2"],
+        "new_claims": [
+          {"claim": "反驳论点", "evidence": ["数据"], "confidence": 0.7, "target_claim_ids": ["BEAR-1"]}
+        ],
+        "resolved_claim_ids": [],
+        "unresolved_claim_ids": [],
+        "round_summary": "本轮总结"
+      } -->
+      ```
     tools: [read_file, write_file, load_skill]
     skills: [strategy-generate]
     max_iterations: 35
@@ -953,6 +998,20 @@ agents:
       4. **修订下行目标价**：若承认了部分利好，给出修正后的空方目标价
 
       回复用中文。对抗性辩论，用证据说话。
+
+      ## 结构化辩论标记（必须）
+      在 report.md 末尾附加标记，**必须**在 responded_claim_ids 中列出你回应的多方 claim_id：
+      ```
+      <!-- DEBATE_STATE: {
+        "responded_claim_ids": ["BULL-1", "BULL-2"],
+        "new_claims": [
+          {"claim": "攻击论点", "evidence": ["数据"], "confidence": 0.7, "target_claim_ids": ["BULL-1"]}
+        ],
+        "resolved_claim_ids": [],
+        "unresolved_claim_ids": [],
+        "round_summary": "本轮总结"
+      } -->
+      ```
     tools: [read_file, write_file, load_skill]
     skills: [risk-analysis, volatility]
     max_iterations: 35
@@ -1004,6 +1063,22 @@ agents:
       6. **Neutral Recommendation**: if no position, what to watch for; if forced, slight tilt direction
 
       Respond in Chinese. Your neutrality is your value — don't be a watered-down compromise.
+
+      ## 结构化辩论标记（必须）
+      你是仲裁者，必须在标记中裁决所有 Open/Addressed 的 Claim 状态：
+      - resolved_claim_ids: 你认为证据充分、已解决的论点
+      - unresolved_claim_ids: 你认为双方都没说清楚的论点
+      ```
+      <!-- DEBATE_STATE: {
+        "responded_claim_ids": [],
+        "new_claims": [
+          {"claim": "裁决论点", "evidence": ["依据"], "confidence": 0.8, "target_claim_ids": []}
+        ],
+        "resolved_claim_ids": ["BULL-1", "BEAR-1"],
+        "unresolved_claim_ids": ["BULL-3"],
+        "round_summary": "裁决总结"
+      } -->
+      ```
     tools: [read_file, write_file, load_skill]
     skills: [risk-analysis, asset-allocation]
     max_iterations: 40
