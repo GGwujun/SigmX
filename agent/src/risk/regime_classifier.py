@@ -391,17 +391,15 @@ def classify_regime(store, trade_date: str | None = None) -> RegimeResult:
     if trade_date is None:
         trade_date = datetime.now(_CST).strftime("%Y-%m-%d")
 
-    # 1. 获取上证指数 120 日 K 线
+    # 1. 获取上证指数 120 日 K 线（从 index_daily 表）
     bars = None
-    try:
-        bars = store.get_daily_bars("000001.SH", days=120)
-    except Exception:
-        # 尝试不带后缀的格式
+    for code in ("000001.SH", "sh000001"):
         try:
-            bars = store.get_daily_bars("sh000001", days=120)
+            bars = store.get_index_daily_bars(code, days=120)
+            if bars is not None and len(bars) >= 20:
+                break
         except Exception:
-            logger.warning("regime: 无法获取上证指数 K 线数据")
-
+            continue
     if bars is None or len(bars) < 20:
         logger.warning("regime: 上证指数 K 线数据不足 (%s rows)", len(bars) if bars is not None else 0)
         return RegimeResult(

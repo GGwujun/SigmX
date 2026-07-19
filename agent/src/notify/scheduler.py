@@ -103,7 +103,7 @@ def send_due_notifications(
             platform, platform_cfg, push_title, markdown,
             noise_cfg=cfg.noise,
             route_type=slot,
-            severity="info",
+            severity="warning",
         )
         logger.info("notify scheduled push platform=%s slot=%s ok=%s message=%s", platform, slot, ok, message)
         results.append({"platform": platform, "slot": slot, "ok": ok, "message": message})

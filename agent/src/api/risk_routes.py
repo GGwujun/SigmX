@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
+from src.api.auth_routes import require_auth as _require_auth_dep
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/risk", tags=["risk"])
@@ -143,6 +145,7 @@ async def get_regime_params():
 @router.get("/check", response_model=RiskCheckResponse)
 async def run_risk_check():
     """运行 8 层风控检查。"""
+    import asyncio
     from src.data.market_store import get_market_store
     from src.risk.risk_engine import run_all_checks
     from src.risk.risk_store import save_risk_report, save_health_score
@@ -152,7 +155,8 @@ async def run_risk_check():
         raise HTTPException(status_code=503, detail="MarketStore not available")
 
     try:
-        report = run_all_checks(store)
+        loop = asyncio.get_event_loop()
+        report = await loop.run_in_executor(None, run_all_checks, store)
         report_dict = report.to_dict()
         # 持久化风控事件和健康评分
         save_risk_report(report_dict)
@@ -193,4 +197,5 @@ def register_risk_routes(
     require_event_stream_auth: Any = None,
 ) -> None:
     """Register risk routes on the FastAPI app."""
-    app.include_router(router)
+    auth_dep = require_auth or _require_auth_dep
+    app.include_router(router, dependencies=[Depends(auth_dep)])

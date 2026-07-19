@@ -44,11 +44,17 @@ interface RiskEvent {
 }
 
 async function fetchJSON<T>(url: string): Promise<T> {
-  const token = localStorage.getItem("auth_token");
+  const token = localStorage.getItem("sigmx_auth_token");
   const resp = await fetch(url, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  if (!resp.ok) {
+    if (resp.status === 401 || resp.status === 403) {
+      try { window.localStorage.removeItem("sigmx_auth_token"); } catch { /* ignore */ }
+      window.location.assign("/login");
+    }
+    throw new Error(`HTTP ${resp.status}`);
+  }
   return resp.json();
 }
 

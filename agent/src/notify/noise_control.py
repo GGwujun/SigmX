@@ -135,7 +135,11 @@ def evaluate_noise(
     severity: str = "info",
     now: datetime | None = None,
 ) -> NoiseDecision:
-    """评估是否应发送通知。"""
+    """评估是否应发送通知。
+
+    使用锁保护的原子检查+预留：读取状态和写入 in-flight 标记在同一个锁内完成，
+    防止并发调用同时通过去重/冷却检查。
+    """
     if not config.is_effective():
         return NoiseDecision(should_send=True, reason_code="ok")
 
@@ -143,35 +147,55 @@ def evaluate_noise(
         now = datetime.now(_CST)
     now_iso = now.isoformat()
 
-    # 1. 最低严重度
+    # 1. 最低严重度（无锁，纯计算）
     if config.min_severity:
         min_rank = SEVERITY_RANK.get(config.min_severity, -1)
         cur_rank = SEVERITY_RANK.get(severity, 0)
         if cur_rank < min_rank:
             return NoiseDecision(should_send=False, reason_code="min_severity")
 
-    # 2. 静默时段
+    # 2. 静默时段（无锁，纯计算）
     if config.quiet_hours.strip():
         if _is_in_quiet_hours(config.quiet_hours, now):
             return NoiseDecision(should_send=False, reason_code="quiet_hours")
 
-    state = _load_state()
-
-    # 3. 内容去重
+    # 3+4. 去重+冷却：加锁检查并预留 in-flight 标记
     dedup_key = ""
-    if config.dedup_ttl_seconds > 0:
-        dedup_key = _content_hash(content)
-        expires = state["dedup_expires"].get(dedup_key, "")
-        if expires and expires > now_iso:
-            return NoiseDecision(should_send=False, reason_code="dedup", dedup_key=dedup_key)
-
-    # 4. 冷却
     cooldown_key = ""
-    if config.cooldown_seconds > 0:
-        cooldown_key = route_type
-        expires = state["cooldown_expires"].get(cooldown_key, "")
-        if expires and expires > now_iso:
-            return NoiseDecision(should_send=False, reason_code="cooldown", cooldown_key=cooldown_key)
+    inflight_reservation_seconds = 300  # 5 分钟预留
+
+    with _STATE_LOCK:
+        state = _load_state()
+
+        # 内容去重
+        if config.dedup_ttl_seconds > 0:
+            dedup_key = _content_hash(content)
+            expires = state["dedup_expires"].get(dedup_key, "")
+            if expires and expires > now_iso:
+                return NoiseDecision(should_send=False, reason_code="dedup", dedup_key=dedup_key)
+            # 检查是否有 in-flight 预留
+            inflight = state.get("dedup_inflight", {}).get(dedup_key, "")
+            if inflight and inflight > now_iso:
+                return NoiseDecision(should_send=False, reason_code="dedup", dedup_key=dedup_key)
+
+        # 冷却
+        if config.cooldown_seconds > 0:
+            cooldown_key = route_type
+            expires = state["cooldown_expires"].get(cooldown_key, "")
+            if expires and expires > now_iso:
+                return NoiseDecision(should_send=False, reason_code="cooldown", cooldown_key=cooldown_key)
+            # 检查是否有 in-flight 预留
+            inflight = state.get("cooldown_inflight", {}).get(cooldown_key, "")
+            if inflight and inflight > now_iso:
+                return NoiseDecision(should_send=False, reason_code="cooldown", cooldown_key=cooldown_key)
+
+        # 预留 in-flight 标记，防止并发穿透
+        inflight_expires = (now + timedelta(seconds=inflight_reservation_seconds)).isoformat()
+        if dedup_key:
+            state.setdefault("dedup_inflight", {})[dedup_key] = inflight_expires
+        if cooldown_key:
+            state.setdefault("cooldown_inflight", {})[cooldown_key] = inflight_expires
+        _save_state(state)
 
     return NoiseDecision(
         should_send=True,
@@ -198,11 +222,15 @@ def record_sent(
         if decision.dedup_key and config.dedup_ttl_seconds > 0:
             expires = (now + timedelta(seconds=config.dedup_ttl_seconds)).isoformat()
             state["dedup_expires"][decision.dedup_key] = expires
+            # 清除 in-flight 预留
+            state.get("dedup_inflight", {}).pop(decision.dedup_key, None)
 
         # 记录冷却
         if decision.cooldown_key and config.cooldown_seconds > 0:
             expires = (now + timedelta(seconds=config.cooldown_seconds)).isoformat()
             state["cooldown_expires"][decision.cooldown_key] = expires
+            # 清除 in-flight 预留
+            state.get("cooldown_inflight", {}).pop(decision.cooldown_key, None)
 
         # 统计
         stats = state.get("stats", {})

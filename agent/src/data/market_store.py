@@ -880,6 +880,29 @@ class MarketStore:
         return df
 
     @_synchronized
+    def get_index_daily_bars(self, code: str, days: int | None = None) -> pd.DataFrame | None:
+        """Return index OHLCV DataFrame from index_daily table.
+
+        Mirrors ``get_daily_bars`` but queries the ``index_daily`` table where
+        index data (e.g. 000001.SH) is stored.
+        """
+        sql = (
+            "SELECT trade_date, open, high, low, close, volume FROM index_daily "
+            "WHERE code = ? ORDER BY trade_date DESC"
+        )
+        if days is not None:
+            sql += f" LIMIT {int(days)}"
+        rows = self._conn.execute(sql, (code,)).fetchall()
+        if not rows:
+            return None
+        df = self._rows_to_ohlcv_df(list(reversed(rows)))
+        if df is None:
+            return None
+        if days is not None:
+            df = df.tail(days)
+        return df
+
+    @_synchronized
     def get_recommendation_history_coverage(self, min_bars: int = 60) -> dict[str, float | int]:
         """Measure usable daily-history coverage across the active stock universe."""
         row = self._conn.execute(
