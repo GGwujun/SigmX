@@ -158,7 +158,7 @@ export function Signals() {
   const discountCount = filtered.filter(s => s.signal_type === "DISCOUNT").length;
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 px-4 py-6">
+    <div className="space-y-6 px-4 py-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Link to="/fund-opportunity" className="text-muted-foreground hover:text-foreground">

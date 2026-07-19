@@ -749,6 +749,9 @@ export function MarketDashboard() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {data.themes?.trade_date && (
+              <span className="text-xs text-muted-foreground">数据日 {data.themes.trade_date}</span>
+            )}
             <span className="text-xs text-muted-foreground">{fmtTime(data.updated_at) ? `更新 ${fmtTime(data.updated_at)}` : ""}</span>
             <button
               type="button"
