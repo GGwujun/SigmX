@@ -3282,6 +3282,9 @@ register_alert_routes(app, require_auth)
 from src.api.sse_routes import register_sse_routes  # noqa: E402
 register_sse_routes(app, require_auth)
 
+from src.api.risk_routes import register_risk_routes  # noqa: E402
+register_risk_routes(app, require_auth, require_event_stream_auth)
+
 
 # ============================================================================
 # Main Entry Point

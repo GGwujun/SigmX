@@ -5199,6 +5199,16 @@ def run_daily_sync(
     # the time slower sentiment/fund-flow datasets finish.
     _run("realtime", lambda: _sync_realtime_quotes_tpdog(store, trade_date))
 
+    # ── 市场环境分类（post-close 最后一步，best-effort）──
+    try:
+        from src.risk.regime_classifier import classify_regime
+        regime_result = classify_regime(store, trade_date=trade_date)
+        store.save_regime_result(regime_result.to_dict())
+        logger.info("regime 分类完成: %s → %s (confidence=%.1f)",
+                    trade_date, regime_result.regime, regime_result.confidence)
+    except Exception:
+        logger.warning("regime 分类失败（不影响同步流程）", exc_info=True)
+
     return result
 
 

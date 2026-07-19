@@ -219,3 +219,43 @@ def register_scheduled_analysis_routes(
     async def clear_tracking_history(symbol: str, request: Request) -> dict[str, Any]:
         removed = schedule_store.delete_history_for_symbol(symbol)
         return {"ok": True, "symbol": symbol, "removed": removed}
+
+    # ------------------------------------------------------------------
+    # Position fields (risk-monitoring extensions)
+    # ------------------------------------------------------------------
+    @app.get("/tracking/positions", dependencies=[Depends(require_auth)])
+    async def get_positions(request: Request) -> dict[str, Any]:
+        """返回所有有持仓数据的任务（quantity > 0）。"""
+        positions = schedule_store.get_positions()
+        return {"positions": positions, "count": len(positions)}
+
+    @app.patch("/tracking/tasks/{task_id}/position", dependencies=[Depends(require_auth)])
+    async def update_task_position(task_id: str, request: Request) -> dict[str, Any]:
+        """更新任务的持仓字段（quantity, avg_cost, buy_date 等）。"""
+        body = await request.json()
+        allowed_fields = {
+            "quantity", "avg_cost", "buy_date",
+            "peak_profit_pct", "tp_triggered", "logic_stop_price",
+        }
+        updates = {k: v for k, v in body.items() if k in allowed_fields}
+        if not updates:
+            raise HTTPException(status_code=400, detail="No valid position fields provided")
+
+        # Type validation
+        if "quantity" in updates and updates["quantity"] is not None:
+            try:
+                updates["quantity"] = int(updates["quantity"])
+            except (ValueError, TypeError):
+                raise HTTPException(status_code=400, detail="quantity must be an integer")
+
+        for float_field in ("avg_cost", "peak_profit_pct", "logic_stop_price"):
+            if float_field in updates and updates[float_field] is not None:
+                try:
+                    updates[float_field] = float(updates[float_field])
+                except (ValueError, TypeError):
+                    raise HTTPException(status_code=400, detail=f"{float_field} must be a number")
+
+        result = schedule_store.update_position_fields(task_id, **updates)
+        if result is None:
+            raise HTTPException(status_code=404, detail="task not found")
+        return {"ok": True, "task": result}

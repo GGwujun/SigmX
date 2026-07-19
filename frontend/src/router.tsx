@@ -91,6 +91,9 @@ const Account = lazy(() =>
 const RedeemCodes = lazy(() =>
   import("@/pages/RedeemCodes").then((m) => ({ default: m.RedeemCodes })),
 );
+const RiskDashboard = lazy(() =>
+  import("@/pages/RiskDashboard").then((m) => ({ default: m.default })),
+);
 
 function PageLoader() {
   return (
@@ -178,6 +181,7 @@ export const router = createBrowserRouter([
           { path: "/fund-arbitrage", element: wrap(FundArbitrage) },
           { path: "/fund-opportunity", element: wrap(FundOpportunity) },
           { path: "/signals", element: wrap(Signals) },
+          { path: "/risk-dashboard", element: wrap(RiskDashboard) },
           { path: "/account", element: wrap(Account) },
         ],
       },

@@ -650,6 +650,19 @@ CREATE TABLE IF NOT EXISTS lockup_expiry (
     PRIMARY KEY (code, free_date)
 );
 CREATE INDEX IF NOT EXISTS idx_lockup_code ON lockup_expiry(code, free_date DESC);
+
+-- 市场环境分类（每日一条）
+CREATE TABLE IF NOT EXISTS market_regime (
+    trade_date TEXT PRIMARY KEY,
+    regime TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    bull_score REAL,
+    bear_score REAL,
+    strong_trend INTEGER,
+    indicators_json TEXT,
+    params_json TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 # Tables that carry a per-(date) market-wide snapshot.
@@ -670,6 +683,7 @@ _DATE_KEYED_TABLES = {
     "us_a_share_transmission": ("trade_date",),
     "premarket_news": ("trade_date",),
     "market_stage_snapshot": ("trade_date",),
+    "market_regime": ("trade_date",),
 }
 
 
@@ -3505,6 +3519,76 @@ class MarketStore:
                      r.get("type", ""), _now_iso()),
                 )
         return len(rows)
+
+    # ── market_regime ───────────────────────────────────────────────────
+
+    @_synchronized
+    def save_regime_result(self, result: dict) -> None:
+        """保存市场环境分类结果。
+
+        result 格式（来自 RegimeResult.to_dict()）::
+
+            {trade_date, regime, confidence, bull_score, bear_score,
+             strong_trend, technical_indicators, parameters}
+        """
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO market_regime "
+                "(trade_date, regime, confidence, bull_score, bear_score, "
+                "strong_trend, indicators_json, params_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    result["trade_date"],
+                    result["regime"],
+                    result["confidence"],
+                    result.get("bull_score"),
+                    result.get("bear_score"),
+                    1 if result.get("strong_trend") else 0,
+                    json.dumps(result.get("technical_indicators", {}), ensure_ascii=False),
+                    json.dumps(result.get("parameters", {}), ensure_ascii=False),
+                    _now_iso(),
+                ),
+            )
+
+    @_synchronized
+    def get_latest_regime(self) -> dict | None:
+        """返回最近一条市场环境分类结果。"""
+        row = self._conn.execute(
+            "SELECT * FROM market_regime ORDER BY trade_date DESC LIMIT 1"
+        ).fetchone()
+        if row is None:
+            return None
+        d = dict(row)
+        for key in ("indicators_json", "params_json"):
+            raw = d.pop(key, None)
+            if raw:
+                try:
+                    d[key.replace("_json", "")] = json.loads(raw)
+                except (TypeError, ValueError):
+                    pass
+        d["strong_trend"] = bool(d.get("strong_trend"))
+        return d
+
+    @_synchronized
+    def get_regime_history(self, days: int = 30) -> list[dict]:
+        """返回近 N 天的市场环境分类历史。"""
+        rows = self._conn.execute(
+            "SELECT * FROM market_regime ORDER BY trade_date DESC LIMIT ?",
+            (days,),
+        ).fetchall()
+        out: list[dict] = []
+        for r in rows:
+            d = dict(r)
+            for key in ("indicators_json", "params_json"):
+                raw = d.pop(key, None)
+                if raw:
+                    try:
+                        d[key.replace("_json", "")] = json.loads(raw)
+                    except (TypeError, ValueError):
+                        pass
+            d["strong_trend"] = bool(d.get("strong_trend"))
+            out.append(d)
+        return out
 
 
 # ----------------------------------------------------------------------

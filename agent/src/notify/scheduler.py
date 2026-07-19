@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterator
 
 from src.notify.models import NotifyConfig, PlatformConfig
-from src.notify.sender import send
+from src.notify.sender import send, send_with_noise
 from src.notify.store import load_config
 from src.notify.summary import build_summary
 
@@ -99,7 +99,12 @@ def send_due_notifications(
             continue
         _FIRED_KEYS.add(key)
         push_title = f"{title} [{slot}]"
-        ok, message = send(platform, platform_cfg, push_title, markdown)
+        ok, message = send_with_noise(
+            platform, platform_cfg, push_title, markdown,
+            noise_cfg=cfg.noise,
+            route_type=slot,
+            severity="info",
+        )
         logger.info("notify scheduled push platform=%s slot=%s ok=%s message=%s", platform, slot, ok, message)
         results.append({"platform": platform, "slot": slot, "ok": ok, "message": message})
     return results

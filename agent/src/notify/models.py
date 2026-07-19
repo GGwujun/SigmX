@@ -2,7 +2,18 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel
+
+
+class NoiseConfigModel(BaseModel):
+    """噪声控制配置（去重/冷却/静默/最低严重度）。"""
+    dedup_ttl_seconds: int = 0
+    cooldown_seconds: int = 0
+    quiet_hours: str = ""
+    timezone: str = "Asia/Shanghai"
+    min_severity: str = ""
 
 
 class PlatformConfig(BaseModel):
@@ -22,6 +33,7 @@ class NotifyConfig(BaseModel):
     feishu: PlatformConfig = PlatformConfig()
     dingtalk: PlatformConfig = PlatformConfig()
     wechat: PlatformConfig = PlatformConfig()
+    noise: NoiseConfigModel = NoiseConfigModel()
 
 
 class TestRequest(BaseModel):
