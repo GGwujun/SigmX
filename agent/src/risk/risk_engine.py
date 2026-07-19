@@ -534,6 +534,43 @@ def compute_health_score(
 # 主入口
 # ─────────────────────────────────────────────────────────────────
 
+def _positions_from_watchlist() -> list[dict]:
+    """从 watchlist.json(跟踪看板的用户持仓) 读持仓, 映射成风控 position 格式。
+
+    跟踪看板前端存 watchlist.json(symbol/shares/cost/date), 但 risk_engine 期望
+    schedule_store 的字段(quantity/avg_cost/buy_date...)。这里做映射, 让风控
+    能监控用户在跟踪看板填的真实持仓。peak_profit_pct/tp_triggered watchlist
+    无, 给默认值(对应 check 会因阈值不满足而 pass)。
+    """
+    try:
+        from src.data.watchlist_store import load_watchlist
+    except Exception:  # noqa: BLE001
+        return []
+    out: list[dict] = []
+    for item in load_watchlist():
+        shares = item.get("shares")
+        try:
+            qty = float(shares) if shares is not None else 0.0
+        except (TypeError, ValueError):
+            qty = 0.0
+        if qty <= 0:
+            continue
+        try:
+            avg_cost = float(item.get("cost") or 0.0)
+        except (TypeError, ValueError):
+            avg_cost = 0.0
+        out.append({
+            "symbol": item.get("symbol", ""),
+            "name": item.get("name") or item.get("symbol", ""),
+            "quantity": qty,
+            "avg_cost": avg_cost,
+            "buy_date": item.get("date"),
+            "peak_profit_pct": float(item.get("peak_profit_pct") or 0.0),
+            "tp_triggered": list(item.get("tp_triggered") or []),
+        })
+    return out
+
+
 def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
     """运行全部 8 层风控检查，返回 RiskReport。"""
     from src.data.schedule_store import get_positions
@@ -548,8 +585,14 @@ def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
     regime = latest_regime.get("regime", "range") if latest_regime else "range"
     regime_params = REGIME_PARAMS.get(regime, REGIME_PARAMS["range"])
 
-    # 获取持仓
+    # 获取持仓: schedule_store 的 tracking_tasks(有 quantity 的) + watchlist(跟踪看板用户持仓)
+    # 合并去重(by symbol), watchlist 优先(它是用户在前端实际填的)
     positions = get_positions()
+    seen = {p.get("symbol") for p in positions if p.get("symbol")}
+    for wp in _positions_from_watchlist():
+        if wp.get("symbol") and wp["symbol"] not in seen:
+            positions.append(wp)
+            seen.add(wp["symbol"])
 
     checks: list[RiskCheckResult] = []
 
