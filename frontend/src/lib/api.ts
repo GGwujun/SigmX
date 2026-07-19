@@ -152,6 +152,20 @@ export const api = {
   testNotify: (platform: string) =>
     request<{ ok: boolean; message: string }>("/notify/test", { method: "POST", body: JSON.stringify({ platform }) }),
 
+  // Risk (regime + risk engine)
+  getRegime: () => request<import("@/pages/RiskDashboard").RegimeData>("/risk/regime"),
+  getRegimeHistory: (days = 30) => request<{ items: import("@/pages/RiskDashboard").RegimeData[] }>(`/risk/regime/history?days=${days}`),
+  runRiskCheck: () => request<import("@/pages/RiskDashboard").RiskCheckData>("/risk/check"),
+  getRiskEvents: (days = 7, limit = 20) => request<{ events: import("@/pages/RiskDashboard").RiskEvent[] }>(`/risk/check/history?days=${days}&limit=${limit}`),
+  getRiskHealth: () => request<{ health_score: number }>("/risk/health"),
+  getRiskParams: () => request<{ current_regime: string; current_params: Record<string, unknown>; all_params: Record<string, Record<string, unknown>> }>("/risk/params"),
+  runRegimeClassification: (tradeDate?: string) => request<import("@/pages/RiskDashboard").RegimeData>(`/risk/regime/run${tradeDate ? `?trade_date=${tradeDate}` : ""}`),
+
+  // Notify noise control
+  getNoiseConfig: () => request<{ dedup_ttl_seconds: number; cooldown_seconds: number; quiet_hours: string; timezone: string; min_severity: string }>("/notify/noise"),
+  saveNoiseConfig: (cfg: { dedup_ttl_seconds: number; cooldown_seconds: number; quiet_hours: string; timezone: string; min_severity: string }) => request<{ dedup_ttl_seconds: number; cooldown_seconds: number; quiet_hours: string; timezone: string; min_severity: string }>("/notify/noise", { method: "PUT", body: JSON.stringify(cfg) }),
+  getNoiseStats: () => request<Record<string, unknown>>("/notify/noise/stats"),
+
 
 
   listRuns: () => request<RunListItem[]>("/runs"),

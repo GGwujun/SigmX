@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { Shield, RefreshCw, AlertTriangle, Activity } from "lucide-react";
+import { api } from "@/lib/api";
 import { RegimeCard } from "@/components/risk/RegimeCard";
 import { RiskMatrix } from "@/components/risk/RiskMatrix";
 import { HealthScore } from "@/components/risk/HealthScore";
 
-interface RegimeData {
+export interface RegimeData {
   trade_date: string;
   regime: string;
   confidence: number;
@@ -15,7 +16,7 @@ interface RegimeData {
   parameters: Record<string, unknown>;
 }
 
-interface RiskCheck {
+export interface RiskCheck {
   layer: number;
   name: string;
   triggered: boolean;
@@ -25,7 +26,7 @@ interface RiskCheck {
   action: string;
 }
 
-interface RiskCheckData {
+export interface RiskCheckData {
   trade_date: string;
   regime: string;
   checks: RiskCheck[];
@@ -33,7 +34,7 @@ interface RiskCheckData {
   summary: string;
 }
 
-interface RiskEvent {
+export interface RiskEvent {
   event_id: string;
   trade_date: string;
   layer: number;
@@ -41,21 +42,6 @@ interface RiskEvent {
   code: string | null;
   message: string;
   created_at: string;
-}
-
-async function fetchJSON<T>(url: string): Promise<T> {
-  const token = localStorage.getItem("sigmx_auth_token");
-  const resp = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!resp.ok) {
-    if (resp.status === 401 || resp.status === 403) {
-      try { window.localStorage.removeItem("sigmx_auth_token"); } catch { /* ignore */ }
-      window.location.assign("/login");
-    }
-    throw new Error(`HTTP ${resp.status}`);
-  }
-  return resp.json();
 }
 
 export default function RiskDashboard() {
@@ -70,9 +56,9 @@ export default function RiskDashboard() {
     setError(null);
     try {
       const [regimeData, checkData, eventsData] = await Promise.all([
-        fetchJSON<RegimeData>("/api/v1/risk/regime"),
-        fetchJSON<RiskCheckData>("/api/v1/risk/check"),
-        fetchJSON<{ events: RiskEvent[] }>("/api/v1/risk/check/history?days=7&limit=20"),
+        api.getRegime(),
+        api.runRiskCheck(),
+        api.getRiskEvents(7, 20),
       ]);
       setRegime(regimeData);
       setRiskCheck(checkData);
@@ -89,7 +75,7 @@ export default function RiskDashboard() {
   const runCheck = async () => {
     setLoading(true);
     try {
-      const data = await fetchJSON<RiskCheckData>("/api/v1/risk/check");
+      const data = await api.runRiskCheck();
       setRiskCheck(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "检查失败");
