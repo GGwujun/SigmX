@@ -23,7 +23,7 @@ from typing import Any, Awaitable, Callable
 
 import numpy as np
 import pandas as pd
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -667,3 +667,47 @@ def register_opportunity_routes(
             _CACHE_TS = time.time()
 
         return payload
+
+    @app.get("/opportunity/score/{symbol}")
+    async def score_stock(symbol: str, request: Request, _=Depends(require_auth)) -> dict[str, Any]:
+        """37 因子轻量选股评分。"""
+        from src.data.market_store import get_market_store
+        from src.analysis.factor_scorer import score_stock as _score
+
+        store = get_market_store()
+        if store is None:
+            raise HTTPException(status_code=503, detail="MarketStore not available")
+
+        # 规范化 symbol
+        sym = symbol.strip().upper()
+        if "." not in sym:
+            prefix = sym[:3]
+            if prefix in ("000", "001", "002", "003", "004", "300", "301"):
+                sym = f"{sym}.SZ"
+            else:
+                sym = f"{sym}.SH"
+
+        # 获取 K 线
+        df = store.get_daily_bars(sym, days=60)
+        if df is None or len(df) < 20:
+            raise HTTPException(status_code=404, detail=f"{sym} K线数据不足")
+
+        import numpy as np
+        closes = df["close"].values.astype(float)
+        volumes = df["volume"].values.astype(float)
+
+        # 获取换手率
+        turnover = 0.0
+        try:
+            row = store._conn.execute(
+                "SELECT t_rate FROM bars_daily WHERE code = ? ORDER BY trade_date DESC LIMIT 1",
+                (sym,),
+            ).fetchone()
+            if row:
+                turnover = float(row["t_rate"] or 0)
+        except Exception:
+            pass
+
+        result = _score(closes, volumes, turnover_rate=turnover)
+        result["symbol"] = sym
+        return result
