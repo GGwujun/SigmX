@@ -120,6 +120,14 @@
 12. mootdx 库 → tdx_client 协议直连（#23/#37 避开停更库）
 13. em_hot_concept/industry_comparison/daily_dragon_tiger/dragon_tiger_board 等增强函数
 
+#### 期 4 进展（2026-07-19）
+
+**mootdx 整改（#12）已完成，并意外修了一个长期静默 bug**：
+- `tdx_client()` 改为复用 `mootdx_helper.pick_server()`（TTL 缓存 + 8 IP 健康探测），消除 astock_client 与 mootdx_helper 维护两套 IP 清单/探测逻辑的分叉。原 `_TDX_SERVERS`（3 IP）已删。
+- **bug 修复**：`mootdx_finance()` 之前直接 `return client.finance(symbol=)` 返回 **DataFrame**（mootdx 0.11+ 行为），而调用方 `_sync_financial_snapshot` 用 `if data:` / `or {}` 判断 → 触发 `ValueError: truth value ambiguous` 被外层 except 吞掉 → **financial_snapshot 表的 mootdx 主源长期 100% 失效**，全靠期3 的 tpdog 兜底撑着（无 token 时全空）。现 DataFrame→dict 转换 + 拼音字段映射（jinglirun→profit, zhuyingshoulu→income, meigujingzichan→bvps），主源恢复可用。实测茅台流通股本12.5亿/净利润2724亿入库。
+
+**em_hot_concept 等增强函数（#13）未做**：4 个函数（em_hot_concept/industry_comparison/daily_dragon_tiger/dragon_tiger_board）全未实现，且无下游消费确认（前端/风控未引用），属真·锦上添花，待有明确需求再做。
+
 ---
 
 ## 服务器数据源实测结果（2026-07-19，阿里云 47.115.144.24）

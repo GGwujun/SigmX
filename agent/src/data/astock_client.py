@@ -75,28 +75,23 @@ def em_get(url: str, params: dict | None = None, headers: dict | None = None,
 
 # ── mootdx 客户端（规避 0.11.x BESTIP bug）─────────────────────────
 
-_TDX_SERVERS = [
-    ("119.147.212.81", 7709),
-    ("112.74.214.43", 7727),
-    ("221.231.141.60", 7709),
-]
-
-
 def tdx_client(market: str = "std"):
-    """创建 mootdx 客户端，规避 0.11.x BESTIP.HQ 空串 bug。"""
-    from mootdx.quotes import Quotes
+    """创建 mootdx 客户端，复用 mootdx_helper 的带缓存 TDX server 探测。
 
-    for ip, port in _TDX_SERVERS:
+    统一走 mootdx_helper.pick_server（TTL 缓存 + 8 IP 健康探测列表），
+    避免与 astock_client 维护两套 IP 清单/探测逻辑。market 默认 std；
+    全部 server 不可达时回退 mootdx 自带 bestip 测速。
+    """
+    from mootdx.quotes import Quotes
+    from src.data.mootdx_helper import pick_server
+
+    server = pick_server(timeout=6)
+    if server is not None:
+        ip, port = server
         try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(2.0)
-            s.connect((ip, port))
-            s.close()
             return Quotes.factory(market=market, server=ip, port=port)
         except Exception:
-            continue
-    # 全部不可达 → 回退 mootdx 自带 bestip 测速选优
+            pass  # 缓存的好 server 失效，回退 bestip
     return Quotes.factory(market=market)
 
 
@@ -351,9 +346,35 @@ def sina_index_spot() -> list[dict]:
 def mootdx_finance(symbol: str) -> dict:
     """mootdx 财务快照 — 37 字段季报数据（不封 IP）。
     返回: {liutongguben, zongguben, eps, bvps, roe, profit, income, ...}
+    mootdx 0.11+ 的 finance() 返回 DataFrame（单行）；转成 dict 以对齐 upsert 契约，
+    否则调用方 `if data:` 会触发 DataFrame 真值歧义异常。
     """
     client = tdx_client()
-    return client.finance(symbol=symbol)
+    df = client.finance(symbol=symbol)
+    if df is None:
+        return {}
+    try:
+        if hasattr(df, "empty"):
+            if df.empty:
+                return {}
+            row = {k: (v.item() if hasattr(v, "item") else v)
+                   for k, v in df.iloc[0].to_dict().items()}
+            # mootdx 用拼音字段；映射到 upsert 期望的英文键（原拼音键保留进 extra_json）
+            aliases = {
+                "profit": ("jinglirun", "lirunzonghe"),     # 净利润
+                "income": ("zhuyingshouru",),                # 营业收入
+                "bvps": ("meigujingzichan",),                # 每股净资产
+            }
+            for en, pinyins in aliases.items():
+                if en not in row:
+                    for p in pinyins:
+                        if row.get(p) is not None:
+                            row[en] = row[p]
+                            break
+            return row
+    except Exception:  # noqa: BLE001
+        pass
+    return df if isinstance(df, dict) else {}
 
 
 def mootdx_f10(symbol: str, category: str = "最新提示") -> str:
