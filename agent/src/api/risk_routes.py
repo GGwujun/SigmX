@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-from src.api.auth_routes import require_auth as _require_auth_dep
+from src.api.auth_routes import require_user as _require_auth_dep
 
 logger = logging.getLogger(__name__)
 
