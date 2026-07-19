@@ -97,7 +97,7 @@ def send_alert_notifications(triggered: list[dict[str, Any]]) -> None:
 
     try:
         from src.notify.store import load_config
-        from src.notify.sender import send
+        from src.notify.sender import send_with_noise
     except ImportError as exc:
         logger.warning("alert_notifier: notify modules not available: %s", exc)
         return
@@ -117,7 +117,12 @@ def send_alert_notifications(triggered: list[dict[str, Any]]) -> None:
             continue
 
         title, body = _format_alert(alert)
-        ok, msg = send(webhook_type, platform_cfg, title, body)
+        ok, msg = send_with_noise(
+            webhook_type, platform_cfg, title, body,
+            noise_cfg=cfg.noise,
+            route_type="alert",
+            severity="warning" if alert.get("premium_rate", 0) >= 8 else "info",
+        )
         if ok:
             logger.info("alert_notifier: sent alert for %s via %s", alert.get("fund_code"), webhook_type)
         else:

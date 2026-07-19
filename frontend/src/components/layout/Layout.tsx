@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss, Globe, Radar } from "lucide-react";
+import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss, Globe, Radar, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { api, type SessionItem } from "@/lib/api";
@@ -36,6 +36,7 @@ const NAV_GROUPS = [
     items: [
       { to: "/tracking-dashboard", icon: Target, label: "跟踪看板" },
       { to: "/watchlist-schedule", icon: CalendarClock, label: "自选 & 定时" },
+      { to: "/risk-dashboard", icon: Shield, label: "风控看板" },
     ],
   },
   {

@@ -13,7 +13,12 @@ Task schema::
 
     { task_id, symbol, name, horizon("短线"|"中线"|"长线"),
       time("HH:MM"), enabled(bool), created_at,
-      last_run_at(iso|null), last_status("ok"|"error"|null) }
+      last_run_at(iso|null), last_status("ok"|"error"|null),
+      # Position fields (optional, filled in by user for risk monitoring):
+      quantity(int|null), avg_cost(float|null), buy_date(str|null),
+      peak_profit_pct(float, default 0.0),
+      tp_triggered(list[int], default []),
+      logic_stop_price(float|null) }
 
 History entry schema::
 
@@ -149,6 +154,54 @@ def get_task(task_id: str) -> dict[str, Any] | None:
 def get_task_for_symbol(symbol: str) -> dict[str, Any] | None:
     for t in load_tasks():
         if t.get("symbol") == symbol:
+            return t
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Position fields (risk-monitoring extensions on top of tasks)
+# ---------------------------------------------------------------------------
+
+_POSITION_FIELDS = ("quantity", "avg_cost", "buy_date", "peak_profit_pct",
+                    "tp_triggered", "logic_stop_price")
+
+
+def update_position_fields(task_id: str, **kwargs: Any) -> dict[str, Any] | None:
+    """Update position-related fields on a task.
+
+    Accepted kwargs: quantity, avg_cost, buy_date, peak_profit_pct,
+    tp_triggered, logic_stop_price.
+
+    Returns the updated task, or None if task_id not found.
+    """
+    with _LOCK:
+        tasks = load_tasks()
+        for i, t in enumerate(tasks):
+            if t.get("task_id") == task_id:
+                for key in _POSITION_FIELDS:
+                    if key in kwargs:
+                        t[key] = kwargs[key]
+                tasks[i] = t
+                save_tasks(tasks)
+                return t
+    return None
+
+
+def get_positions() -> list[dict[str, Any]]:
+    """Return all tasks that have position data (quantity > 0).
+
+    These are the holdings the risk engine will monitor.
+    """
+    return [
+        t for t in load_tasks()
+        if t.get("quantity") and t["quantity"] > 0
+    ]
+
+
+def get_position(symbol: str) -> dict[str, Any] | None:
+    """Return the position task for a given symbol, or None."""
+    for t in load_tasks():
+        if t.get("symbol") == symbol and t.get("quantity") and t["quantity"] > 0:
             return t
     return None
 

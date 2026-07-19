@@ -17,7 +17,7 @@ import logging
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 
-from src.notify.models import NotifyConfig, TestRequest, TestResponse
+from src.notify.models import NotifyConfig, NoiseConfigModel, TestRequest, TestResponse
 from src.notify.scheduler import notify_scheduler_enabled, run_notify_scheduler_loop
 from src.notify.sender import send
 from src.notify.store import load_config, save_config
@@ -55,6 +55,30 @@ def register_notify_routes(
         return TestResponse(ok=ok, message=message)
 
     app.include_router(router)
+
+    # ── Noise control endpoints ──
+
+    @router.get("/noise")
+    async def get_noise_config(request: Request, _=Depends(require_auth)) -> NoiseConfigModel:
+        """返回当前噪声控制配置。"""
+        cfg = load_config()
+        return cfg.noise
+
+    @router.put("/noise")
+    async def put_noise_config(
+        noise: NoiseConfigModel, request: Request, _=Depends(require_auth)
+    ) -> NoiseConfigModel:
+        """更新噪声控制配置。"""
+        cfg = load_config()
+        cfg.noise = noise
+        save_config(cfg)
+        return noise
+
+    @router.get("/noise/stats")
+    async def get_noise_stats(request: Request, _=Depends(require_auth)) -> dict:
+        """返回今日拦截/发送统计。"""
+        from src.notify.noise_control import get_noise_stats
+        return get_noise_stats()
 
     @app.on_event("startup")
     async def start_notify_scheduler() -> None:

@@ -125,3 +125,55 @@ def send(platform: str, cfg: PlatformConfig, title: str, markdown: str) -> tuple
     if sender is None:
         return False, f"不支持的平台: {platform}"
     return sender(cfg, title, markdown)
+
+
+def send_with_noise(
+    platform: str,
+    cfg: PlatformConfig,
+    title: str,
+    markdown: str,
+    *,
+    noise_cfg: Any = None,
+    route_type: str = "report",
+    severity: str = "info",
+) -> tuple[bool, str]:
+    """发送通知，先经过噪声控制检查。
+
+    noise_cfg: NoiseConfigModel 或 NoiseConfig（dataclass）。
+    如果 noise_cfg 为 None 或未启用，行为等同于 send()。
+    """
+    from src.notify.noise_control import (
+        NoiseConfig, evaluate_noise, record_sent, record_blocked,
+    )
+
+    # 将 Pydantic model 转为 dataclass（如果需要）
+    if noise_cfg is not None:
+        try:
+            if hasattr(noise_cfg, "model_dump"):
+                nc_dict = noise_cfg.model_dump()
+            elif hasattr(noise_cfg, "__dataclass_fields__"):
+                nc_dict = {k: getattr(noise_cfg, k) for k in noise_cfg.__dataclass_fields__}
+            else:
+                nc_dict = dict(noise_cfg) if not isinstance(noise_cfg, dict) else noise_cfg
+
+            nc = NoiseConfig(**nc_dict) if isinstance(nc_dict, dict) else noise_cfg
+        except Exception:
+            nc = NoiseConfig()
+    else:
+        nc = NoiseConfig()
+
+    content = f"{title}\n\n{markdown}"
+    decision = evaluate_noise(nc, content=content, route_type=route_type, severity=severity)
+
+    if not decision.should_send:
+        record_blocked(decision.reason_code)
+        return False, f"噪声控制拦截: {decision.reason_code}"
+
+    sender = _SENDERS.get(platform.strip().lower())
+    if sender is None:
+        return False, f"不支持的平台: {platform}"
+
+    ok, message = sender(cfg, title, markdown)
+    if ok:
+        record_sent(decision, nc)
+    return ok, message

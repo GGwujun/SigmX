@@ -465,6 +465,7 @@ def _run_one_tier(
         if enable_daily_reference and "daily" in tier_datasets:
             _validate_daily_reference(shadow_store, trade_date, run_id, expected_codes)
         shadow_store.finish_sync_run(run_id, QualityStatus.VERIFIED)
+        logger.info("post-close shadow sync done rows=%s", rows)
     except Exception as exc:
         run_row = shadow_store._conn.execute(
             "SELECT status FROM sync_runs WHERE run_id = ?", (run_id,)
