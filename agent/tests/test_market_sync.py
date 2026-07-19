@@ -265,6 +265,11 @@ def test_cls_sync_rejects_news_from_wrong_trade_date(
         "src.data.astock_client.cls_telegraph",
         lambda: [{"title": "old", "content": "old", "time": "2026-07-15 23:59:00"}],
     )
+    # 屏蔽 cls 的降级备胎，避免测试落到真实新浪 HTTPS 调用
+    monkeypatch.setattr(
+        "src.data.astock_client.sina_7x24_telegraph",
+        lambda: [{"title": "old2", "content": "old2", "time": "2026-07-15 23:59:00"}],
+    )
 
     assert ms._sync_cls_telegraph(store, "2026-07-16") == 0
     count = store._conn.execute(

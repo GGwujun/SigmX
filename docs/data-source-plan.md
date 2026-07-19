@@ -56,7 +56,7 @@
 | 33 | ths_hot_reason | 题材归因 | 🔴同花顺❌单源 | 同花顺❌ | 东财datacenter→东财概念命中🆕→🐕tpdog(01803概念) | ✅✅△ | 接 em_hot_concept+tpdog |
 | 34 | hot_list | 热度榜 | 🔴同花顺❌单源 | 同花顺❌ | 东财人气榜→🐕tpdog(01903) | ✅✅ | 接 eastmoney_popularity |
 | 35 | eps_forecast | 一致预期EPS | 🔴同花顺❌单源 | 同花顺❌ | 东财研报reportapi🆕(含三年EPS)→同花顺→(tpdog无) | △⚪ | 接 eastmoney_reports 研报层 |
-| 36 | northbound_flow | 北向资金 | 🔴同花顺❌(sgt已知坏△) | 同花顺❌ | HKEX官方(权威✅)→东财→本地CSV缓存🆕→(tpdog无) | ✅✅✅ | 接HKEX+本地缓存机制 |
+| 36 | northbound_flow | 北向资金 | 🔴同花顺❌(sgt已知坏△) | 同花顺❌ | **无有效降级**（见下） | ❌ | 见下方 #36 说明 |
 | 37 | financial_snapshot | 财务快照 | 🔴mootdx✅单源 | mootdx✅(库停更△) | tdx协议🆕→同花顺F10→新浪财报→🐕tpdog(01401) | ✅✅✅✅ | mootdx换tdx+补同花顺F10 |
 | 38 | financial_statement | 财报三表 | 🔴新浪✅单源 | 新浪✅ | 新浪→同花顺F10三表→🐕tpdog(01401) | ✅✅✅ | 补同花顺F10 |
 | 39 | option_chain | ETF期权 | 🔴新浪✅单源 | 新浪✅ | 新浪→(tpdog无期权,独家) | ✅ | OK(新浪独家可用) |
@@ -114,7 +114,9 @@
 | 新浪(行情/7×24/财报/期权) | ✅ | |
 | mootdx/tdx 协议 | ✅ 23834 rows | TCP 7709 |
 | HKEX | ✅ 1.4s | hkex.com.hk |
-| 金十 jin10 | ✅ | |
+| 金十 jin10 | ❌ 502/404/SSL EOF（2026-07-19 复测全挂） | flash-api/get_flash_list 502；flash_newest.js SSL EOF；#31 改用新浪7×24 降级 |
+| 东财 7×24 np-weblist | ❌ data 空（2026-07-19 复测） | getFastNewsList 返回 data=None；#31 不作 cls 备胎 |
+| 新浪 7×24 zhibo feed | ✅ | ext.stocks(JSON串)带个股关联，#29 个股新闻 + #31 cls 降级共用 |
 | 同花顺 basic/zx | ❌ 403 | 被封 |
 | 同花顺 d.10jqka(K线) | ✅ | |
 | 同花顺 basic.10jqka/api(F10) | ✅ 1.7s | |
@@ -122,6 +124,20 @@
 | cninfo irm 互动易 | ✅ | |
 
 ---
+
+## #36 northbound_flow 降级链复核（2026-07-19，结论：当前无有效同形态降级）
+
+`northbound_flow` 表存的是**沪股通净买额 hgt_yi**（同花顺 hexin 分钟序列）。复核目标链三个备胎源：
+
+- **HKEX 官方**：原 `data_tab_daily_*.js` 端点 **404 全挂**（HKEX 改版下线）；Mutual-Market 页数据靠前端异步加载，无简单 JSON 可取。**不可达。**
+- **东财 datacenter `RPT_MUTUAL_DEAL_HISTORY`**：接口通、有数据，但 `MUTUAL_TYPE=001`（沪股通）`NET_DEAL_AMT=None` ——**沪股通净额不披露**；仅 `002`（深股通）有净额(1910.48 万元)，`003`（北向合计）净额亦 None。**补不齐 hgt 净额。**
+- **本地 CSV 缓存**：仅缓存历史、不产生新数据，非降级源。
+
+根因：2024 后北向**净买额**披露全网收紧（hgt/sgt），同花顺 hexin 是少数还能给 hgt 分钟净额的源；HKEX/东财/新浪在 hgt **净额**上均缺。强接只会写空 `hgt_yi` 的无意义行。
+
+→ `hsgt_realtime` 维持单源（已是协议层最稳的取数点）。若要补**成交额/额度/深股通净额/十大活跃股**（东财有），需给 `northbound_flow` 表加列（schema 变更）——列为后续待办，不在本次降级范围内。
+
+
 
 ## 附：tpdog 90 接口分类速查（完整目录见 `agent/src/data/tpdog_doc.json`）
 

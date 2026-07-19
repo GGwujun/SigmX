@@ -908,8 +908,10 @@ def _sync_dragon_tiger(store: MarketStore, trade_date: str) -> int:
         return store.upsert_dragon_tiger(trade_date, rows)
 
     # Fallback: official exchange dragon-tiger list (SSE+SZSE, zero-auth, not
-    # IP-blocked). Fields are partial vs tpdog (amount/reason only), but
-    # upsert tolerates NULLs for the missing close/rise_rate/buy/sell cols.
+    # IP-blocked). Only code/name map onto upsert's value_cols. The SZSE `cjje`
+    # is 成交金额(万元) — NOT the 净额 that net_amt means — and `plyy`(上榜原因)
+    # has no column; both are dropped rather than mis-stored. close/rise_rate/
+    # buy_amt/sell_amt/net_amt stay NULL (upsert tolerates).
     try:
         from src.data.astock_client import dragon_tiger_backup
 
@@ -926,8 +928,6 @@ def _sync_dragon_tiger(store: MarketStore, trade_date: str) -> int:
             {
                 "code": code,
                 "name": r.get("name"),
-                "net_amt": r.get("amount"),
-                "explain": r.get("reason"),
             }
         )
     if not mapped:
@@ -4531,8 +4531,8 @@ def _rotating_query_codes(
 
 
 def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
-    """同花顺一致预期 EPS — 对 security_master 中活跃股票批量拉取。"""
-    from src.data.astock_client import ths_eps_forecast
+    """一致预期 EPS — 同花顺 worth 页为主，东财研报层作独立风控面降级。"""
+    from src.data.astock_client import ths_eps_forecast, eastmoney_eps_forecast
     total = 0
     try:
         codes = _rotating_query_codes(store, "eps_forecast",
@@ -4546,7 +4546,8 @@ def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
             forecasts = _contract_rows(
                 store,
                 "eps_forecast",
-                [("ths", lambda: ths_eps_forecast(code))],
+                [("ths", lambda: ths_eps_forecast(code)),
+                 ("eastmoney", lambda: eastmoney_eps_forecast(code))],
                 trade_date,
                 identity=stored_code,
             )
@@ -4582,8 +4583,8 @@ def _sync_financial_snapshot(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
-    """新浪财报三表 — 对最近有行情的股票拉利润表。"""
-    from src.data.astock_client import sina_financial_report
+    """财报三表 — 新浪为主，同花顺 F10 结构化财报作独立风控面降级。"""
+    from src.data.astock_client import sina_financial_report, ths_financial_report
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4597,17 +4598,31 @@ def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
         for report_type in ("lrb", "fzb", "llb"):
             try:
                 reports = sina_financial_report(code, report_type, num=2)
-                if reports:
-                    total += store.upsert_financial_statement(stored_code, report_type, reports)
             except Exception:
-                continue
+                reports = []
+            if not reports:
+                # 新浪失败 → 同花顺 F10 结构化财报（不同风控面）
+                try:
+                    reports = ths_financial_report(code, report_type, num=2)
+                except Exception:
+                    reports = []
+            if reports:
+                try:
+                    total += store.upsert_financial_statement(stored_code, report_type, reports)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("financial_statement upsert failed %s %s: %s", stored_code, report_type, exc)
             time.sleep(0.3)
     return total
 
 
 def _sync_announcements(store: MarketStore, trade_date: str) -> int:
-    """巨潮公告 — 对最近有行情的股票拉公告。"""
-    from src.data.astock_client import cninfo_announcements
+    """巨潮公告 — 对最近有行情的股票拉公告；巨潮失败/无数据降级到官方备胎。
+
+    走 _contract_rows 统一 provider 链（带 provider_diagnostic 诊断元数据），
+    与 eps_forecast/cls_telegraph 一致。备胎字段 {title,time,pdf} 在 provider 内映射成
+    upsert 契约 {date,title,type,url}。upsert 忽略 _contract_rows 附加的 source 键。
+    """
+    from src.data.astock_client import cninfo_announcements, announcements_backup
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4616,14 +4631,28 @@ def _sync_announcements(store: MarketStore, trade_date: str) -> int:
             (trade_date,), limit=200)
     except Exception:
         return 0
+
+    def _backup_rows(c: str) -> list[dict]:
+        # 深交所官方(深)/东财np-anotice(沪)，不同风控面；字段映射成 upsert 契约
+        backup = announcements_backup(c, page_size=10) or []
+        return [{"date": b.get("time", ""), "title": b.get("title", ""),
+                 "type": "", "url": b.get("pdf", "")} for b in backup]
+
     for stored_code in codes:
         code = stored_code.split(".")[0]
-        try:
-            anns = cninfo_announcements(code, page_size=10)
-            if anns:
-                total += store.upsert_announcements(stored_code, anns)
-        except Exception:
-            continue
+        rows = _contract_rows(
+            store,
+            "announcements",
+            [("cninfo", lambda c=code: cninfo_announcements(c, page_size=10)),
+             ("backup", lambda c=code: _backup_rows(c))],
+            trade_date,
+            identity=stored_code,
+        )
+        if rows:
+            try:
+                total += store.upsert_announcements(stored_code, rows)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("announcements upsert failed %s: %s", stored_code, exc)
         time.sleep(0.5)
     return total
 
@@ -4811,7 +4840,12 @@ def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_northbound(store: MarketStore, trade_date: str) -> int:
-    """同花顺北向资金分钟流向（不封 IP）。"""
+    """同花顺北向资金分钟流向（不封 IP）。
+
+    单源现状是客观限制：2024 后北向净买额(hgt/sgt)披露全网收紧，HKEX 官方端点
+    已 404、东财 datacenter 沪股通 NET_DEAL_AMT=None —— 均补不齐 hgt 净额，故不接
+    假降级。详见 docs/data-source-plan.md「#36 复核」。
+    """
     from src.data.astock_client import hsgt_realtime
     try:
         rows = _contract_rows(
@@ -4829,13 +4863,13 @@ def _sync_northbound(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_cls_telegraph(store: MarketStore, trade_date: str) -> int:
-    """财联社电报（全市场实时快讯）。"""
-    from src.data.astock_client import cls_telegraph
+    """财联社电报（全市场实时快讯）— 新浪 7×24 作独立风控面降级。"""
+    from src.data.astock_client import cls_telegraph, sina_7x24_telegraph
     try:
         rows = _contract_rows(
             store,
             "cls_telegraph",
-            [("cls", cls_telegraph)],
+            [("cls", cls_telegraph), ("sina", sina_7x24_telegraph)],
             trade_date,
         )
     except Exception as exc:
@@ -4870,8 +4904,8 @@ def _sync_irm_qa(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_stock_news(store: MarketStore, trade_date: str) -> int:
-    """个股新闻（东财，IP 解封后生效）。"""
-    from src.data.astock_client import eastmoney_stock_news
+    """个股新闻 — 东财为主，新浪 7×24 全市场流作独立风控面降级。"""
+    from src.data.astock_client import eastmoney_stock_news, sina_7x24_news
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4880,14 +4914,39 @@ def _sync_stock_news(store: MarketStore, trade_date: str) -> int:
             (trade_date,), limit=50)
     except Exception:
         return 0
+    missing_codes: list[str] = []  # 东财无数据/失败的 6 位代码，留待新浪兜底
     for stored_code in codes:
         code = stored_code.split(".")[0]
         try:
             news = eastmoney_stock_news(code, page_size=5)
-            if news:
-                total += store.upsert_stock_news(stored_code, trade_date, news)
         except Exception:
-            continue
+            news = []
+        if news:
+            try:
+                total += store.upsert_stock_news(stored_code, trade_date, news)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("stock_news upsert failed %s: %s", stored_code, exc)
+        else:
+            missing_codes.append((code, stored_code))
+    # 东财被封/无数据的股票 → 新浪 7×24 全市场流（不同风控面，按 ext.stocks 分发）。
+    # page_size 拉大：快讯 ext.stocks 只点名少数个股，80 条覆盖不足。
+    if missing_codes:
+        want = [c for c, _ in missing_codes]
+        try:
+            sina_rows = sina_7x24_news(want, page_size=300)
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("sina_7x24_news backup failed: %s", exc)
+            sina_rows = []
+        by_code: dict[str, list[dict]] = {}
+        for row in sina_rows:
+            by_code.setdefault(row.get("code", ""), []).append(row)
+        for code, stored_code in missing_codes:
+            rows = by_code.get(code)
+            if rows:
+                try:
+                    total += store.upsert_stock_news(stored_code, trade_date, rows)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("stock_news(sina) upsert failed %s: %s", stored_code, exc)
     return total
 
 

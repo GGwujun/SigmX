@@ -401,6 +401,42 @@ def sina_financial_report(code: str, report_type: str = "lrb", num: int = 8) -> 
     return rows
 
 
+def ths_financial_report(code: str, report_type: str = "lrb", num: int = 4) -> list[dict]:
+    """同花顺 F10 结构化财报 — 新浪财报三表被封时的独立风控面降级（实测不封 IP）。
+    report_type: "lrb"(利润表) / "fzb"(资产负债表) / "llb"(现金流量表)
+    返回与 sina_financial_report 同形态: [{报告期, ...科目值}]，可直喂 upsert_financial_statement。
+    """
+    suffix = {"lrb": "_benefit", "fzb": "_debt", "llb": "_cash"}.get(report_type, "_benefit")
+    url = f"https://basic.10jqka.com.cn/api/stock/finance/{code}{suffix}.json"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA, "Referer": "https://basic.10jqka.com.cn/"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        logger.debug("同花顺F10财报请求失败 code=%s: %s", code, e)
+        return []
+    try:
+        flash = json.loads(d.get("flashData") or "{}")
+    except Exception:
+        return []
+    report = flash.get("report") or []
+    if not report or not isinstance(report[0], list):
+        return []
+    periods = report[0]  # 第一行是报告期时间轴
+    # title[0]="科目\\时间"；title[1:] 为科目名，与 report[1:] 行一一对应
+    subjects = flash.get("title") or []
+    subject_names = [(s[0] if isinstance(s, list) and s else s) for s in subjects[1:]]
+    rows: list[dict] = []
+    for ci, period in enumerate(periods[:num]):
+        rec: dict[str, Any] = {"报告期": period}
+        for ri, name in enumerate(subject_names):
+            row = report[ri + 1] if ri + 1 < len(report) else []
+            rec[name] = row[ci] if ci < len(row) else None
+        rows.append(rec)
+    return rows
+
+
 # ── Layer 7: 公告 — 巨潮 cninfo ───────────────────────────────────
 
 _CNINFO_ORGID_MAP: dict[str, str] = {}
@@ -467,6 +503,37 @@ def cninfo_announcements(code: str, page_size: int = 30) -> list[dict]:
             "url": f"https://www.cninfo.com.cn/new/disclosure/detail?annoId={item.get('announcementId', '')}",
         })
     return rows
+
+
+def announcements_backup(code: str, page_size: int = 20) -> list[dict]:
+    """公告备用源（巨潮被封/无数据时用）：深市走深交所官方，沪市走东财，均带 PDF 直链。
+    返回: [{title, time(YYYY-MM-DD), pdf}] — 与 cninfo_announcements 字段不同，需在调用方映射。
+    """
+    # 深市: 0xxxxx / 30xxxx → 深交所官方披露
+    if code.startswith(("0", "3")):
+        body = json.dumps({"channelCode": ["listedNotice_disc"], "pageSize": page_size,
+                           "pageNum": 1, "stock": [code]}).encode()
+        req = urllib.request.Request(
+            "https://www.szse.cn/api/disc/announcement/annList", data=body,
+            headers={"User-Agent": UA, "Content-Type": "application/json",
+                     "Referer": "https://www.szse.cn/disclosure/listed/notice/index.html"})
+        with urllib.request.urlopen(req, timeout=15, context=_ctx) as r:
+            d = json.loads(r.read())
+        return [{"title": a.get("title", ""),
+                 "time": str(a.get("publishTime", ""))[:10],
+                 "pdf": "https://disc.static.szse.cn/download" + a.get("attachPath", "")}
+                for a in (d.get("data", []) or [])]
+    # 沪市/北证: 东财 np-anotice 公告（含 6xxxxx / 8xxxxx / 4xxxxx）
+    u = (f"https://np-anotice-stock.eastmoney.com/api/security/ann?sr=-1"
+         f"&page_size={page_size}&page_index=1&ann_type=A&client_source=web"
+         f"&stock_list={code}&f_node=0&s_node=0")
+    req = urllib.request.Request(u, headers={"User-Agent": UA})
+    with urllib.request.urlopen(req, timeout=15, context=_ctx) as r:
+        d = json.loads(r.read())
+    return [{"title": a.get("title", ""),
+             "time": str(a.get("notice_date", ""))[:10],
+             "pdf": f"https://pdf.dfcfw.com/pdf/H2_{a.get('art_code', '')}_1.pdf"}
+            for a in (d.get("data", {}).get("list", []) or [])]
 
 
 # ── Layer 3: 信号 — 同花顺热点（题材归因）──────────────────────────
@@ -1092,6 +1159,68 @@ def ths_eps_forecast(code: str) -> list[dict]:
     return rows
 
 
+def eastmoney_eps_forecast(code: str, max_pages: int = 2) -> list[dict]:
+    """东财研报层一致预期 EPS — 同花顺 worth 页被封/无覆盖时的降级。
+    拉个股研报(recordapi, 含 predictThisYearEps/Next/NextTwo)，按实际年份聚合，
+    契约对齐 ths_eps_forecast: [{year, count, min_eps, mean_eps, max_eps, net_profit}]。
+    net_profit 东财研报无该字段，留 None。count = 该年有预测的研报篇数。
+    """
+    from datetime import date as _date
+    base_year = _date.today().year
+    # 研报三档预测 → 实际年份（与同花顺 worth 页口径对齐：今年=当前年）
+    slot_to_year = {
+        "predictThisYearEps": base_year,
+        "predictNextYearEps": base_year + 1,
+        "predictNextTwoYearEps": base_year + 2,
+    }
+    url = "https://reportapi.eastmoney.com/report/list"
+    bucket: dict[int, list[float]] = {}
+    for page in range(1, max_pages + 1):
+        params = {
+            "industryCode": "*", "pageSize": "50", "industry": "*",
+            "rating": "*", "ratingChange": "*",
+            "beginTime": "2000-01-01", "endTime": "2030-01-01",
+            "pageNo": str(page), "fields": "", "qType": "0",
+            "code": code, "rcode": "",
+        }
+        qs = "&".join(f"{k}={v}" for k, v in params.items())
+        req = urllib.request.Request(url + "?" + qs, headers={
+            "User-Agent": UA, "Referer": "https://data.eastmoney.com/"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                d = json.loads(r.read().decode("utf-8", "replace"))
+        except Exception as e:
+            logger.debug("东财研报请求失败 code=%s page=%d: %s", code, page, e)
+            break
+        rows = d.get("data") or []
+        if not rows:
+            break
+        for rec in rows:
+            for field, year in slot_to_year.items():
+                raw = rec.get(field)
+                try:
+                    val = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                bucket.setdefault(year, []).append(val)
+        total_page = d.get("TotalPage", 1) or 1
+        if page >= total_page:
+            break
+        time.sleep(0.25)  # 东财防封：串行节流（批量降级场景下避免累计超时）
+    out = []
+    for year in sorted(bucket):
+        vals = bucket[year]
+        out.append({
+            "year": str(year),
+            "count": len(vals),
+            "min_eps": min(vals),
+            "mean_eps": sum(vals) / len(vals),
+            "max_eps": max(vals),
+            "net_profit": None,
+        })
+    return out
+
+
 # ── Layer 3: 信号 — 同花顺北向资金 ────────────────────────────────
 
 
@@ -1260,6 +1389,38 @@ def cls_telegraph(page_size: int = 50) -> list[dict]:
     return rows
 
 
+def _sina_7x24_feed(page_size: int) -> list[dict]:
+    """新浪 7×24 全市场快讯流的共享抓取：拉 zhibo_id=152 feed，返回带非空 rich_text 的原始 item 列表。
+    sina_7x24_telegraph / sina_7x24_news 共用此抓取，只在行映射上分叉。
+    """
+    url = (f"https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size={page_size}"
+           f"&zhibo_id=152&dire=f&type=0&dpc=1")
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        logger.warning("新浪7×24快讯请求失败: %s", e)
+        return []
+    items = d.get("result", {}).get("data", {}).get("feed", {}).get("list", []) or []
+    return [it for it in items if (it.get("rich_text") or "").strip()]
+
+
+def sina_7x24_telegraph(page_size: int = 60) -> list[dict]:
+    """新浪 7×24 全市场快讯 — 财联社电报的独立风控面降级（cls/金十/东财7×24 失效时用）。
+    返回全量带文本的快讯（不过滤个股），契约对齐 cls_telegraph: [{title, content, time}]。
+    """
+    rows: list[dict] = []
+    for it in _sina_7x24_feed(page_size):
+        text = (it.get("rich_text") or "").strip()
+        rows.append({
+            "title": text[:80],
+            "content": text,
+            "time": str(it.get("create_time", "")),
+        })
+    return rows
+
+
 # ── Layer 5: 新闻 — 东财全球资讯（7×24 修复版）───────────────────
 
 
@@ -1330,3 +1491,49 @@ def eastmoney_stock_news(code: str, page_size: int = 20) -> list[dict]:
         logger.warning("东财个股新闻请求失败: %s", e)
         return []
     return _parse_eastmoney_stock_news_payload(d)
+
+
+def sina_7x24_news(codes: list[str] | None = None, page_size: int = 60) -> list[dict]:
+    """新浪 7×24 全市场财经快讯 — 东财个股新闻被封时的独立备胎（不同风控面）。
+    codes: 6 位代码列表；传则只返回这些股票的关联快讯（按 ext.stocks 过滤），不传则返回
+           所有带个股关联的快讯。每条快讯可能关联多只股票，会拆成多行（每行一个 code）。
+    返回: [{code, title, summary, url, date, source}]
+    """
+    import re as _re
+    want = {_re.sub(r"\D", "", c)[-6:] for c in codes if c and c.strip()} if codes else None
+    rows: list[dict] = []
+    for it in _sina_7x24_feed(page_size):
+        text = (it.get("rich_text") or "").strip()
+        ext = it.get("ext")
+        if isinstance(ext, str):
+            try:
+                ext = json.loads(ext)
+            except Exception:
+                ext = {}
+        stocks = (ext or {}).get("stocks") or []
+        # 仅保留 A 股（market=cn，symbol 带 sh/sz/bj 前缀）
+        cn_codes = []
+        for s in stocks:
+            sym = str(s.get("symbol", ""))
+            if s.get("market") == "cn" and len(sym) >= 6:
+                cn_codes.append(sym[-6:])
+        if not cn_codes:
+            continue
+        # 去重：同一条快讯的 ext.stocks 可能重复列同一代码（A+H/平台重复条目）
+        cn_codes = list(dict.fromkeys(cn_codes))
+        if want is not None:
+            cn_codes = [c for c in cn_codes if c in want]
+            if not cn_codes:
+                continue
+        date = str(it.get("create_time", ""))[:10]
+        row_base = {
+            "title": text[:80],
+            "summary": text,
+            "url": f"https://finance.sina.com.cn/7x24/{it.get('id', '')}.shtml",
+            "date": date,
+            "source": "sina",
+        }
+        for c in cn_codes:
+            rows.append({**row_base, "code": c})
+    return rows
+
