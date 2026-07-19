@@ -62,6 +62,61 @@ export function FundOpportunity() {
   const [limitedOnly, setLimitedOnly] = useState(false);
   const [keyword, setKeyword] = useState("");
 
+  // ── 自动刷新倒计时 ──
+  const [autoRefresh, setAutoRefresh] = useState(false);
+  const [refreshInterval, setRefreshInterval] = useState(60); // seconds
+  const [countdown, setCountdown] = useState(60);
+  useEffect(() => {
+    if (!autoRefresh) return;
+    const timer = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          doScan(page, pageSize, fundType, minPremium, sort, keyword);
+          return refreshInterval;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [autoRefresh, refreshInterval, doScan, page, pageSize, fundType, minPremium, sort, keyword]);
+  // Reset countdown when manual refresh
+  const onRefreshWithReset = () => {
+    setCountdown(refreshInterval);
+    onRefresh();
+  };
+
+  // ── 收益计算器 ──
+  const [calcOpen, setCalcOpen] = useState(false);
+  const [calcItem, setCalcItem] = useState<FundScanItem | null>(null);
+  const [calcAmount, setCalcAmount] = useState(100000);
+  const openCalc = (item: FundScanItem) => {
+    setCalcItem(item);
+    setCalcOpen(true);
+  };
+  const calcProfit = () => {
+    if (!calcItem || !calcItem.nav || calcItem.nav <= 0) return null;
+    const invest = calcAmount;
+    const premiumRate = (calcItem.premium_rate || 0) / 100;
+    const price = calcItem.price || calcItem.nav * (1 + premiumRate);
+    const nav = calcItem.nav;
+    const isPremium = premiumRate > 0;
+    let profit: number;
+    if (isPremium) {
+      // 溢价套利：场外申购 → 场内卖出
+      const purchaseFee = invest * 0.012; // 申购费 ~1.2%
+      const shares = (invest - purchaseFee) / nav;
+      const sellFee = shares * price * 0.001; // 佣金 ~0.1%
+      profit = shares * price - invest - purchaseFee - sellFee;
+    } else {
+      // 折价套利：场内买入 → 赎回
+      const buyFee = invest * 0.001; // 佣金 ~0.1%
+      const shares = (invest - buyFee) / price;
+      const redeemFee = shares * nav * 0.005; // 赎回费 ~0.5%
+      profit = shares * nav - invest - buyFee - redeemFee;
+    }
+    return { profit, profitPct: (profit / invest) * 100, isPremium };
+  };
+
   const doScan = useCallback(async (targetPage: number, targetSize: number, typeVal: string, minVal: number, sortVal: SortKey, kw: string = "", showToast = false) => {
     setLoading(true);
     try {
@@ -156,11 +211,31 @@ export function FundOpportunity() {
             </p>
           </div>
         </div>
-        <button onClick={onRefresh} disabled={loading}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-40">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-          刷新
-        </button>
+        <div className="flex items-center gap-2">
+          {/* 自动刷新 */}
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <button
+              onClick={() => { setAutoRefresh(!autoRefresh); setCountdown(refreshInterval); }}
+              className={`px-2 py-1 rounded border text-xs transition ${autoRefresh ? "bg-primary/10 border-primary/30 text-primary" : "border-border hover:bg-muted"}`}
+            >
+              {autoRefresh ? `⏱ ${countdown}s` : "自动刷新"}
+            </button>
+            {autoRefresh && (
+              <select value={refreshInterval} onChange={e => { setRefreshInterval(Number(e.target.value)); setCountdown(Number(e.target.value)); }}
+                className="px-1.5 py-1 rounded border bg-background text-xs">
+                <option value={30}>30s</option>
+                <option value={60}>1分钟</option>
+                <option value={120}>2分钟</option>
+                <option value={300}>5分钟</option>
+              </select>
+            )}
+          </div>
+          <button onClick={onRefreshWithReset} disabled={loading}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-40">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            刷新
+          </button>
+        </div>
       </header>
 
       {/* filters */}
@@ -320,6 +395,11 @@ export function FundOpportunity() {
                           title="设置告警">
                           <Bell className="h-3.5 w-3.5" />
                         </button>
+                        <button onClick={() => openCalc(item)}
+                          className="text-xs px-2 py-1 rounded-md border border-muted text-muted-foreground hover:text-primary hover:border-primary/40 transition-colors"
+                          title="收益计算器">
+                          💰
+                        </button>
                         <button onClick={() => goAnalyze(item)}
                           className="text-xs px-2.5 py-1 rounded-md border border-primary/40 text-primary hover:bg-primary/10 transition-colors">
                           深度分析
@@ -360,6 +440,61 @@ export function FundOpportunity() {
           </div>
         </div>
       )}
+
+      {/* 收益计算器弹窗 */}
+      {calcOpen && calcItem && (() => {
+        const result = calcProfit();
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setCalcOpen(false)}>
+            <div className="bg-background border rounded-xl p-6 w-80 shadow-xl" onClick={e => e.stopPropagation()}>
+              <h3 className="text-sm font-bold mb-3">💰 套利收益测算</h3>
+              <div className="text-xs text-muted-foreground mb-3">
+                {calcItem.name}（{calcItem.code}）· {calcItem.premium_rate?.toFixed(2)}% {calcItem.premium_rate! > 0 ? "溢价" : "折价"}
+              </div>
+              <div className="mb-3">
+                <label className="text-xs text-muted-foreground block mb-1">投入金额（元）</label>
+                <input type="number" value={calcAmount} onChange={e => setCalcAmount(Number(e.target.value) || 0)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border bg-background text-sm" />
+                <div className="flex gap-1 mt-1">
+                  {[50000, 100000, 200000, 500000].map(v => (
+                    <button key={v} onClick={() => setCalcAmount(v)}
+                      className="text-[10px] px-1.5 py-0.5 rounded border hover:bg-muted transition">
+                      {v >= 10000 ? `${v / 10000}万` : `${v}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {result ? (
+                <div className="rounded-lg bg-muted/30 p-3 space-y-1.5">
+                  <div className="flex justify-between text-sm">
+                    <span>预估利润</span>
+                    <span className={`font-bold ${result.profit > 0 ? "text-green-500" : "text-red-500"}`}>
+                      {result.profit > 0 ? "+" : ""}{result.profit.toFixed(0)} 元
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>收益率</span>
+                    <span>{result.profitPct.toFixed(2)}%</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>策略</span>
+                    <span>{result.isPremium ? "场外申购→场内卖出" : "场内买入→赎回"}</span>
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-2 leading-tight">
+                    ⚠️ 含申购费~1.2%、赎回费~0.5%、佣金~0.1%。T+2交割期间净值波动可能导致实际收益偏差。
+                  </div>
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground text-center py-3">净值数据缺失，无法计算</div>
+              )}
+              <button onClick={() => setCalcOpen(false)}
+                className="mt-3 w-full py-1.5 rounded-lg border text-sm hover:bg-muted transition">
+                关闭
+              </button>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
