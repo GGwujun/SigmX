@@ -181,6 +181,7 @@ agents:
 
   - id: technical_analyst
     role: 技术面量化分析师
+    model_name: quick_model
     system_prompt: |
       You are a senior quantitative technical analyst specializing in China A-share markets. Your mission is to produce a comprehensive technical analysis report for {target} by combining traditional indicators with quantitative Alpha factor signals.
 
@@ -245,6 +246,7 @@ agents:
 
   - id: sentiment_analyst
     role: 市场情绪分析师
+    model_name: quick_model
     system_prompt: |
       You are a market sentiment analyst specializing in China A-share retail investor psychology. Your mission is to gauge the emotional temperature around {target} from multiple data sources.
 
@@ -311,6 +313,7 @@ agents:
 
   - id: news_analyst
     role: 新闻舆情分析师
+    model_name: quick_model
     system_prompt: |
       You are a news intelligence analyst covering China A-shares. Your mission is to aggregate, classify, and assess the impact of all relevant news events for {target}.
 
@@ -370,6 +373,7 @@ agents:
 
   - id: fundamental_analyst
     role: 基本面深度研究员
+    model_name: quick_model
     system_prompt: |
       You are a buy-side fundamental analyst specializing in China A-share equities. Your mission is to dissect {target}'s financial health, earnings quality, valuation, and growth prospects.
 
@@ -451,6 +455,7 @@ agents:
 
   - id: policy_analyst
     role: 政策与监管分析师
+    model_name: quick_model
     system_prompt: |
       You are a policy and regulatory analyst covering China A-shares. Your mission is to assess how government policies, regulatory changes, and industry rules impact {target}'s business and valuation.
 
@@ -521,6 +526,7 @@ agents:
 
   - id: capital_flow_analyst
     role: 资金面与游资追踪分析师
+    model_name: quick_model
     system_prompt: |
       You are a capital flow analyst tracking institutional and retail money flows in China A-shares. Your mission is to trace where the smart money is moving for {target}.
 
@@ -593,6 +599,7 @@ agents:
 
   - id: global_market_analyst
     role: 国际市场影响分析师
+    model_name: quick_model
     system_prompt: |
       You are an international market analyst. A-share stocks are materially affected by overseas markets (US equities overnight, Fed policy, global commodities, USD/CNY FX). Your mission is to assess how the current international environment impacts {target} (market: {market}).
 
@@ -646,6 +653,7 @@ agents:
 
   - id: lockup_analyst
     role: 解禁与减持风险分析师
+    model_name: quick_model
     system_prompt: |
       You are a share lockup and insider trading risk analyst for China A-shares. Your mission is to assess the selling pressure risk for {target} from lockup expirations, insider sales, and share buybacks.
 
@@ -790,6 +798,7 @@ agents:
 
   - id: bull_case
     role: 多方首席研究员
+    model_name: quick_model
     system_prompt: |
       You are the Chief Bull-side Researcher at a buy-side fund. Your mission is to build the strongest possible LONG case for {target} using the quality-gated research synthesis. Be aggressive but honest — every bullish point must be data-backed.
 
@@ -839,6 +848,7 @@ agents:
 
   - id: bear_case
     role: 空方首席研究员
+    model_name: quick_model
     system_prompt: |
       You are the Chief Bear-side Researcher at a buy-side fund. Your mission is to build the most comprehensive RISK and DOWNSIDE case for {target}. Challenge consensus, expose hidden risks, and stress-test the bull narrative. Be skeptical but not cynical — every risk must be evidenced.
 
@@ -893,6 +903,7 @@ agents:
 
   - id: bull_rebuttal
     role: 多方反驳研究员（第二轮）
+    model_name: quick_model
     system_prompt: |
       你是买方基金的多方反驳研究员。空方首席刚刚提交了完整的空头论据（见上游 bear_case 报告）。你的任务不是重复多方立场，而是**逐条正面回击空方的每一个论点**，用数据证明它要么被夸大、要么已定价、要么可对冲。
 
@@ -921,6 +932,7 @@ agents:
 
   - id: bear_rebuttal
     role: 空方反驳研究员（第二轮）
+    model_name: quick_model
     system_prompt: |
       你是买方基金的空方反驳研究员。多方首席刚刚提交了完整的多头论据（见上游 bull_case 报告）。你的任务不是重复空头立场，而是**逐条攻击多方的每一个论点**，暴露其最脆弱的假设和被高估的催化剂。
 
@@ -949,6 +961,7 @@ agents:
 
   - id: neutral_synthesis
     role: 中立综合分析师
+    model_name: quick_model
     system_prompt: |
       You are the Neutral Synthesis Analyst. Your role is NOT to take sides but to objectively weigh the bull and bear arguments, identify blind spots in BOTH, and produce a probability-weighted scenario analysis.
 
@@ -1068,6 +1081,7 @@ agents:
 
   - id: aggressive_risk_analyst
     role: 激进风险分析师
+    model_name: quick_model
     system_prompt: |
       你是 A 股买方机构里的激进风险分析师。你的任务不是复述多方观点，而是在完整研究、辩论和交易员方案基础上，判断“承担更高风险是否有足够补偿”。
 
@@ -1106,6 +1120,7 @@ agents:
 
   - id: neutral_risk_analyst
     role: 中性风险分析师
+    model_name: quick_model
     system_prompt: |
       你是 A 股买方机构里的中性风险分析师。你的任务是在激进收益和保守防守之间做概率加权，给出可执行的仓位、节奏和复审方案。
 
@@ -1145,6 +1160,7 @@ agents:
 
   - id: conservative_risk_analyst
     role: 保守风险分析师
+    model_name: quick_model
     system_prompt: |
       你是 A 股买方机构里的保守风险分析师。你的首要目标是保护本金，识别交易员方案中可能导致不可逆损失、止损失效或组合回撤失控的风险。
 

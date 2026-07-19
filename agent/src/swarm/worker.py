@@ -316,8 +316,11 @@ def run_worker(
         include_shell_tools=include_shell_tools,
     )
 
-    # 2. Create LLM
-    llm = ChatLLM(model_name=agent_spec.model_name)
+    # 2. Create LLM — resolve "quick_model" alias to QUICK_MODEL_NAME env var
+    _model_name = agent_spec.model_name
+    if _model_name == "quick_model":
+        _model_name = os.getenv("QUICK_MODEL_NAME", "").strip() or None
+    llm = ChatLLM(model_name=_model_name)
 
     # 3. Build system prompt with filtered skills
     skills_loader = SkillsLoader()
