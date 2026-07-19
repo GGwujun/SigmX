@@ -626,6 +626,17 @@ def _load_report_md(report_id: str) -> str | None:
     return md_path.read_text(encoding="utf-8")
 
 
+def _load_dashboard(report_id: str) -> dict | None:
+    """Load structured dashboard JSON if available."""
+    dash_path = REPORTS_ROOT / report_id / "dashboard.json"
+    if not dash_path.exists():
+        return None
+    try:
+        return json.loads(dash_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
 def _save_report(report_id: str, content_md: str, meta: dict[str, Any]) -> Path:
     """Save a report to disk. Returns the report directory path."""
     _ensure_reports_root()
@@ -637,6 +648,21 @@ def _save_report(report_id: str, content_md: str, meta: dict[str, Any]) -> Path:
         json.dumps(meta, ensure_ascii=False, indent=2, default=str),
         encoding="utf-8",
     )
+
+    # 提取结构化 dashboard JSON 并保存
+    try:
+        from src.swarm.output_validator import extract_dashboard, validate_and_fill
+        dashboard_raw, cleaned = extract_dashboard(content_md)
+        if dashboard_raw:
+            dashboard = validate_and_fill(dashboard_raw)
+            (report_dir / "dashboard.json").write_text(
+                json.dumps(dashboard, ensure_ascii=False, indent=2, default=str),
+                encoding="utf-8",
+            )
+            # 用清理后的内容重写 report.md（去掉 JSON 标记）
+            (report_dir / "report.md").write_text(cleaned, encoding="utf-8")
+    except Exception:
+        pass  # dashboard 提取失败不影响报告保存
 
 
 def _task_display_status(task: Any) -> dict[str, str]:
@@ -825,6 +851,7 @@ def register_alpha_forge_routes(
             "report_quality": meta.get("report_quality", "unknown"),
             "quality_warnings": meta.get("quality_warnings", []),
             "decision_warnings": meta.get("decision_warnings", []),
+            "dashboard": _load_dashboard(report_id),
         }
 
     # ── Download Report ───────────────────────────────────────────

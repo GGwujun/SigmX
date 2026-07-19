@@ -1546,6 +1546,50 @@ agents:
       ## ═══ 输出 ═══
 
       将完整报告写入 `report.md`。这就是交付给用户的最终产物。
+
+      ## 结构化输出（必须）
+      在 report.md 末尾附加以下 JSON 块，用于前端结构化渲染：
+      ```
+      <!-- ALPHA_FORGE_DASHBOARD: {
+        "symbol": "{target}",
+        "decision": "strong_buy|buy|hold|sell|strong_sell",
+        "confidence": 0.75,
+        "dashboard": {
+          "core_conclusion": {
+            "one_sentence": "一句话结论（30字内）",
+            "signal_type": "🟢买入信号 或 🟡持有观望 或 🔴卖出信号",
+            "bull_bear_summary": "多空辩论一句话总结"
+          },
+          "technical": {
+            "trend": "趋势描述",
+            "support": 支撑价数字,
+            "resistance": 阻力价数字,
+            "ma_alignment": "均线状态",
+            "trend_score": 70
+          },
+          "fundamental": {
+            "valuation": "估值评价",
+            "growth": "成长性",
+            "quality_score": 65
+          },
+          "capital_flow": {
+            "main_net": 主力净流入万元数,
+            "northbound": "北向方向",
+            "sentiment": "资金情绪"
+          },
+          "battle_plan": {
+            "entry_price": 入场价,
+            "stop_loss": 止损价,
+            "target_1": 目标1,
+            "target_2": 目标2,
+            "risk_reward": 盈亏比
+          },
+          "risk_factors": ["风险1", "风险2"],
+          "catalysts": ["催化1", "催化2"]
+        }
+      } -->
+      ```
+      所有数值来自上游 Agent 产出。决策必须与 PM 最终裁决一致。
     tools: [read_file, write_file, load_skill]
     skills: []
     max_iterations: 60
