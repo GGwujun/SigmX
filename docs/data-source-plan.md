@@ -93,6 +93,29 @@
 10. margin/block/holder/dividend/lockup/stock_pool/ths 系：push2 换 datacenter（已知可用）
 11. 给 30 张表接线 tpdog 兜底（你后期切付费即用）
 
+#### 期 3 复核（2026-07-19，基于实测重排，非按文档清单盲做）
+
+**Track A（push2→datacenter）实测后大幅缩水**——文档"现状链"多处过时：
+- #24/#25/#26/#27/#28（margin/block/holder/dividend/lockup）：**早已迁 datacenter**（`eastmoney_datacenter` helper），且 datacenter ✅ 可用。非"push2单源"。
+- #11/#41 涨跌停池：push2ex 当前**可达**（实测返回涨停数据），且 `pool/v1` tpdog 已接（`_sync_pools`）。datacenter **无等价报表**（涨停池报表名全 9501），不做无效迁移。
+- #14/#15/#16 资金流排名/板块资金流：push2 clist 当前**可达**，且东财产品划分上实时排名只走 push2（datacenter 无实时资金流排名报表）。这 3 张已有 5 层兜底链（akshare→push2→ths→tpdog→tushare），push2 只是中间层，迁移无等价目标。
+- → **Track A 无可做项**（都有合理替代或东财产品设计上无 datacenter 等价物）。
+
+**Track B（tpdog 兜底）已接线（4 张，逻辑对齐契约，未实测真实数据——需配 TPDOG_TOKEN）**：
+- #37 financial_snapshot ← tpdog `report/sc_get`(01401 按期财报) 填 eps/bvps/roe/profit/income
+- #38 financial_statement ← tpdog `report/sc_get`(01401) 作三表全失败后的 lrb 兜底
+- #24 margin_trading ← tpdog `stock_his/rz`+`stock_his/rq`(02101/02102 融资融券)
+- #26 holder_num ← tpdog `f10/holder_num`(01802 F10股东数)
+- #34 hot_list ← tpdog `current/v1/hot`(01903 个股热榜，ths 失败时兜底)
+
+**Track B 经核实 tpdog 90 接口无对应项（跳过，文档原标注过时）**：
+- #25 block_trade / #27 dividend / #28 lockup：tpdog 无大宗交易/分红/解禁接口（01801 是股本≠解禁/分红）
+- #20 etf_share_size / #21 fund_master / #22 fund_daily / #23 fund_premium：tpdog 只有 ETF 行情(01502/01503)，无基金规模/份额/溢价
+- #33 ths_hot_reason：tpdog 01803 是"静态概念归属"，与"当日强势股归因"语义不同，不接（避免污染）
+- #11 stock_pool：tpdog 已接（`pool/v1`，期前就有）
+
+**已接线（期前就有，复核确认）**：#1-10/#11-13/#18/#19 的 tpdog 兜底早已存在。
+
 ### 期 4：增强（锦上添花）
 12. mootdx 库 → tdx_client 协议直连（#23/#37 避开停更库）
 13. em_hot_concept/industry_comparison/daily_dragon_tiger/dragon_tiger_board 等增强函数

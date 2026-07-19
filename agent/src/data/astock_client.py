@@ -364,6 +364,138 @@ def mootdx_f10(symbol: str, category: str = "最新提示") -> str:
     return client.F10(symbol=symbol, name=category) or ""
 
 
+def tpdog_finance_snapshot(code: str) -> dict:
+    """tpdog 按期财报(01401)最新一期 → financial_snapshot 契约的终极兜底。
+    mootdx_finance 失败时用（tpdog 是付费可切的独立风控面）。返回最近一期财报：
+    {eps, bvps, roe, profit, income, ...}。股本字段(liutongguben/zongguben)01401 无，留空。
+    """
+    from src.data.tpdog_client import call, TpdogError
+    # 01401 需按 year 查；逐年回退找最近有数据的一年（年报最全，先查去年再今年）
+    from datetime import date as _date
+    years = [_date.today().year, _date.today().year - 1, _date.today().year - 2]
+    for year in years:
+        try:
+            rows = call("report/sc_get", year=str(year), code=code)
+        except (TpdogError, Exception):
+            continue
+        if not rows:
+            continue
+        # 取最新一期（按 end 降序）
+        rows = sorted(rows, key=lambda r: str(r.get("end") or ""), reverse=True)
+        r = rows[0]
+        extra = {k: v for k, v in r.items()
+                if k not in ("g_sy", "g_jzc", "yl_jzcsyl_jq", "m_jlr", "m_yysr")}
+        return {
+            "eps": _optional_float(r.get("g_sy")),
+            "bvps": _optional_float(r.get("g_jzc")),
+            "roe": _optional_float(r.get("yl_jzcsyl_jq")),
+            "profit": _optional_float(r.get("m_jlr")),
+            "income": _optional_float(r.get("m_yysr")),
+            "extra": extra,
+            "report_date": r.get("end", ""),
+            "source": "tpdog_01401",
+        }
+    return {}
+
+
+def tpdog_financial_report(code: str, num: int = 2) -> list[dict]:
+    """tpdog 按期财报(01401) → financial_statement 契约的终极兜底（新浪/同花顺F10 全失败时）。
+    01401 是利润表为主的关键指标汇总，按报告期(end)返回。映射成 upsert 形态：
+    [{报告期, ...科目值}]，直喂 upsert_financial_statement（report_type 按 lrb 计）。
+    """
+    from src.data.tpdog_client import call, TpdogError
+    from datetime import date as _date
+    rows_all: list[dict] = []
+    for year in [_date.today().year, _date.today().year - 1]:
+        try:
+            rows_all.extend(call("report/sc_get", year=str(year), code=code) or [])
+        except (TpdogError, Exception):
+            continue
+        if len(rows_all) >= num:
+            break
+    if not rows_all:
+        return []
+    # 按报告期倒序取最近 num 期
+    rows_all = sorted(rows_all, key=lambda r: str(r.get("end") or ""), reverse=True)[:num]
+    out: list[dict] = []
+    for r in rows_all:
+        rec = {"报告期": r.get("end", "")}
+        # 保留原始字段（payload_json 存全量，不做数值清洗）
+        for k, v in r.items():
+            if k not in ("code", "type", "end"):
+                rec[k] = v
+        out.append(rec)
+    return out
+
+
+def tpdog_margin_trading(code: str, num: int = 5) -> list[dict]:
+    """tpdog 融资融券(02101个股融资 + 02102个股融券) → margin_trading 契约的终极兜底。
+    东财 datacenter 失败时用。两接口按 date 对齐合并：ye→rzye(融资余额), buy→rzmre(融资买入),
+    yl→rqye(融券余量), sell→rqmcl(融券卖出)。返回最近 num 日。
+    """
+    from src.data.tpdog_client import call, TpdogError
+    rz_map: dict[str, dict] = {}
+    try:
+        for r in call("stock_his/rz", code=code) or []:
+            d = str(r.get("date", ""))[:10]
+            if d:
+                rz_map[d] = {"rzye": r.get("ye"), "rzmre": r.get("buy")}
+    except (TpdogError, Exception):
+        pass
+    rq_map: dict[str, dict] = {}
+    try:
+        for r in call("stock_his/rq", code=code) or []:
+            d = str(r.get("date", ""))[:10]
+            if d:
+                rq_map[d] = {"rqye": r.get("yl"), "rqmcl": r.get("sell")}
+    except (TpdogError, Exception):
+        pass
+    dates = sorted(set(rz_map) | set(rq_map), reverse=True)[:num]
+    return [{"date": d, **rz_map.get(d, {}), **rq_map.get(d, {})} for d in dates]
+
+
+def tpdog_holder_num(code: str, num: int = 4) -> list[dict]:
+    """tpdog F10股东数(01802) → holder_num 契约的终极兜底。
+    东财 datacenter 失败时用。映射：hoder_num→holder_num, change_ratio→change_ratio,
+    avg_num→avg_shares。返回最近 num 期。
+    """
+    from src.data.tpdog_client import call, TpdogError
+    rows: list[dict] = []
+    try:
+        rows = call("f10/holder_num", code=code) or []
+    except (TpdogError, Exception):
+        return []
+    rows = sorted(rows, key=lambda r: str(r.get("report_date") or ""), reverse=True)[:num]
+    return [{
+        "date": str(r.get("report_date", ""))[:10],
+        "holder_num": r.get("hoder_num"),
+        "change_ratio": r.get("change_ratio"),
+        "avg_shares": r.get("avg_num"),
+    } for r in rows]
+
+
+def tpdog_hot_list() -> list[dict]:
+    """tpdog 个股热榜TOP100(01903) → hot_list 契约的兜底（ths/eastmoney 失败时用）。
+    映射：rank→rank, rank_change→change_pct。hot_value tpdog 无，留空。返回 [{code,name,rank,change_pct,tags}]。
+    """
+    from src.data.tpdog_client import call, TpdogError
+    try:
+        rows = call("current/v1/hot") or []
+    except (TpdogError, Exception):
+        return []
+    return [{
+        "code": str(r.get("code", "")),
+        "name": str(r.get("name", "")),
+        "rank": r.get("rank"),
+        "change_pct": r.get("rank_change"),
+        "tags": "",
+    } for r in rows]
+
+
+
+
+
+
 # ── Layer 6: 基础数据 — 新浪财报三表 ──────────────────────────────
 
 

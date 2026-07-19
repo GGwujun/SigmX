@@ -4494,14 +4494,22 @@ def _sync_zt_pool(store: MarketStore, trade_date: str) -> dict[str, int]:
 
 
 def _sync_hot_list(store: MarketStore, trade_date: str) -> dict[str, int]:
-    """同花顺热榜 + 东财人气榜。"""
-    from src.data.astock_client import ths_hot_list, eastmoney_popularity
+    """同花顺热榜 + 东财人气榜；ths 失败时 tpdog 01903 个股热榜兜底写 hot_list。"""
+    from src.data.astock_client import ths_hot_list, eastmoney_popularity, tpdog_hot_list
     counts = {"hot_list_ths": 0, "hot_list_eastmoney": 0}
     try:
         ths = ths_hot_list()
         counts["hot_list_ths"] = store.upsert_hot_list(trade_date, ths, source="ths")
     except Exception as exc:
         logger.debug("ths_hot_list failed: %s", exc)
+    # ths 无数据/失败 → tpdog 01903 个股热榜（独立风控面）
+    if not counts["hot_list_ths"]:
+        try:
+            tpdog = tpdog_hot_list()
+            if tpdog:
+                counts["hot_list_tpdog"] = store.upsert_hot_list(trade_date, tpdog, source="tpdog")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("tpdog_hot_list failed: %s", exc)
     try:
         em = eastmoney_popularity()
         counts["hot_list_eastmoney"] = store.upsert_popularity_rank(trade_date, em)
@@ -4560,8 +4568,8 @@ def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_financial_snapshot(store: MarketStore, trade_date: str) -> int:
-    """mootdx 37 字段财务快照 — 对最近有行情的股票批量拉取。"""
-    from src.data.astock_client import mootdx_finance
+    """财务快照 — mootdx 为主，tpdog 按期财报(01401)作终极兜底。"""
+    from src.data.astock_client import mootdx_finance, tpdog_finance_snapshot
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4572,19 +4580,30 @@ def _sync_financial_snapshot(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
+        data = {}
         try:
-            data = mootdx_finance(code)
-            if data:
-                total += store.upsert_financial_snapshot(stored_code, data)
+            data = mootdx_finance(code) or {}
         except Exception:
-            continue
+            data = {}
+        # mootdx 失败/无数据 → tpdog 01401 按期财报（独立风控面，付费可切）
+        if not data:
+            try:
+                data = tpdog_finance_snapshot(code) or {}
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("tpdog_finance_snapshot failed %s: %s", stored_code, exc)
+                data = {}
+        if data:
+            try:
+                total += store.upsert_financial_snapshot(stored_code, data)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("financial_snapshot upsert failed %s: %s", stored_code, exc)
         time.sleep(0.1)
     return total
 
 
 def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
     """财报三表 — 新浪为主，同花顺 F10 结构化财报作独立风控面降级。"""
-    from src.data.astock_client import sina_financial_report, ths_financial_report
+    from src.data.astock_client import sina_financial_report, ths_financial_report, tpdog_financial_report
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4595,6 +4614,7 @@ def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
+        got_any = False
         for report_type in ("lrb", "fzb", "llb"):
             try:
                 reports = sina_financial_report(code, report_type, num=2)
@@ -4607,11 +4627,24 @@ def _sync_financial_statement(store: MarketStore, trade_date: str) -> int:
                 except Exception:
                     reports = []
             if reports:
+                got_any = True
                 try:
                     total += store.upsert_financial_statement(stored_code, report_type, reports)
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("financial_statement upsert failed %s %s: %s", stored_code, report_type, exc)
             time.sleep(0.3)
+        # 三表全失败 → tpdog 01401 按期财报（利润表形态，终极兜底）
+        if not got_any:
+            try:
+                tpdog_rows = tpdog_financial_report(code, num=2)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("tpdog_financial_report failed %s: %s", stored_code, exc)
+                tpdog_rows = []
+            if tpdog_rows:
+                try:
+                    total += store.upsert_financial_statement(stored_code, "lrb", tpdog_rows)
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("financial_statement(tpdog) upsert failed %s: %s", stored_code, exc)
     return total
 
 
@@ -4691,8 +4724,8 @@ def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_margin_trading(store: MarketStore, trade_date: str) -> int:
-    """融资融券明细 — 东财。"""
-    from src.data.astock_client import margin_trading
+    """融资融券明细 — 东财 datacenter 为主，tpdog 02101/02102 作终极兜底。"""
+    from src.data.astock_client import margin_trading, tpdog_margin_trading
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4703,12 +4736,23 @@ def _sync_margin_trading(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
+        data = []
         try:
-            data = margin_trading(code, page_size=5)
-            if data:
-                total += store.upsert_margin_trading(stored_code, data)
+            data = margin_trading(code, page_size=5) or []
         except Exception:
-            continue
+            data = []
+        # 东财失败/无数据 → tpdog 02101个股融资 + 02102个股融券（独立风控面）
+        if not data:
+            try:
+                data = tpdog_margin_trading(code, num=5) or []
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("tpdog_margin_trading failed %s: %s", stored_code, exc)
+                data = []
+        if data:
+            try:
+                total += store.upsert_margin_trading(stored_code, data)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("margin_trading upsert failed %s: %s", stored_code, exc)
     return total
 
 
@@ -4735,8 +4779,8 @@ def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_holder_num(store: MarketStore, trade_date: str) -> int:
-    """股东户数变化 — 东财。"""
-    from src.data.astock_client import holder_num_change
+    """股东户数变化 — 东财 datacenter 为主，tpdog 01802 F10股东数作终极兜底。"""
+    from src.data.astock_client import holder_num_change, tpdog_holder_num
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -4747,12 +4791,23 @@ def _sync_holder_num(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
+        data = []
         try:
-            data = holder_num_change(code, page_size=5)
-            if data:
-                total += store.upsert_holder_num(stored_code, data)
+            data = holder_num_change(code, page_size=5) or []
         except Exception:
-            continue
+            data = []
+        # 东财失败/无数据 → tpdog 01802 F10股东数（独立风控面）
+        if not data:
+            try:
+                data = tpdog_holder_num(code, num=4) or []
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("tpdog_holder_num failed %s: %s", stored_code, exc)
+                data = []
+        if data:
+            try:
+                total += store.upsert_holder_num(stored_code, data)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("holder_num upsert failed %s: %s", stored_code, exc)
     return total
 
 
