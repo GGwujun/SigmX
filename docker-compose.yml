@@ -46,6 +46,31 @@ services:
       - vibe-data:/home/vibe/.vibe-trading
     command: ["vibe-trading-sync", "worker", "--interval", "60"]
     restart: unless-stopped
+    # Production query deployments do not fetch market data. Enable this only
+    # on the dedicated sync host: docker compose --profile sync up.
+    profiles:
+      - sync
+
+  data-ingest:
+    image: crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com/ggwujun/sigmx:latest
+    build: .
+    env_file:
+      - agent/.env
+    environment:
+      - VIBE_TRADING_MARKET_DB_PATH=/home/vibe/.vibe-trading/market.db
+      - MARKET_INGEST_STAGING_DIR=/home/vibe/.vibe-trading/ingest
+    volumes:
+      - vibe-data:/home/vibe/.vibe-trading
+    ports:
+      - "127.0.0.1:8898:8898"
+    command: ["python", "-m", "uvicorn", "src.data.data_ingest_server:app", "--app-dir", "/app/agent", "--host", "0.0.0.0", "--port", "8898"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8898/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
 
   # RSSHub — turns financial sites (财联社/东财/雪球/同花顺) into structured RSS
   # feeds consumed by news_feed.py. Official image.

@@ -51,9 +51,10 @@ data/parquet/
 data/backup/
 
 # Internal docs (plans, specs)
-docs/
+docs/*
 !wiki/docs/
 !wiki/docs/**
+!docs/data-source-plan.md
 docs/screenshots/agent-run.png
 docs/screenshots/boot.png
 data/minutes/

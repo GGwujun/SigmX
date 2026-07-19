@@ -444,6 +444,7 @@ CREATE INDEX IF NOT EXISTS idx_ths_hot_date ON ths_hot_reason(trade_date);
 CREATE TABLE IF NOT EXISTS fund_flow_daily (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
     main_net REAL, small_net REAL, mid_net REAL, large_net REAL, super_net REAL,
+    net_amount REAL, turnover REAL,
     source TEXT NOT NULL DEFAULT 'sina',
     updated_at TEXT NOT NULL,
     PRIMARY KEY (code, trade_date)
@@ -644,7 +645,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_news_code ON stock_news(code, trade_date DE
 -- 限售解禁日历
 CREATE TABLE IF NOT EXISTS lockup_expiry (
     code TEXT NOT NULL, free_date TEXT NOT NULL,
-    free_shares REAL, free_ratio REAL, lift_type TEXT,
+    free_shares REAL, able_shares REAL, free_ratio REAL, lift_type TEXT,
     updated_at TEXT NOT NULL,
     PRIMARY KEY (code, free_date)
 );
@@ -721,6 +722,9 @@ class MarketStore:
             self._ensure_column("bars_daily", "sync_run_id", "TEXT NOT NULL DEFAULT ''")
             self._ensure_column("bars_daily", "quality_status", "TEXT NOT NULL DEFAULT 'unverified'")
             self._ensure_column("bars_daily", "ingested_at", "TEXT")
+            self._ensure_column("fund_flow_daily", "net_amount", "REAL")
+            self._ensure_column("fund_flow_daily", "turnover", "REAL")
+            self._ensure_column("lockup_expiry", "able_shares", "REAL")
             self._conn.commit()
 
     @contextmanager
@@ -860,6 +864,28 @@ class MarketStore:
         if days is not None:
             df = df.tail(days)
         return df
+
+    @_synchronized
+    def get_recommendation_history_coverage(self, min_bars: int = 60) -> dict[str, float | int]:
+        """Measure usable daily-history coverage across the active stock universe."""
+        row = self._conn.execute(
+            "WITH active AS ("
+            " SELECT code FROM security_master WHERE is_active = 1 AND is_st = 0"
+            " AND is_delisting = 0 AND is_bj = 0"
+            "), covered AS ("
+            " SELECT code FROM bars_daily WHERE code IN (SELECT code FROM active)"
+            " GROUP BY code HAVING COUNT(*) >= ?"
+            ") SELECT (SELECT COUNT(*) FROM active) AS active_codes,"
+            " (SELECT COUNT(*) FROM covered) AS covered_codes",
+            (int(min_bars),),
+        ).fetchone()
+        active = int(row["active_codes"] or 0)
+        covered = int(row["covered_codes"] or 0)
+        return {
+            "active_codes": active,
+            "covered_codes": covered,
+            "coverage": covered / active if active else 0.0,
+        }
 
     @_synchronized
     def last_daily_date(self, code: str) -> Optional[str]:
@@ -2871,6 +2897,76 @@ class MarketStore:
                 (key, value, _now_iso()),
             )
 
+    def list_sync_errors(self, dataset: str | None = None) -> list[dict]:
+        """Return persisted provider failure records written by _set_sync_error.
+
+        Each ``sync_error:{dataset}:{source}`` meta key is one failure.  An
+        empty-message entry (written by _clear_sync_error) signals recovery and
+        is excluded so the caller sees only active failures.
+        """
+        prefix = "sync_error:" + (f"{dataset}:" if dataset else "")
+        rows = self._conn.execute(
+            "SELECT key, value, updated_at FROM sync_meta "
+            "WHERE key LIKE ? ORDER BY updated_at DESC",
+            (prefix + "%",),
+        ).fetchall()
+        errors: list[dict] = []
+        for row in rows:
+            try:
+                payload = json.loads(row["value"] or "{}")
+            except (TypeError, ValueError):
+                continue
+            if payload.get("ok") or not payload.get("message"):
+                continue
+            errors.append(
+                {
+                    "dataset": payload.get("dataset") or str(row["key"]).split(":", 2)[1],
+                    "source": payload.get("source") or str(row["key"]).split(":", 2)[2],
+                    "message": payload.get("message"),
+                    "at": row["updated_at"],
+                }
+            )
+        return errors
+
+    @_synchronized
+    def next_dataset_codes(
+        self,
+        dataset: str,
+        codes: list[str],
+        *,
+        limit: int,
+    ) -> list[str]:
+        """Return a stable rotating slice and persist its cursor atomically.
+
+        Dataset jobs are deliberately bounded, but repeatedly processing the
+        first N securities permanently starves the rest of the universe.  The
+        cursor is keyed by dataset so every bounded job eventually covers all
+        eligible securities, including a wrap-around batch.
+        """
+        ordered = sorted({str(code).strip() for code in codes if str(code).strip()})
+        take = min(max(int(limit), 0), len(ordered))
+        if take == 0:
+            return []
+
+        key = f"dataset_cursor:{dataset}"
+        row = self._conn.execute(
+            "SELECT value FROM sync_meta WHERE key = ?", (key,)
+        ).fetchone()
+        last_code = str(row["value"]) if row else ""
+        start = 0
+        if last_code:
+            start = next(
+                (index for index, code in enumerate(ordered) if code > last_code),
+                0,
+            )
+        selected = [ordered[(start + offset) % len(ordered)] for offset in range(take)]
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, selected[-1], _now_iso()),
+            )
+        return selected
+
     # ------------------------------------------------------------------
     # Stats for status API
     # ------------------------------------------------------------------
@@ -3035,10 +3131,12 @@ class MarketStore:
             for r in rows:
                 self._conn.execute(
                     "INSERT OR REPLACE INTO fund_flow_daily "
-                    "(code, trade_date, main_net, small_net, mid_net, large_net, super_net, source, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "(code, trade_date, main_net, small_net, mid_net, large_net, super_net, "
+                    "net_amount, turnover, source, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (code, r.get("date", ""), _f(r.get("main_net")), _f(r.get("small_net")),
                      _f(r.get("mid_net")), _f(r.get("large_net")), _f(r.get("super_net")),
+                     _f(r.get("net_amount")), _f(r.get("turnover")),
                      r.get("source", "sina"), _now_iso()),
                 )
         return len(rows)
@@ -3228,27 +3326,42 @@ class MarketStore:
                 )
         return len(rows)
 
+    def _write_option_chain_rows(
+        self,
+        underlying: str,
+        trade_date: str,
+        rows: list[dict],
+    ) -> None:
+        for r in rows:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO option_chain "
+                "(underlying, trade_date, month, code, call_put, bid, ask, last, strike, "
+                "open_interest, volume, amount, delta, gamma, theta, vega, iv, theory, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (underlying, trade_date, r.get("month", ""), r.get("code", ""),
+                 r.get("call_put", ""), _f(r.get("bid")), _f(r.get("ask")),
+                 _f(r.get("last")), _f(r.get("strike")),
+                 _f(r.get("open_interest")), _f(r.get("volume")), _f(r.get("amount")),
+                 _f(r.get("delta")), _f(r.get("gamma")), _f(r.get("theta")),
+                 _f(r.get("vega")), _f(r.get("iv")), _f(r.get("theory")), _now_iso()),
+            )
+
     @_synchronized
     def upsert_option_chain(self, underlying: str, trade_date: str, rows: list[dict]) -> int:
         if not rows:
             return 0
         with self._write_transaction():
+            self._write_option_chain_rows(underlying, trade_date, rows)
+        return len(rows)
+
+    @_synchronized
+    def replace_option_chain(self, underlying: str, trade_date: str, rows: list[dict]) -> int:
+        with self._write_transaction():
             self._conn.execute(
                 "DELETE FROM option_chain WHERE underlying = ? AND trade_date = ?",
-                (underlying, trade_date))
-            for r in rows:
-                self._conn.execute(
-                    "INSERT INTO option_chain "
-                    "(underlying, trade_date, month, code, call_put, bid, ask, last, strike, "
-                    "open_interest, volume, amount, delta, gamma, theta, vega, iv, theory, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (underlying, trade_date, r.get("month", ""), r.get("code", ""),
-                     r.get("call_put", ""), _f(r.get("bid")), _f(r.get("ask")),
-                     _f(r.get("last")), _f(r.get("strike")),
-                     _f(r.get("open_interest")), _f(r.get("volume")), _f(r.get("amount")),
-                     _f(r.get("delta")), _f(r.get("gamma")), _f(r.get("theta")),
-                     _f(r.get("vega")), _f(r.get("iv")), _f(r.get("theory")), _now_iso()),
-                )
+                (underlying, trade_date),
+            )
+            self._write_option_chain_rows(underlying, trade_date, rows)
         return len(rows)
 
     @_synchronized
@@ -3385,10 +3498,11 @@ class MarketStore:
             for r in rows:
                 self._conn.execute(
                     "INSERT OR REPLACE INTO lockup_expiry "
-                    "(code, free_date, free_shares, free_ratio, lift_type, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "(code, free_date, free_shares, able_shares, free_ratio, lift_type, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (code, r.get("date", ""), _f(r.get("shares")),
-                     _f(r.get("pct")), r.get("type", ""), _now_iso()),
+                     _f(r.get("able_shares")), _f(r.get("ratio")),
+                     r.get("type", ""), _now_iso()),
                 )
         return len(rows)
 

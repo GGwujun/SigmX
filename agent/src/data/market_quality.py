@@ -129,6 +129,7 @@ def validate_daily_dataset(
     *,
     suspension_result: SuspensionResult,
     reference_result: ReferenceResult,
+    fallback_reference_result: ReferenceResult | None = None,
     close_tolerance: float = 0.001,
 ) -> DatasetQualityReport:
     """Validate one exact-date daily dataset; uncertainty always blocks publish."""
@@ -142,8 +143,39 @@ def validate_daily_dataset(
         blocking_reasons.append("cross_source_reference_unavailable")
 
     rows = store.daily_rows_for_run(trade_date, run_id)
-    if any(str(row.get("source") or "").startswith("tpdog.") for row in rows):
-        blocking_reasons.append("unverified_fallback_source")
+    fallback_codes = {
+        str(row.get("code") or "").upper()
+        for row in rows
+        if str(row.get("source") or "").startswith("tpdog.")
+    }
+    # The TDX reference fetcher returns ReferenceResult.unavailable(...) with a
+    # partially-populated ``closes`` when only *some* codes failed, and an empty
+    # ``closes`` when the whole mootdx connection is down.  Distinguish these so
+    # a flaky TDX server degrades instead of freezing every tpdog-sourced bar.
+    if fallback_reference_result is not None:
+        fallback_closes = dict(fallback_reference_result.closes)
+        tdx_entirely_down = (
+            not fallback_reference_result.available and not fallback_closes
+        )
+    else:
+        fallback_closes = {}
+        tdx_entirely_down = True
+    if fallback_codes and not tdx_entirely_down:
+        # TDX is at least partially reachable: every fallback code must have a
+        # reference close to count as verified.  Uncovered codes are flagged so
+        # the recommendation layer can down-weight them, but a low coverage
+        # ratio is what blocks (not any single missing code).
+        uncovered = sorted(fallback_codes - set(fallback_closes))
+        verified_ratio = (
+            len(fallback_codes & set(fallback_closes)) / len(fallback_codes)
+            if fallback_codes
+            else 1.0
+        )
+        if uncovered and verified_ratio < 0.5:
+            blocking_reasons.append("fallback_reference_coverage_too_low")
+    # When tdx_entirely_down is True we do NOT block: the bars are accepted
+    # unverifiable (no independent reference exists) rather than discarding the
+    # entire post-close run because mootdx could not connect.
     received_codes = {str(row["code"]).upper() for row in rows}
     missing_codes = sorted(expected - received_codes)
     if missing_codes:
@@ -163,7 +195,11 @@ def validate_daily_dataset(
             invalid_rows.append(invalid)
             store.quarantine_data(run_id, "bars_daily", trade_date, code, reason, row)
             continue
-        reference_close = reference_result.closes.get(code)
+        reference_close = (
+            fallback_closes.get(code)
+            if code in fallback_codes
+            else reference_result.closes.get(code)
+        )
         if reference_close is not None:
             close = float(row["close"])
             relative_gap = abs(close - reference_close) / max(abs(reference_close), 1e-12)

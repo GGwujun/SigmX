@@ -194,7 +194,11 @@ def test_daily_validator_ignores_rows_from_previous_run(store: MarketStore) -> N
     assert report.received_rows == 0
 
 
-def test_daily_validator_blocks_unverified_tpdog_fallback(store: MarketStore) -> None:
+def test_daily_validator_degrades_when_tdx_entirely_unavailable(store: MarketStore) -> None:
+    # When the TongdaXin reference server is unreachable, tpdog-sourced bars
+    # cannot be independently verified — but freezing the whole post-close run
+    # on a flaky mootdx connection is worse than shipping unverifiable bars.
+    # The run publishes (VERIFIED, no blocking reason) rather than blocking.
     store.upsert_daily_bars(
         "600000.SH",
         [{"date": "2026-07-14", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100}],
@@ -209,7 +213,62 @@ def test_daily_validator_blocks_unverified_tpdog_fallback(store: MarketStore) ->
         "run-1",
         suspension_result=SuspensionResult.success(set()),
         reference_result=ReferenceResult.success({"600000.SH": 10.5}),
+        fallback_reference_result=ReferenceResult.unavailable("mootdx connection refused"),
     )
 
-    assert report.status == QualityStatus.PARTIAL
-    assert "unverified_fallback_source" in report.blocking_reasons
+    assert report.status is QualityStatus.VERIFIED
+    assert "unverified_fallback_source" not in report.blocking_reasons
+
+
+def test_daily_validator_blocks_when_tdx_partially_reachable_but_coverage_low(
+    store: MarketStore,
+) -> None:
+    # TDX is reachable (returned some closes) but covers too few of the
+    # fallback codes — that signals real verification failure, not a network
+    # outage, and must block publication.
+    for code in ("600000.SH", "600001.SH", "600002.SH"):
+        store.upsert_daily_bars(
+            code,
+            [{"date": "2026-07-14", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100}],
+            source="tpdog.stock_his/daily",
+            sync_run_id="run-1",
+        )
+
+    report = validate_daily_dataset(
+        store,
+        "2026-07-14",
+        ["600000.SH", "600001.SH", "600002.SH"],
+        "run-1",
+        suspension_result=SuspensionResult.success(set()),
+        reference_result=ReferenceResult.success({}),
+        # Only 1 of 3 fallback codes resolved — below the 50% coverage floor.
+        fallback_reference_result=ReferenceResult.unavailable(
+            "partial", closes={"600000.SH": 10.5}
+        ),
+    )
+
+    assert "fallback_reference_coverage_too_low" in report.blocking_reasons
+
+
+def test_daily_validator_accepts_independently_verified_tpdog_fallback(
+    store: MarketStore,
+) -> None:
+    store.upsert_daily_bars(
+        "600000.SH",
+        [{"date": "2026-07-14", "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 100}],
+        source="tpdog.stock_his/daily",
+        sync_run_id="run-1",
+    )
+
+    report = validate_daily_dataset(
+        store,
+        "2026-07-14",
+        ["600000.SH"],
+        "run-1",
+        suspension_result=SuspensionResult.success(set()),
+        reference_result=ReferenceResult.success({}),
+        fallback_reference_result=ReferenceResult.success({"600000.SH": 10.5}),
+    )
+
+    assert report.status == QualityStatus.VERIFIED
+    assert "unverified_fallback_source" not in report.blocking_reasons

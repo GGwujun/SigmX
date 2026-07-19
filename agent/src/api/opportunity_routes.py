@@ -366,6 +366,60 @@ def _detect_oversold(s: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
+def _detect_pullback_reversal(s: dict[str, Any]) -> dict[str, Any] | None:
+    """缩量回调低吸: uptrend + orderly pullback to MA20 + volume dry-up + stabilize.
+
+    Balances the breakout/trend detectors, which only fire on stocks already
+    surging and so structurally favour "up today, mean-revert tomorrow". This
+    signal finds stocks in a healthy uptrend (MA20 rising, price recently above
+    MA20) that have pulled back on *shrinking* volume and are stabilising near
+    MA20 — a lower-risk entry than chasing the breakout.
+    """
+    df = s.get("df")
+    if df is None or len(df) < 25:
+        return None
+    close = df["close"].astype(float)
+    volume = df["volume"].astype(float)
+
+    ma20 = _sma(close, 20)
+    cur = float(close.iloc[-1])
+    cur_ma20 = float(ma20.iloc[-1])
+    prev_ma20 = float(ma20.iloc[-5])
+    if pd.isna(cur_ma20) or pd.isna(prev_ma20) or cur_ma20 <= 0:
+        return None
+
+    # Must be in an established uptrend: MA20 rising over the last week.
+    if prev_ma20 <= 0 or cur_ma20 <= prev_ma20 * 1.005:
+        return None
+
+    # Pulled back into the MA20 neighbourhood (within +5% above to -1% below).
+    # A slow uptrend keeps MA20 lagging the price, so a healthy pullback
+    # typically revisits MA20 from a few percent above rather than exactly on it.
+    distance = (cur - cur_ma20) / cur_ma20
+    if not (-0.01 <= distance <= 0.05):
+        return None
+
+    # Volume is drying up on the pullback (recent 5d < 80% of 20d average) —
+    # orderly profit-taking, not distribution.
+    vol5 = float(volume.iloc[-5:].mean())
+    vol20 = float(volume.iloc[-20:].mean())
+    if vol20 <= 0 or vol5 >= vol20 * 0.8:
+        return None
+
+    # Stabilising: last 2 closes did not make a new 10-day low.
+    low10 = float(close.iloc[-10:].min())
+    low2 = float(close.iloc[-2:].min())
+    if low2 <= low10:
+        return None
+
+    rsi_val = _rsi(close)
+    confidence = min(0.82, 0.45 + max(0.0, 0.8 - vol5 / vol20) * 0.3)
+    return {
+        "reason": f"上涨趋势缩量回调至MA20企稳，量比{vol5 / vol20:.1%}，RSI {rsi_val:.0f}",
+        "confidence": confidence,
+    }
+
+
 def _detect_event_catalyst(s: dict[str, Any]) -> dict[str, Any] | None:
     """事件催化: check prediction market events for China-related big moves."""
     import sys
@@ -382,9 +436,14 @@ def _detect_event_catalyst(s: dict[str, Any]) -> dict[str, Any] | None:
         return None
 
     hit: dict[str, Any] | None = None
+    symbol = str(s.get("symbol") or "").upper()
+    sector = str(s.get("industry") or s.get("sector") or "").strip().lower()
     for cat in cache.get("categories", []):
         for e in cat.get("events", []):
-            if abs(e.get("prob_change_24h", 0)) >= 0.10:
+            symbols = {str(value).upper() for value in e.get("symbols", [])}
+            sectors = {str(value).strip().lower() for value in e.get("sectors", [])}
+            attributed = symbol in symbols or bool(sector and sector in sectors)
+            if attributed and abs(e.get("prob_change_24h", 0)) >= 0.10:
                 if hit is None or abs(e["prob_change_24h"]) > abs(hit["prob_change_24h"]):
                     hit = e
 
@@ -498,6 +557,7 @@ def _build_opportunities() -> dict[str, Any]:
         {"id": "breakout", "label": "技术突破", "icon": "flame", "color": "red"},
         {"id": "trend", "label": "趋势延续", "icon": "trending-up", "color": "green"},
         {"id": "oversold", "label": "超跌反弹", "icon": "sparkles", "color": "blue"},
+        {"id": "pullback", "label": "缩量回调", "icon": "arrow-down-circle", "color": "teal"},
         {"id": "event", "label": "事件催化", "icon": "zap", "color": "amber"},
     ]
 
@@ -505,6 +565,7 @@ def _build_opportunities() -> dict[str, Any]:
         "breakout": _detect_breakout,
         "trend": _detect_trend,
         "oversold": _detect_oversold,
+        "pullback": _detect_pullback_reversal,
         "event": _detect_event_catalyst,
     }
 

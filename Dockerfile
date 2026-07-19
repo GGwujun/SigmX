@@ -58,5 +58,5 @@ EXPOSE 8899
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8899/health')" || exit 1
 
-# Run API server and, by default, the market-data sync worker.
+# Run the query API. Market fetching is a separate opt-in sync-host service.
 CMD ["docker/start-server.sh"]

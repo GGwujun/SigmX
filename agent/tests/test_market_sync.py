@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime, timezone
 import sys
 import types
 from unittest import mock
@@ -10,6 +11,7 @@ from unittest import mock
 import pytest
 
 from src.data import market_sync as ms
+from src.data.dataset_registry import contract_for
 from src.data.market_store import MarketStore
 
 
@@ -98,6 +100,261 @@ def test_today_daily_skips_before_post_close(store: MarketStore) -> None:
     assert store.get_daily_bars("600206.SH", start="2026-06-25", end="2026-06-25") is None
 
 
+def test_option_chain_replaces_snapshot_once_after_collecting_all_batches(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "src.data.astock_client.sina_option_codes",
+        lambda underlying, call: {
+            "202608": ["C1"] if call else ["P1"],
+            "202609": ["C2"] if call else ["P2"],
+        },
+    )
+    monkeypatch.setattr(
+        "src.data.astock_client.sina_option_tquote",
+        lambda code: {"last": float(len(code))},
+    )
+    monkeypatch.setattr("src.data.astock_client.sina_option_greeks", lambda code: {"delta": 0.5})
+    monkeypatch.setattr(ms, "_OPTION_UNDERLYINGS", ("510050",))
+
+    assert ms._sync_option_chain(store, "2026-07-14") == 4
+    rows = store._conn.execute(
+        "SELECT month, code, call_put FROM option_chain ORDER BY month, call_put"
+    ).fetchall()
+    assert {(r["month"], r["code"], r["call_put"]) for r in rows} == {
+        ("202608", "C1", "call"),
+        ("202608", "P1", "put"),
+        ("202609", "C2", "call"),
+        ("202609", "P2", "put"),
+    }
+
+
+def test_recommendation_input_datasets_are_refreshed_intraday() -> None:
+    assert {
+        "ths_hot",
+        "zt_pool",
+        "hot_list",
+        "northbound",
+        "cls_telegraph",
+    }.issubset(ms._INTRADAY_DATASETS)
+
+
+def test_realtime_partial_tpdog_uses_tencent_before_akshare(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store.upsert_security_master(
+        [
+            {"code": "600000.SH", "name": "A", "list_status": "L"},
+            {"code": "000001.SZ", "name": "B", "list_status": "L"},
+            {"code": "830001.BJ", "name": "C", "list_status": "L"},
+        ]
+    )
+    monkeypatch.setattr(
+        "src.data.tpdog_client.call",
+        lambda endpoint, **kwargs: (
+            [{"code": "600000", "price": 10, "yt_close": 9, "volume": 1}]
+            if kwargs["zs_type"] == "zssh" else
+            [{"code": "000001", "price": 10, "yt_close": 9, "volume": 1}]
+            if kwargs["zs_type"] == "zssz" else []
+        ),
+    )
+    monkeypatch.setattr(
+        "src.data.astock_client.tencent_quote",
+        lambda codes: {
+            code: {"name": code, "price": 10, "last_close": 9, "open": 9.5,
+                   "high": 10.2, "low": 9.4, "amount_wan": 12, "change_amt": 1,
+                   "change_pct": 11.1, "turnover_pct": 1.2}
+            for code in codes
+        },
+    )
+    monkeypatch.setattr(
+        ms,
+        "_sync_realtime_quotes_akshare",
+        lambda *args, **kwargs: pytest.fail("AkShare should not be used"),
+    )
+
+    assert ms._sync_realtime_quotes_tpdog(store, "2026-07-16") == 3
+    rows = store.get_realtime_quotes("2026-07-16")
+    assert {row["source"] for row in rows} == {"tencent.quote"}
+
+
+def test_eastmoney_clist_uses_shared_rate_limited_client(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = mock.Mock()
+    response.json.return_value = {"data": {"diff": [{"f12": "600000"}]}}
+    response.raise_for_status.return_value = None
+    em_get = mock.Mock(return_value=response)
+    monkeypatch.setattr("src.data.astock_client.em_get", em_get)
+    monkeypatch.setattr(
+        "requests.get",
+        lambda *args, **kwargs: pytest.fail("raw requests.get bypassed em_get"),
+    )
+
+    rows = ms._eastmoney_clist_rows(
+        "https://push2.eastmoney.com/api/qt/clist/get",
+        {"pn": "1"},
+        "capital_rank",
+        "eastmoney.clist",
+        store,
+    )
+
+    assert rows == [{"f12": "600000"}]
+    em_get.assert_called_once()
+
+
+def test_run_daily_sync_exposes_composite_provider_counts(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        ms,
+        "_sync_hot_list",
+        lambda target, date: {
+            "hot_list": 25,
+            "hot_list_ths": 25,
+            "hot_list_eastmoney": 0,
+        },
+    )
+
+    result = ms.run_daily_sync("2026-07-16", store=store, datasets={"hot_list"})
+
+    assert result == {
+        "hot_list": 25,
+        "hot_list_ths": 25,
+        "hot_list_eastmoney": 0,
+    }
+
+
+def test_hot_list_sync_reports_each_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = mock.Mock()
+    target.upsert_hot_list.return_value = 20
+    target.upsert_popularity_rank.return_value = 30
+    monkeypatch.setattr("src.data.astock_client.ths_hot_list", lambda: [{"code": "1"}])
+    monkeypatch.setattr("src.data.astock_client.eastmoney_popularity", lambda: [{"code": "2"}])
+
+    assert ms._sync_hot_list(target, "2026-07-16") == {
+        "hot_list": 50,
+        "hot_list_ths": 20,
+        "hot_list_eastmoney": 30,
+    }
+
+
+def test_zt_pool_sync_reports_each_component(monkeypatch: pytest.MonkeyPatch) -> None:
+    target = mock.Mock()
+    target.upsert_zt_pool.side_effect = [10, 5]
+    target.upsert_zb_pool.return_value = 2
+    target.upsert_dt_pool.return_value = 3
+    target.upsert_yzt_pool.return_value = 4
+    for name in ("em_zt_pool", "em_zb_pool", "em_dt_pool", "em_yzt_pool", "ths_limit_up_pool"):
+        monkeypatch.setattr(f"src.data.astock_client.{name}", lambda date: [{"code": "1"}])
+
+    assert ms._sync_zt_pool(target, "2026-07-16") == {
+        "zt_pool": 24,
+        "zt_pool_eastmoney": 10,
+        "zb_pool_eastmoney": 2,
+        "dt_pool_eastmoney": 3,
+        "yzt_pool_eastmoney": 4,
+        "zt_pool_ths": 5,
+    }
+
+
+def test_cls_sync_rejects_news_from_wrong_trade_date(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "src.data.astock_client.cls_telegraph",
+        lambda: [{"title": "old", "content": "old", "time": "2026-07-15 23:59:00"}],
+    )
+
+    assert ms._sync_cls_telegraph(store, "2026-07-16") == 0
+    count = store._conn.execute(
+        "SELECT COUNT(*) FROM cls_telegraph WHERE trade_date = '2026-07-16'"
+    ).fetchone()[0]
+    assert count == 0
+
+
+def test_bounded_sync_queries_rotate_instead_of_repeating_first_codes(
+    store: MarketStore,
+) -> None:
+    store.upsert_security_master(
+        [
+            {"code": f"00000{i}.SZ", "name": str(i), "list_status": "L"}
+            for i in range(1, 6)
+        ]
+    )
+    sql = "SELECT code FROM security_master WHERE is_active = 1 ORDER BY code"
+
+    first = ms._rotating_query_codes(store, "news", sql, limit=2)
+    second = ms._rotating_query_codes(store, "news", sql, limit=2)
+
+    assert first == ["000001.SZ", "000002.SZ"]
+    assert second == ["000003.SZ", "000004.SZ"]
+
+
+def test_intraday_snapshot_creates_current_day_published_run(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 7, 14, 9, 25, tzinfo=timezone.utc)
+    monkeypatch.setattr(ms, "_now_cst", lambda: now)
+    monkeypatch.setattr("src.data.trade_calendar.is_trading_day", lambda day: True)
+    monkeypatch.setattr("src.data.trade_calendar.cn_market_phase", lambda value: "in_session")
+    monkeypatch.setattr(
+        ms,
+        "run_daily_sync",
+        lambda *args, **kwargs: {
+            dataset: contract_for(dataset).minimum_rows
+            for dataset in ms._INTRADAY_DATASETS
+        },
+    )
+
+    ms._maybe_run_intraday_sync(store)
+
+    row = store._conn.execute(
+        "SELECT status FROM sync_runs WHERE trade_date='2026-07-14' ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    assert row["status"] == "published"
+
+
+def test_intraday_snapshot_does_not_publish_empty_critical_input(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 7, 14, 14, 25, tzinfo=timezone.utc)
+    monkeypatch.setattr(ms, "_now_cst", lambda: now)
+    monkeypatch.setattr("src.data.trade_calendar.is_trading_day", lambda day: True)
+    monkeypatch.setattr("src.data.trade_calendar.cn_market_phase", lambda value: "in_session")
+    results = {dataset: contract_for(dataset).minimum_rows for dataset in ms._INTRADAY_DATASETS}
+    results["hot_list"] = 0
+    monkeypatch.setattr(ms, "run_daily_sync", lambda *args, **kwargs: results)
+
+    ms._maybe_run_intraday_sync(store)
+
+    row = store._conn.execute(
+        "SELECT status FROM sync_runs WHERE trade_date='2026-07-14' ORDER BY started_at DESC LIMIT 1"
+    ).fetchone()
+    assert row["status"] == "partial"
+    assert store.get_meta("daemon:intraday:2026-07-14:173") is None
+
+
+def test_intraday_snapshot_records_composite_provider_readiness(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 7, 14, 9, 25, tzinfo=timezone.utc)
+    monkeypatch.setattr(ms, "_now_cst", lambda: now)
+    monkeypatch.setattr("src.data.trade_calendar.is_trading_day", lambda day: True)
+    monkeypatch.setattr("src.data.trade_calendar.cn_market_phase", lambda value: "in_session")
+    results = {
+        dataset: contract_for(dataset).minimum_rows
+        for dataset in ms._INTRADAY_DATASETS
+    }
+    results.update({"hot_list_ths": 20, "hot_list_eastmoney": 0})
+    monkeypatch.setattr(ms, "run_daily_sync", lambda *args, **kwargs: results)
+
+    ms._maybe_run_intraday_sync(store)
+
+    assert store.get_data_readiness("hot_list_ths", "2026-07-14").status.value == "published"
+    assert store.get_data_readiness("hot_list_eastmoney", "2026-07-14").status.value == "partial"
+
+
 def test_daily_refreshes_existing_date_for_new_sync_run(store: MarketStore) -> None:
     """last_daily_date == trade_date → no fetch call."""
     store.upsert_daily_bars(
@@ -148,6 +405,55 @@ def test_daily_completes_partial_tushare_bulk_with_per_code_fallback(store: Mark
     assert store.daily_codes_for_run("2026-06-25", "run-1") == ["000001.SZ", "600000.SH"]
 
 
+def test_compensates_transient_per_code_daily_failure(store: MarketStore) -> None:
+    calls: dict[str, int] = {}
+
+    def fake_sync(store_arg, code, trade_date, today_str, **kwargs):
+        calls[code] = calls.get(code, 0) + 1
+        if code == "000001.SZ" and calls[code] == 1:
+            return 0
+        return store_arg.upsert_daily_bars(
+            code,
+            [{"date": trade_date, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 1}],
+            source="tpdog.stock_his/daily",
+            sync_run_id=kwargs["sync_run_id"],
+        )
+
+    with mock.patch.object(ms, "_today_cst_str", return_value="2026-06-26"), \
+         mock.patch.object(ms, "_sync_daily_tushare_by_date", return_value=0), \
+         mock.patch.object(ms, "_sync_daily_for_code", side_effect=fake_sync):
+        result = ms.run_daily_sync(
+            "2026-06-25",
+            store=store,
+            codes=["600000.SH", "000001.SZ"],
+            datasets={"daily"},
+            sync_run_id="run-1",
+        )
+
+    assert calls == {"600000.SH": 1, "000001.SZ": 2}
+    assert result["daily"] == 2
+    assert result["daily_compensated"] == 1
+
+
+def test_systemic_daily_outage_does_not_trigger_mass_retry(store: MarketStore) -> None:
+    codes = [f"{code:06d}.SZ" for code in range(1, 202)]
+
+    with mock.patch.object(ms, "_today_cst_str", return_value="2026-06-26"), \
+         mock.patch.object(ms, "_sync_daily_tushare_by_date", return_value=0), \
+         mock.patch.object(ms, "_sync_daily_for_code", return_value=0) as sync_one:
+        result = ms.run_daily_sync(
+            "2026-06-25",
+            store=store,
+            codes=codes,
+            datasets={"daily"},
+            sync_run_id="run-1",
+        )
+
+    assert sync_one.call_count == len(codes)
+    assert result["daily"] == 0
+    assert result["daily_compensated"] == 0
+
+
 def test_daily_never_promotes_realtime_snapshot_to_settled_bar(store: MarketStore) -> None:
     store.upsert_realtime_quotes(
         "2026-07-01",
@@ -181,7 +487,8 @@ def test_daily_never_promotes_realtime_snapshot_to_settled_bar(store: MarketStor
         )
 
     assert res["daily"] == 0
-    assert m_fetch.call_count == 1
+    assert res["daily_compensated"] == 0
+    assert m_fetch.call_count == 2  # initial fetch + one isolated-miss compensation
     df = store.get_daily_bars("600000.SH", start="2026-07-01", end="2026-07-01")
     assert df is None
 
@@ -275,6 +582,46 @@ def test_reference_sample_is_unavailable_when_any_code_is_missing() -> None:
     assert result.available is False
     assert result.closes == {"600000.SH": 10.5}
     assert "000001.SZ" in result.error
+
+
+def test_tdx_reference_closes_require_exact_trade_date(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import pandas as pd
+
+    client = mock.Mock()
+    client.bars.return_value = pd.DataFrame(
+        [
+            {"datetime": "2026-07-14 15:00:00", "close": 10.5},
+            {"datetime": "2026-07-15 15:00:00", "close": 10.8},
+        ]
+    )
+    monkeypatch.setattr("src.data.astock_client.tdx_client", lambda: client)
+
+    result = ms.fetch_tdx_reference_closes("2026-07-14", ["600000.SH"])
+
+    assert result.available is True
+    assert result.closes == {"600000.SH": 10.5}
+    client.bars.assert_called_once_with(symbol="600000", frequency=9, offset=30)
+
+
+def test_daily_reference_sample_is_board_stratified_and_rotates_by_date() -> None:
+    codes = [
+        "600000.SH", "601000.SH",
+        "688001.SH", "688002.SH",
+        "000001.SZ", "002001.SZ",
+        "300001.SZ", "301001.SZ",
+        "430001.BJ", "830001.BJ",
+    ]
+
+    first = ms.select_daily_reference_sample(codes, limit=5, seed="2026-07-15")
+    second = ms.select_daily_reference_sample(codes, limit=5, seed="2026-07-16")
+
+    assert len(first) == 5
+    assert any(code.startswith("688") for code in first)
+    assert any(code.startswith(("300", "301")) for code in first)
+    assert any(code.endswith(".BJ") for code in first)
+    assert first != second
 
 
 def test_security_master_tpdog_fallback_marks_default_universe(store: MarketStore) -> None:
@@ -862,3 +1209,147 @@ def test_maybe_run_premarket_sync_runs_official_after_warmup(store: MarketStore)
 
     assert m_run.call_count == 1
     assert store.get_meta(f"daemon:premarket:{today}:official-0850") is not None
+
+
+def test_sector_matcher_normalizes_unique_taxonomy_suffix() -> None:
+    row = {"name": "银行Ⅱ", "change_pct": 1.25}
+
+    assert ms._match_sector_row("银行行业", [row]) is row
+
+
+def test_sector_matcher_rejects_ambiguous_canonical_name() -> None:
+    rows = [
+        {"name": "银行Ⅰ", "change_pct": 1.0},
+        {"name": "银行Ⅱ", "change_pct": 2.0},
+    ]
+
+    assert ms._match_sector_row("银行", rows) is None
+
+
+def test_sector_snapshot_fills_a_missing_component_from_next_provider(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trade_date = "2026-07-15"
+
+    def industry_only(target: MarketStore, date: str) -> int:
+        return target.upsert_sector_snapshot(
+            date,
+            "industry",
+            [{"name": f"行业{idx}", "change_pct": idx} for idx in range(12)],
+        )
+
+    def concept_only(target: MarketStore, date: str) -> int:
+        return target.upsert_sector_snapshot(
+            date,
+            "concept",
+            [{"name": f"概念{idx}", "change_pct": idx} for idx in range(15)],
+        )
+
+    monkeypatch.setattr(ms, "_sync_sector_snapshot_akshare", industry_only)
+    monkeypatch.setattr(ms, "_sync_sector_snapshot_eastmoney", concept_only)
+    ths = mock.Mock(return_value=0)
+    monkeypatch.setattr(ms, "_sync_sector_snapshot_ths", ths)
+    monkeypatch.setattr(ms, "_sync_sector_snapshot_tpdog", mock.Mock(return_value=0))
+    monkeypatch.setattr(ms, "_sync_sector_snapshot_tushare", mock.Mock(return_value=0))
+
+    result = ms._sync_sector_snapshot(store, trade_date)
+
+    assert result == {
+        "sector_snapshot": 27,
+        "sector_snapshot_industry": 12,
+        "sector_snapshot_concept": 15,
+    }
+    ths.assert_not_called()
+
+
+def test_stage_snapshot_matches_cross_source_industry_names(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    trade_date = "2026-07-15"
+    store.upsert_security_master(
+        [{"code": "600000.SH", "symbol": "600000", "name": "浦发银行", "industry": "银行"}]
+    )
+    store.upsert_daily_bars(
+        "600000.SH",
+        [{"date": trade_date, "open": 10, "high": 11, "low": 9, "close": 10, "volume": 1}],
+        source="test.fixture",
+        sync_run_id="run-1",
+    )
+    store.upsert_sector_snapshot(
+        trade_date,
+        "industry",
+        [{"name": "银行Ⅱ", "change_pct": 1.25, "leader": "招商银行"}],
+    )
+    store.upsert_sector_capital(
+        trade_date,
+        [{"sector": "银行行业", "main_net": 123456789, "change_pct": 1.1}],
+    )
+    monkeypatch.setattr(
+        "src.data.watchlist_store.load_watchlist",
+        lambda: [{"symbol": "600000.SH", "cost": 9.5, "shares": 100}],
+    )
+
+    assert ms._sync_stage_snapshots(store, trade_date) == 4
+    snapshot = store.get_market_stage_snapshot("intraday-monitor", trade_date)
+    holding = snapshot["payload"]["holding_sector_strength"][0]
+
+    assert holding["sector"] == "银行"
+    assert holding["sector_change_pct"] == 1.25
+    assert holding["sector_main_net"] == 123456789
+
+
+def test_realtime_quotes_are_refreshed_after_slow_recommendation_inputs(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr(ms, "_sync_hot_list", lambda target, date: calls.append("hot_list") or 30)
+    monkeypatch.setattr(
+        ms,
+        "_sync_realtime_quotes_tpdog",
+        lambda target, date: calls.append("realtime") or 100,
+    )
+
+    result = ms.run_daily_sync(
+        "2026-07-15", store=store, datasets={"hot_list", "realtime"}
+    )
+
+    assert result == {"hot_list": 30, "realtime": 100}
+    assert calls == ["hot_list", "realtime"]
+
+
+def test_fund_flow_daily_rejects_history_without_requested_date(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ms, "_rotating_query_codes", lambda *args, **kwargs: ["600000.SH"])
+    monkeypatch.setattr(ms.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(
+        "src.data.astock_client.fund_flow_backup",
+        lambda code, days: [{"date": "2026-07-14", "main_net": 10, "source": "test"}],
+    )
+
+    assert ms._sync_fund_flow_daily(store, "2026-07-15") == 0
+    stored = store._conn.execute("SELECT COUNT(*) FROM fund_flow_daily").fetchone()[0]
+    assert stored == 0
+
+
+def test_fund_flow_daily_stores_history_but_counts_only_requested_date(
+    store: MarketStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(ms, "_rotating_query_codes", lambda *args, **kwargs: ["600000.SH"])
+    monkeypatch.setattr(ms.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(
+        "src.data.astock_client.fund_flow_backup",
+        lambda code, days: [
+            {"date": "2026-07-14", "main_net": 10, "source": "test"},
+            {"date": "2026-07-15", "main_net": 20, "source": "test"},
+        ],
+    )
+
+    assert ms._sync_fund_flow_daily(store, "2026-07-15") == 1
+    stored_dates = [
+        row[0]
+        for row in store._conn.execute(
+            "SELECT trade_date FROM fund_flow_daily ORDER BY trade_date"
+        ).fetchall()
+    ]
+    assert stored_dates == ["2026-07-14", "2026-07-15"]

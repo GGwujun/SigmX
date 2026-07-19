@@ -45,8 +45,8 @@ _PHASES: dict[str, RecommendationPhase] = {
     "post_close_base": RecommendationPhase("post_close_base", "收盘基线", "afternoon", 1, "draft", 15, 45),
     "evening_review": RecommendationPhase("evening_review", "晚间复核", "afternoon", 1, "draft", 21, 0),
     "premarket_review": RecommendationPhase("premarket_review", "盘前复核", "morning", 0, "draft", 8, 15),
-    "morning_final": RecommendationPhase("morning_final", "早盘最终", "morning", 0, "final", 9, 24, "morning"),
-    "afternoon_final": RecommendationPhase("afternoon_final", "午盘最终", "afternoon", 0, "final", 14, 20, "afternoon"),
+    "morning_final": RecommendationPhase("morning_final", "早盘最终", "morning", 0, "final", 9, 27, "morning"),
+    "afternoon_final": RecommendationPhase("afternoon_final", "午盘最终", "afternoon", 0, "final", 14, 30, "afternoon"),
     "manual": RecommendationPhase("manual", "手动生成", "manual", 0, "final", 0, 0),
 }
 _SLOT_ALIASES = {
@@ -62,6 +62,24 @@ _SLOT_ALIASES = {
     "now": "manual",
 }
 _FINAL_PHASES = {phase.id for phase in _PHASES.values() if phase.status == "final"}
+_AUTORUN_PHASES = ("morning_final", "afternoon_final")
+_MAX_QUOTE_AGE_SECONDS = 180.0
+_RECOMMENDATION_FACTOR_POLARITY = {
+    "alpha101_006": 1,
+    "alpha101_013": 1,
+    "alpha101_043": 1,
+    "qlib158_roc20": 1,
+    "alpha101_050": 1,
+    "alpha101_044": 1,
+    "academic_rmw": 1,
+    "qlib158_std60": -1,
+    "qlib158_ma5": -1,
+}
+_RECOMMENDATION_MODEL_VERSION = "daily-v4"
+_MIN_DETERMINISTIC_SCORE = 0.62
+_MIN_EVIDENCE_COVERAGE = 0.75
+_MAX_CATEGORY_PICKS = 3
+_MAX_AFTERNOON_REPEATS = 2
 
 
 class GenerateRecommendationsRequest(BaseModel):
@@ -86,10 +104,6 @@ def _normalize_phase(value: str) -> str:
 
 def _normalize_slot(slot: str) -> str:
     return _PHASES[_normalize_phase(slot)].analysis_slot
-
-
-def _slot_label(slot: str) -> str:
-    return {"morning": "9:27", "afternoon": "14:30", "manual": "手动生成"}.get(slot, slot)
 
 
 def _slot_label(slot: str) -> str:
@@ -322,16 +336,32 @@ def _slot_adjusted_score(item: dict[str, Any], slot: str) -> float:
 
 
 def _expected_settled_date(store) -> str | None:
-    """Resolve the required daily date from the local canonical calendar."""
+    """Resolve the required daily date.
+
+    Uses the akshare (sina) calendar — the same source ``is_trading_day`` and
+    the sync scheduler use — so the readiness date never disagrees with the
+    sync date.  The DB ``trade_calendar`` table is consulted only as a
+    cross-check, because its rows historically came from an unreliable provider
+    (see trade_calendar._load_all_trading_days).
+    """
+    from src.data.trade_calendar import expected_settled_date
+
+    settled = expected_settled_date(_now_cst())
+    if settled:
+        return settled
+    # Calendar source unavailable — fall back to the persisted table.
     now = _now_cst()
     cutoff = now.date().isoformat()
     if now.hour < 15 or (now.hour == 15 and now.minute < 5):
         cutoff = (now.date() - timedelta(days=1)).isoformat()
-    row = store._conn.execute(
-        "SELECT MAX(trade_date) AS d FROM trade_calendar "
-        "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
-        (cutoff,),
-    ).fetchone()
+    try:
+        row = store._conn.execute(
+            "SELECT MAX(trade_date) AS d FROM trade_calendar "
+            "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
+            (cutoff,),
+        ).fetchone()
+    except Exception:  # noqa: BLE001
+        return None
     return str(row["d"]) if row and row["d"] else None
 
 
@@ -354,6 +384,9 @@ def _assert_candidate_market_data_fresh() -> None:
                 },
             )
         readiness = store.get_data_readiness("bars_daily", expected_date)
+        from src.data.recommendation_features import history_readiness
+
+        history = history_readiness(store)
     except HTTPException:
         raise
     except Exception as exc:
@@ -377,6 +410,17 @@ def _assert_candidate_market_data_fresh() -> None:
                 "status": readiness.status.value,
                 "run_id": readiness.run_id,
                 "blocking_reasons": readiness.blocking_reasons,
+            },
+        )
+    if not history["ready"]:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "dataset": "bars_daily_history",
+                "expected_date": expected_date,
+                "status": "partial",
+                **history,
             },
         )
 
@@ -407,6 +451,171 @@ def _refresh_candidate_quote(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
+def _quote_age_seconds(snapshot_at: str, now: datetime) -> float:
+    parsed = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_CST)
+    return (now - parsed.astimezone(now.tzinfo or _CST)).total_seconds()
+
+
+def _validated_realtime_quote(
+    item: dict[str, Any],
+    slot: str,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    from src.data.market_data_service import normalize_code
+    from src.data.market_store import get_market_store
+
+    current = now or _now_cst()
+    trade_date = current.strftime("%Y-%m-%d")
+    symbol = str(item.get("symbol", "")).upper()
+    store = get_market_store()
+    quote = None if store is None or not symbol else store.get_latest_realtime_quote(
+        normalize_code(symbol),
+        trade_date,
+    )
+    if not quote:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "slot": slot,
+                "trade_date": trade_date,
+                "blocking_reasons": ["realtime_snapshot_missing"],
+            },
+        )
+
+    snapshot_at = str(quote.get("snapshot_at") or "")
+    try:
+        age_seconds = _quote_age_seconds(snapshot_at, current)
+    except (TypeError, ValueError):
+        age_seconds = _MAX_QUOTE_AGE_SECONDS + 1
+    blocking_reasons: list[str] = []
+    if age_seconds < 0:
+        blocking_reasons.append("realtime_snapshot_from_future")
+    elif age_seconds > _MAX_QUOTE_AGE_SECONDS:
+        blocking_reasons.append("realtime_snapshot_stale")
+    if str(quote.get("trade_date") or "")[:10] != trade_date:
+        blocking_reasons.append("realtime_trade_date_mismatch")
+    if float(quote.get("price") or 0) <= 0:
+        blocking_reasons.append("realtime_price_invalid")
+    if float(quote.get("pre_close") or 0) <= 0:
+        blocking_reasons.append("realtime_pre_close_invalid")
+    if float(quote.get("volume") or 0) <= 0:
+        blocking_reasons.append("realtime_volume_invalid")
+    if blocking_reasons:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "slot": slot,
+                "trade_date": trade_date,
+                "blocking_reasons": blocking_reasons,
+            },
+        )
+
+    enriched = dict(item)
+    enriched.update(
+        {
+            "price": float(quote.get("price") or 0),
+            "change_pct": float(quote.get("rise_rate") or 0),
+            "pre_close": float(quote.get("pre_close") or 0),
+            "high": float(quote.get("high") or 0),
+            "low": float(quote.get("low") or 0),
+            "volume": float(quote.get("volume") or 0),
+            "quote_date": str(quote.get("trade_date") or "")[:10],
+            "quote_source": quote.get("source"),
+            "market_context": {
+                "trade_date": str(quote.get("trade_date") or "")[:10],
+                "snapshot_at": snapshot_at,
+                "snapshot_age_seconds": round(age_seconds, 3),
+                "quote_source": quote.get("source"),
+                "valid": True,
+            },
+        }
+    )
+    return enriched
+
+
+def _attach_intraday_history_metrics(item: dict[str, Any]) -> dict[str, Any]:
+    from src.data.market_data_service import latest_daily_bars
+
+    symbol = str(item.get("symbol") or "").upper()
+    history = latest_daily_bars(symbol, days=30)
+    if history is None or history.empty or len(history) < 19:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DATA_NOT_READY",
+                "dataset": "bars_daily",
+                "symbol": symbol,
+                "blocking_reasons": ["daily_history_insufficient"],
+            },
+        )
+    ordered = history.sort_index()
+    closes = [float(value) for value in ordered["close"].tail(19)]
+    volumes = [float(value) for value in ordered["volume"].tail(5)]
+    price = float(item.get("price") or 0)
+    synthetic_closes = closes + [price]
+    ma20 = sum(synthetic_closes) / len(synthetic_closes)
+    avg_volume = sum(volumes) / len(volumes) if volumes else 0.0
+    enriched = dict(item)
+    enriched.update(
+        {
+            "synthetic_ma20": ma20,
+            "distance_ma20": price / ma20 - 1.0 if ma20 > 0 else 0.0,
+            "daily_volume_avg_5": avg_volume,
+            # The MA20 mixes 19 settled closes with the live intraday price, so
+            # scoring and backtest evaluation are NOT on the same information
+            # face. Flag the basis so downstream attribution can align them and
+            # avoid treating an intraday-driven score as a close-driven one.
+            "ma20_basis": "synthetic_intraday",
+        }
+    )
+    market_context = dict(enriched.get("market_context") or {})
+    market_context["daily_as_of"] = _bar_date(ordered.index[-1])
+    enriched["market_context"] = market_context
+    return enriched
+
+
+def _intraday_confirmation(item: dict[str, Any]) -> dict[str, Any]:
+    price = float(item.get("price") or 0)
+    high = float(item.get("high") or price)
+    low = float(item.get("low") or price)
+    change = float(item.get("change_pct") or 0)
+    volume = float(item.get("volume") or 0)
+    avg_volume = float(item.get("daily_volume_avg_5") or 0)
+    distance_ma20 = float(item.get("distance_ma20") or 0)
+    position = (price - low) / (high - low) if high > low else 0.5
+    position = max(0.0, min(1.0, position))
+    volume_ratio = volume / avg_volume if avg_volume > 0 else 0.0
+    score = 0.5 + (position - 0.5) * 0.2
+    adjustments: list[str] = []
+    if position < 0.35:
+        adjustments.append("weak_intraday_close")
+    elif position > 0.7:
+        adjustments.append("strong_intraday_close")
+    if 0 <= change < 3:
+        score += 0.08
+        adjustments.append("moderate_move")
+    if change >= 6:
+        score -= 0.20
+        adjustments.append("chase_risk")
+    if distance_ma20 > 0.12:
+        score -= 0.10
+        adjustments.append("extended_from_ma20")
+    if volume_ratio > 3:
+        score -= 0.08
+        adjustments.append("abnormal_volume")
+    return {
+        "score": round(max(0.01, min(0.99, score)), 3),
+        "intraday_position": round(position, 3),
+        "volume_ratio_proxy": round(volume_ratio, 3),
+        "distance_ma20": round(distance_ma20, 4),
+        "adjustments": adjustments,
+    }
+
+
 def _candidate_pool(slot: str) -> list[dict[str, Any]]:
     from src.api.opportunity_routes import _build_opportunities
 
@@ -416,6 +625,7 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
         raise HTTPException(status_code=503, detail=str(payload["error"]))
 
     items: list[dict[str, Any]] = []
+    data_errors: list[HTTPException] = []
     for category in payload.get("categories", []):
         category_id = category.get("id", "")
         category_label = category.get("label", category_id)
@@ -423,9 +633,33 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
             item = dict(raw)
             item["category_id"] = category_id
             item["category_label"] = category_label
-            item = _refresh_candidate_quote(item)
+            try:
+                item = _validated_realtime_quote(item, slot)
+                item = _attach_intraday_history_metrics(item)
+                item["realtime_confirmation"] = _intraday_confirmation(item)
+            except HTTPException as exc:
+                if exc.status_code != 503 or not isinstance(exc.detail, dict) or exc.detail.get("code") != "DATA_NOT_READY":
+                    raise
+                data_errors.append(exc)
+                continue
             item["score"] = round(_slot_adjusted_score(item, slot), 3)
             items.append(item)
+
+    if items:
+        from src.data.market_store import get_market_store
+        from src.data.recommendation_features import load_recommendation_features
+
+        feature_date = _today_cst()
+        features = load_recommendation_features(
+            get_market_store(),
+            [str(item.get("symbol") or "") for item in items],
+            feature_date,
+        )
+        for item in items:
+            item["local_evidence"] = features.get(
+                str(item.get("symbol") or "").upper(),
+                {"status": "limited", "score": 0.5, "signals": [], "as_of": feature_date},
+            )
 
     seen: set[str] = set()
     unique: list[dict[str, Any]] = []
@@ -435,6 +669,8 @@ def _candidate_pool(slot: str) -> list[dict[str, Any]]:
             continue
         seen.add(symbol)
         unique.append(item)
+    if not unique and data_errors:
+        raise data_errors[0]
     return unique
 
 
@@ -457,6 +693,66 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return data
 
 
+def _normalize_recommendation_factors(raw: dict[str, Any]) -> dict[str, Any]:
+    normalized: list[dict[str, Any]] = []
+    for signal in raw.get("signals", []):
+        factor_id = str(signal.get("id") or "")
+        polarity = _RECOMMENDATION_FACTOR_POLARITY.get(factor_id)
+        if polarity is None or signal.get("status") != "ok":
+            continue
+        try:
+            rank_pct = float(signal.get("rank_pct", 0.5))
+        except (TypeError, ValueError):
+            continue
+        rank_pct = max(0.01, min(0.99, rank_pct))
+        directional_rank = rank_pct if polarity > 0 else 1.0 - rank_pct
+        if directional_rank >= 0.7:
+            direction = "bullish"
+            contribution = directional_rank
+        elif directional_rank <= 0.3:
+            direction = "bearish"
+            contribution = directional_rank
+        else:
+            direction = "neutral"
+            contribution = 0.5
+        normalized.append(
+            {
+                **signal,
+                "rank_pct": round(rank_pct, 3),
+                "direction": direction,
+                "contribution": round(contribution, 3),
+            }
+        )
+
+    valid_count = len(normalized)
+    if valid_count < 4:
+        return {
+            "status": "limited",
+            "score": 0.5,
+            "top_bullish": [],
+            "top_bearish": [],
+            "signals": normalized,
+            "valid_signal_count": valid_count,
+        }
+    bullish = sorted(
+        (signal for signal in normalized if signal["direction"] == "bullish"),
+        key=lambda signal: float(signal["contribution"]),
+        reverse=True,
+    )
+    bearish = sorted(
+        (signal for signal in normalized if signal["direction"] == "bearish"),
+        key=lambda signal: float(signal["contribution"]),
+    )
+    return {
+        "status": "ok",
+        "score": round(sum(float(signal["contribution"]) for signal in normalized) / valid_count, 3),
+        "top_bullish": bullish[:3],
+        "top_bearish": bearish[:3],
+        "signals": normalized,
+        "valid_signal_count": valid_count,
+    }
+
+
 def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
     symbol = str(item.get("symbol", "")).upper()
     review: dict[str, Any] = {
@@ -473,6 +769,7 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
         from src.data.alpha_signals import compute_alpha_signals
 
         raw = compute_alpha_signals(symbol)
+        normalized = _normalize_recommendation_factors(raw)
         top_bullish = [
             {
                 "label": s.get("label", ""),
@@ -480,7 +777,7 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
                 "rank_pct": s.get("rank_pct", 0.5),
                 "direction": s.get("direction", "neutral"),
             }
-            for s in raw.get("top_bullish", [])[:3]
+            for s in normalized.get("top_bullish", [])[:3]
         ]
         top_bearish = [
             {
@@ -489,11 +786,14 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
                 "rank_pct": s.get("rank_pct", 0.5),
                 "direction": s.get("direction", "neutral"),
             }
-            for s in raw.get("top_bearish", [])[:3]
+            for s in normalized.get("top_bearish", [])[:3]
         ]
-        score = float(raw.get("score", 0.5) or 0.5)
+        score = float(normalized.get("score", 0.5) or 0.5)
         if raw.get("error"):
             summary = str(raw["error"])
+            status = "limited"
+        elif normalized.get("status") == "limited":
+            summary = "可用短周期 Alpha 因子不足"
             status = "limited"
         elif score >= 0.60:
             summary = "Alpha因子偏多"
@@ -511,6 +811,7 @@ def _factor_review(item: dict[str, Any]) -> dict[str, Any]:
             "top_bullish": top_bullish,
             "top_bearish": top_bearish,
             "peer_count": int(raw.get("peer_count", 0) or 0),
+            "valid_signal_count": int(normalized.get("valid_signal_count", 0) or 0),
         }
     except Exception as exc:
         logger.info("factor review failed for %s: %s", symbol, exc)
@@ -639,6 +940,122 @@ def _apply_attribution_guardrails(
     return item
 
 
+def _deterministic_score(
+    item: dict[str, Any],
+    market_regime: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    base_score = float(item.get("score", item.get("confidence", 0.5)) or 0.5)
+    realtime_score = float((item.get("realtime_confirmation") or {}).get("score", 0.5) or 0.5)
+    factor_review = item.get("factor_review") or {}
+    factor_score = float(factor_review.get("score", 0.5) or 0.5)
+    local_evidence = item.get("local_evidence") or {}
+    local_score = float(local_evidence.get("score", 0.5) or 0.5)
+    local_status = str(local_evidence.get("status") or "limited")
+    regime = str((market_regime or {}).get("regime") or "neutral")
+    regime_adjustment = -0.05 if regime == "risk_off" else 0.03 if regime == "risk_on" else 0.0
+    evidence = [("base", base_score, 0.35), ("realtime", realtime_score, 0.25)]
+    if factor_review.get("status") == "ok":
+        evidence.append(("factor", factor_score, 0.20))
+    # Local evidence is a soft gate: full weight when well-evidenced, reduced
+    # weight when only partially evidenced, no weight (and ineligible) when no
+    # per-symbol signal fired.  A missing market_breadth row no longer forces
+    # every candidate below the eligibility floor.
+    local_weight = {"ok": 0.20, "partial": 0.12}.get(local_status, 0.0)
+    if local_weight:
+        evidence.append(("local", local_score, local_weight))
+    available_weight = sum(weight for _, _, weight in evidence)
+    evidence_coverage = available_weight
+    deterministic = sum(value * weight for _, value, weight in evidence) / available_weight
+    deterministic = max(0.01, min(0.99, deterministic + regime_adjustment))
+    enriched = dict(item)
+    enriched["deterministic_score"] = round(deterministic, 3)
+    enriched["eligible"] = (
+        deterministic >= _MIN_DETERMINISTIC_SCORE
+        and evidence_coverage >= _MIN_EVIDENCE_COVERAGE
+        and local_status in ("ok", "partial")
+    )
+    enriched["score"] = round(deterministic, 3)
+    enriched["market_regime"] = market_regime or {"regime": "neutral"}
+    enriched["scoring"] = {
+        "base_score": round(base_score, 3),
+        "realtime_score": round(realtime_score, 3),
+        "factor_score": round(factor_score, 3),
+        "local_evidence_score": round(local_score, 3),
+        "evidence_sources": [name for name, _, _ in evidence],
+        "evidence_coverage": round(evidence_coverage, 3),
+        "regime_adjustment": round(regime_adjustment, 3),
+        "deterministic_score": round(deterministic, 3),
+        "ai_adjustment": 0.0,
+        "final_score": round(deterministic, 3),
+        "model_version": _RECOMMENDATION_MODEL_VERSION,
+    }
+    return enriched
+
+
+def _apply_ai_adjustment(item: dict[str, Any]) -> dict[str, Any]:
+    enriched = dict(item)
+    ai = enriched.get("ai_review") or {}
+    decision = str(ai.get("decision") or "watch").lower()
+    try:
+        ai_score = float(ai.get("score", 0.5))
+    except (TypeError, ValueError):
+        ai_score = 0.5
+    adjustment = max(-0.02, min(0.02, (ai_score - 0.5) * 0.04))
+    deterministic = float(enriched.get("deterministic_score", enriched.get("score", 0.5)) or 0.5)
+    final_score = max(0.01, min(0.99, deterministic + adjustment))
+    enriched["eligible"] = bool(enriched.get("eligible")) and decision == "recommend"
+    enriched["score"] = round(final_score, 3)
+    scoring = dict(enriched.get("scoring") or {})
+    scoring.update(
+        {
+            "ai_adjustment": round(adjustment, 3),
+            "final_score": round(final_score, 3),
+            "model_version": _RECOMMENDATION_MODEL_VERSION,
+        }
+    )
+    enriched["scoring"] = scoring
+    return enriched
+
+
+def _select_final_candidates(
+    candidates: list[dict[str, Any]],
+    phase: RecommendationPhase,
+    limit: int,
+    existing_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    morning_symbols: set[str] = set()
+    if phase.id == "afternoon_final":
+        today = _today_cst()
+        morning_symbols = {
+            str(record.get("symbol") or "").upper()
+            for record in existing_records
+            if record.get("status", "final") == "final"
+            and record.get("slot") == "morning"
+            and str(record.get("target_date", record.get("date"))) == today
+        }
+
+    selected: list[dict[str, Any]] = []
+    category_counts: dict[str, int] = {}
+    repeat_count = 0
+    for item in sorted(candidates, key=lambda row: float(row.get("score", 0) or 0), reverse=True):
+        if not item.get("eligible", True):
+            continue
+        category = str(item.get("category_id") or item.get("category") or "unknown")
+        if category_counts.get(category, 0) >= _MAX_CATEGORY_PICKS:
+            continue
+        symbol = str(item.get("symbol") or "").upper()
+        is_repeat = phase.id == "afternoon_final" and symbol in morning_symbols
+        if is_repeat and repeat_count >= _MAX_AFTERNOON_REPEATS:
+            continue
+        selected.append(item)
+        category_counts[category] = category_counts.get(category, 0) + 1
+        if is_repeat:
+            repeat_count += 1
+        if len(selected) >= min(limit, _MAX_GENERATED):
+            break
+    return selected
+
+
 def _ai_review_candidates(candidates: list[dict[str, Any]], slot: str, limit: int) -> dict[str, dict[str, Any]]:
     if not candidates:
         return {}
@@ -717,28 +1134,40 @@ def _reviewed_candidates(slot: str, limit: int) -> list[dict[str, Any]]:
         return []
 
     shortlist = candidates[: max(limit * 3, 8)]
+    market_regime = _current_market_regime()
     for item in shortlist:
         factor = _factor_review(item)
         item["factor_review"] = factor
-        base = float(item.get("score", item.get("confidence", 0.5)) or 0.5)
-        factor_score = float(factor.get("score", 0.5) or 0.5)
-        item["pre_ai_score"] = round(max(0.01, min(0.99, base * 0.70 + factor_score * 0.30)), 3)
+        item = _apply_attribution_guardrails(item, slot, market_regime)
+        scored = _deterministic_score(item, market_regime)
+        item.clear()
+        item.update(scored)
 
-    ai_reviews = _ai_review_candidates(shortlist, slot, limit)
-    market_regime = _current_market_regime()
+    eligible = [item for item in shortlist if item.get("eligible")]
+    if not eligible:
+        raise HTTPException(status_code=503, detail="没有达到确定性评分门槛的推荐标的")
+    eligible.sort(key=lambda item: float(item.get("deterministic_score", 0) or 0), reverse=True)
+    try:
+        ai_reviews = _ai_review_candidates(eligible, slot, limit)
+    except Exception as exc:
+        logger.warning("daily recommendation AI review unavailable: %s", exc)
+        ai_reviews = {}
     reviewed: list[dict[str, Any]] = []
-    for item in shortlist:
+    for item in eligible:
         symbol = str(item.get("symbol", "")).upper()
         ai = ai_reviews.get(symbol)
         if not ai:
-            continue
+            ai = {
+                "score": 0.5,
+                "decision": "recommend",
+                "summary": "",
+                "risk": "",
+                "factor_note": "",
+                "status": "unavailable",
+            }
         item["ai_review"] = ai
-        item["score"] = round(
-            max(0.01, min(0.99, float(item.get("pre_ai_score", 0.5)) * 0.45 + float(ai.get("score", 0.5)) * 0.55)),
-            3,
-        )
-        item = _apply_attribution_guardrails(item, slot, market_regime)
-        if ai.get("decision") == "recommend" and float(item.get("score", 0) or 0) >= 0.58:
+        item = _apply_ai_adjustment(item)
+        if item.get("eligible"):
             reviewed.append(item)
 
     if not reviewed:
@@ -793,6 +1222,8 @@ def _make_record(
         "factor_review": factor_review,
         "attribution_adjustments": item.get("attribution_adjustments", []),
         "market_regime": item.get("market_regime", {"regime": "unknown"}),
+        "market_context": dict(item.get("market_context") or {}),
+        "scoring": dict(item.get("scoring") or {}),
         "evidence_snapshot": _evidence_snapshot(item, slot, reason, risk_note, now),
         "recommendation_method": "ai_factor_review",
         "created_at": now.isoformat(),
@@ -925,8 +1356,20 @@ def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
 
     price = float(record.get("price_at_pick", 0) or 0)
     symbol = str(record.get("symbol", ""))
+    # Surface the scoring basis so attribution consumers can tell that returns
+    # are measured from an intraday pick price against settled daily closes —
+    # the two are NOT on the same information face, and mixing them silently is
+    # what makes backtest look better than live. Downstream filters/weighting
+    # can use this to avoid cross-basis aggregation.
+    scoring = record.get("scoring") or {}
+    market_context = record.get("market_context") or {}
+    price_basis = (
+        record.get("ma20_basis")
+        or scoring.get("ma20_basis")
+        or ("intraday" if market_context.get("snapshot_at") else "close")
+    )
     if not symbol or price <= 0:
-        return {"status": "missing_price"}
+        return {"status": "missing_price", "price_basis": price_basis}
 
     pick_date = str(record.get("date", ""))
     df = latest_daily_bars(symbol, days=40)
@@ -954,6 +1397,7 @@ def _performance_for(record: dict[str, Any]) -> dict[str, Any]:
 
     out: dict[str, Any] = {
         "status": "ok",
+        "price_basis": price_basis,
         "latest_date": rows[-1]["date"],
         "latest_return_pct": round((rows[-1]["close"] - price) / price * 100, 2),
         "max_gain_pct": round((max(r["high"] for r in rows) - price) / price * 100, 2),
@@ -980,7 +1424,17 @@ def _with_performance(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return enriched
 
 
+def _is_valid_model_record(record: dict[str, Any]) -> bool:
+    market_context = record.get("market_context") or {}
+    scoring = record.get("scoring") or {}
+    return (
+        market_context.get("valid") is True
+        and scoring.get("model_version") == _RECOMMENDATION_MODEL_VERSION
+    )
+
+
 def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
+    records = [record for record in records if _is_valid_model_record(record)]
     completed = [r for r in records if r.get("performance", {}).get("t1")]
     if not completed:
         return {"count": len(records), "t1_count": 0, "t1_win_rate": None, "t1_avg_return": None}
@@ -991,6 +1445,31 @@ def _summary(records: list[dict[str, Any]]) -> dict[str, Any]:
         "t1_count": len(t1_returns),
         "t1_win_rate": round(len(wins) / len(t1_returns) * 100, 1),
         "t1_avg_return": round(sum(t1_returns) / len(t1_returns), 2),
+    }
+
+
+def _promotion_status(records: list[dict[str, Any]], *, min_samples: int = 30) -> dict[str, Any]:
+    records = [record for record in records if _is_valid_model_record(record)]
+    completed = [record for record in records if record.get("performance", {}).get("t1")]
+    returns = [float(record["performance"]["t1"]["return_pct"]) for record in completed]
+    average = round(sum(returns) / len(returns), 2) if returns else None
+    median = _median(returns)
+    win_rate = round(sum(value > 0 for value in returns) / len(returns) * 100, 1) if returns else None
+    if len(returns) < min_samples:
+        decision = "insufficient_evidence"
+    elif average is not None and average > 0 and median is not None and median > 0 and win_rate >= 50:
+        decision = "eligible"
+    else:
+        decision = "rejected"
+    return {
+        "model_version": _RECOMMENDATION_MODEL_VERSION,
+        "decision": decision,
+        "completed_samples": len(returns),
+        "min_samples": min_samples,
+        "t1_avg_return": average,
+        "t1_median_return": median,
+        "t1_win_rate": win_rate,
+        "requirements": {"positive_mean": True, "positive_median": True, "min_win_rate": 50},
     }
 
 
@@ -1125,6 +1604,7 @@ def _attribution_rows(
 def _recommendation_attribution(records: list[dict[str, Any]], horizon: str = "t1") -> dict[str, Any]:
     if horizon not in {"t0", "t1", "t3", "t5"}:
         raise HTTPException(status_code=400, detail="horizon must be one of t0, t1, t3, or t5")
+    records = [record for record in records if _is_valid_model_record(record)]
     dimensions = [
         "slot",
         "generation_phase",
@@ -1224,7 +1704,13 @@ def _cap_latest_final_per_slot(records: list[dict[str, Any]], per_slot: int = _M
     return capped
 
 
-def _generate_for_phase(phase_id: str, limit: int, *, target_date: str | None = None) -> list[dict[str, Any]]:
+def _generate_for_phase(
+    phase_id: str,
+    limit: int,
+    *,
+    target_date: str | None = None,
+    shadow_until_promoted: bool = False,
+) -> list[dict[str, Any]]:
     phase = _PHASES[_normalize_phase(phase_id)]
     target = target_date or _target_date_for_phase(phase.id)
     slot = phase.analysis_slot
@@ -1232,15 +1718,28 @@ def _generate_for_phase(phase_id: str, limit: int, *, target_date: str | None = 
     if not candidates:
         return []
 
-    selected = candidates[: min(limit, _MAX_GENERATED)]
     with _STORE_LOCK:
         records = _load_records()
+        selected = _select_final_candidates(candidates, phase, limit, records)
+        if not selected:
+            return []
         version = _next_phase_version(records, target, phase.id)
         new_records = [
             _make_record(item, phase.id, target, rank + 1, version)
             for rank, item in enumerate(selected)
         ]
-        _mark_superseded(records, new_records, phase)
+        promotion = (
+            _promotion_status(_with_performance(records))
+            if shadow_until_promoted
+            else {"decision": "manual_publish"}
+        )
+        publish_final = not shadow_until_promoted or promotion["decision"] == "eligible"
+        for record in new_records:
+            record["promotion_decision"] = promotion["decision"]
+            if phase.status == "final" and not publish_final:
+                record["status"] = "shadow"
+        if publish_final:
+            _mark_superseded(records, new_records, phase)
         existing = {str(r.get("id")): r for r in records}
         for record in new_records:
             existing[record["id"]] = record
@@ -1336,7 +1835,8 @@ def register_daily_recommendation_routes(
         with _STORE_LOCK:
             rolling_records = [
                 r for r in _load_records()
-                if str(r.get("date", "")) >= cutoff and r.get("status", "final") == "final"
+                if str(r.get("date", "")) >= cutoff
+                and r.get("status", "final") == "final"
             ]
         rolling_enriched = _with_performance(rolling_records)
         return {
@@ -1355,7 +1855,8 @@ def register_daily_recommendation_routes(
         with _STORE_LOCK:
             records = [
                 r for r in _load_records()
-                if str(r.get("date", "")) >= cutoff and r.get("status", "final") == "final"
+                if str(r.get("date", "")) >= cutoff
+                and r.get("status", "final") in {"final", "shadow"}
             ]
         enriched = _with_performance(records)
 
@@ -1375,6 +1876,7 @@ def register_daily_recommendation_routes(
         return {
             "days": days,
             "summary": _summary(enriched),
+            "promotion_status": _promotion_status(enriched),
             "by_slot": slot_rows,
             "by_phase": phase_rows,
             "items": enriched,
@@ -1391,7 +1893,8 @@ def register_daily_recommendation_routes(
         with _STORE_LOCK:
             records = [
                 r for r in _load_records()
-                if str(r.get("date", "")) >= cutoff and r.get("status", "final") == "final"
+                if str(r.get("date", "")) >= cutoff
+                and r.get("status", "final") in {"final", "shadow"}
             ]
         enriched = _with_performance(records)
         return {
@@ -1411,13 +1914,7 @@ def register_daily_recommendation_routes(
             while True:
                 try:
                     now = _now_cst()
-                    checks = [
-                        _PHASES["post_close_base"],
-                        _PHASES["evening_review"],
-                        _PHASES["premarket_review"],
-                        _PHASES["morning_final"],
-                        _PHASES["afternoon_final"],
-                    ]
+                    checks = [_PHASES[phase_id] for phase_id in _AUTORUN_PHASES]
                     with _STORE_LOCK:
                         records = _load_records()
                     for phase in checks:
@@ -1429,11 +1926,11 @@ def register_daily_recommendation_routes(
                         due = now.hour > phase.hour or (now.hour == phase.hour and now.minute >= phase.minute)
                         if not due or _has_phase_record(records, target_date, phase.id):
                             continue
+                        from functools import partial
+
                         await asyncio.get_running_loop().run_in_executor(
                             None,
-                            _generate_for_phase,
-                            phase.id,
-                            5,
+                            partial(_generate_for_phase, phase.id, 5, shadow_until_promoted=True),
                         )
                         logger.info(
                             "daily recommendations generated phase=%s target_date=%s",
@@ -1441,8 +1938,14 @@ def register_daily_recommendation_routes(
                             target_date,
                         )
                     await asyncio.sleep(60)
+                except HTTPException as exc:
+                    if exc.status_code == 503:
+                        logger.info("daily recommendation waiting for ready data: %s", exc.detail)
+                    else:
+                        logger.exception("daily recommendation scheduler request failed")
+                    await asyncio.sleep(15)
                 except Exception:
                     logger.exception("daily recommendation scheduler tick failed")
-                    await asyncio.sleep(300)
+                    await asyncio.sleep(60)
 
         asyncio.create_task(_loop())
