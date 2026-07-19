@@ -77,9 +77,14 @@ def _fund_type(code: str) -> str:
 
 def _safe_float(v: Any) -> float:
     try:
-        return float(v)
+        f = float(v)
     except (ValueError, TypeError):
         return 0.0
+    # float("nan") / float("inf") 不抛异常，但会让 FastAPI JSON 编码报
+    # "Out of range float values are not JSON compliant"。归零。
+    if f != f or f in (float("inf"), float("-inf")):  # NaN check + Inf
+        return 0.0
+    return f
 
 
 # ---------------------------------------------------------------------------
