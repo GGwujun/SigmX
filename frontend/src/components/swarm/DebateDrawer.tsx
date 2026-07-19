@@ -132,8 +132,13 @@ export function DebateDrawer({
 
               {/* New claims */}
               {newClaims.map((c, ci) => {
-                const status = "open";
-                const badge = STATUS_BADGE[status];
+                // 从已知的 claim 中查找实际状态（如果有）
+                const claimId = `${speakerKey.toUpperCase()}-${ci + 1}`;
+                const resolvedIds = new Set([
+                  ...(u.payload.responded_claim_ids || []),
+                ]);
+                const status = resolvedIds.has(claimId) ? "addressed" : "open";
+                const badge = STATUS_BADGE[status] || STATUS_BADGE.open;
                 return (
                   <div key={ci} className="rounded-lg border border-white/10 bg-white/5 p-3 ml-3">
                     <div className="flex items-start justify-between gap-2">

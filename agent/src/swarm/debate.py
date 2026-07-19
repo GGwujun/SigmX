@@ -189,9 +189,15 @@ def update_debate_state(
     new_claims_raw = payload.get("new_claims", [])
     prefix = speaker_key.upper()
     for nc in new_claims_raw:
-        # 自动分配 ID
-        existing = [c for c in claims if c.startswith(prefix)]
-        claim_num = len(existing) + 1
+        # 自动分配 ID（找最大编号+1，避免碰撞）
+        existing_nums = []
+        for cid in claims:
+            if cid.startswith(f"{prefix}-"):
+                try:
+                    existing_nums.append(int(cid.split("-", 1)[1]))
+                except (ValueError, IndexError):
+                    pass
+        claim_num = max(existing_nums, default=0) + 1
         claim_id = f"{prefix}-{claim_num}"
 
         claim = Claim(

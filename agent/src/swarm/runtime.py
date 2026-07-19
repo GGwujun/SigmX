@@ -294,7 +294,14 @@ class SwarmRuntime:
                     run.total_output_tokens += result.output_tokens
 
                     if result.status == "completed":
-                        task_summaries[tid] = result.summary
+                        # 剥离辩论标记，防止下游 Agent 收到污染的上下文
+                        _clean_summary = result.summary
+                        try:
+                            from src.swarm.debate import strip_debate_markers
+                            _clean_summary = strip_debate_markers(result.summary)
+                        except Exception:
+                            pass
+                        task_summaries[tid] = _clean_summary
                         now_iso = datetime.now(timezone.utc).isoformat()
                         task_store.update_status(
                             tid,

@@ -234,20 +234,26 @@ def check_condition(fund: dict[str, Any], rule: dict[str, Any],
 
     # Premium rate change (日环比)
     premium_change_above = cond.get("premium_change_above")
-    if premium_change_above is not None and prev_premium is not None:
+    if premium_change_above is not None:
+        if prev_premium is None:
+            return False  # 无法评估变化条件，不触发
         change = premium - prev_premium
         if change < float(premium_change_above):
             return False
 
     premium_change_below = cond.get("premium_change_below")
-    if premium_change_below is not None and prev_premium is not None:
+    if premium_change_below is not None:
+        if prev_premium is None:
+            return False  # 无法评估变化条件，不触发
         change = premium - prev_premium
         if change > float(premium_change_below):
             return False
 
     # NAV change (净值跳变)
     nav_change_above = cond.get("nav_change_above")
-    if nav_change_above is not None and prev_nav is not None and prev_nav > 0:
+    if nav_change_above is not None:
+        if prev_nav is None or prev_nav <= 0:
+            return False  # 无法评估净值变化，不触发
         nav_change_pct = abs(nav - prev_nav) / prev_nav * 100
         if nav_change_pct < float(nav_change_above):
             return False
