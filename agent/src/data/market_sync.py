@@ -902,11 +902,38 @@ def _sync_dragon_tiger(store: MarketStore, trade_date: str) -> int:
         rows = call("board/bill", date=trade_date)
     except Exception as exc:  # noqa: BLE001
         logger.debug("dragon-tiger sync failed: %s", exc)
-        return 0
+        rows = []
     time.sleep(_SLEEP_BETWEEN_CALLS)
-    if not rows:
+    if rows:
+        return store.upsert_dragon_tiger(trade_date, rows)
+
+    # Fallback: official exchange dragon-tiger list (SSE+SZSE, zero-auth, not
+    # IP-blocked). Fields are partial vs tpdog (amount/reason only), but
+    # upsert tolerates NULLs for the missing close/rise_rate/buy/sell cols.
+    try:
+        from src.data.astock_client import dragon_tiger_backup
+
+        backup = dragon_tiger_backup(trade_date)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("dragon-tiger official backup failed: %s", exc)
         return 0
-    return store.upsert_dragon_tiger(trade_date, rows)
+    mapped = []
+    for r in backup.get("szse", []):
+        code = str(r.get("code") or "").strip()
+        if not code:
+            continue
+        mapped.append(
+            {
+                "code": code,
+                "name": r.get("name"),
+                "net_amt": r.get("amount"),
+                "explain": r.get("reason"),
+            }
+        )
+    if not mapped:
+        return 0
+    logger.info("dragon-tiger official backup wrote %d rows for %s", len(mapped), trade_date)
+    return store.upsert_dragon_tiger(trade_date, mapped)
 
 
 def _sync_pools(store: MarketStore, trade_date: str) -> int:
