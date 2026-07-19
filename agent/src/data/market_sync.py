@@ -1680,10 +1680,54 @@ def _sync_index_daily(
     written += _sync_index_daily_tpdog(store, trade_date, index_codes=missing_codes)
     missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
     written += _sync_index_daily_akshare_missing(store, trade_date, index_codes=missing_codes)
+    # 第 3.5 层降级：腾讯指数（不封 IP，当日 OHLC 快照）
+    missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
+    if missing_codes:
+        written += _sync_index_daily_tencent(store, trade_date, index_codes=missing_codes)
     # 第 4 层降级：新浪（不封 IP，东财/tushare 全挂时的兜底）
     missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
     if missing_codes:
         written += _sync_index_daily_sina(store, trade_date, index_codes=missing_codes)
+    return written
+
+
+def _sync_index_daily_tencent(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    index_codes: Optional[list[str]] = None,
+) -> int:
+    """腾讯指数降级源 — 当日 OHLC 快照（不封 IP）。"""
+    try:
+        from src.data.astock_client import tencent_index_quote
+        bare = [c.split(".")[0] for c in (index_codes or [])]
+        spots = tencent_index_quote(bare)
+    except Exception as exc:
+        logger.debug("tencent index fallback failed: %s", exc)
+        return 0
+
+    code_map = {s.get("code"): s for s in spots}
+    written = 0
+    for code in (index_codes or []):
+        if store.has_index_daily(code, trade_date):
+            continue
+        spot = code_map.get(code.split(".")[0]) or code_map.get(code)
+        if not spot:
+            continue
+        row = {
+            "code": code,
+            "trade_date": trade_date,
+            "open": spot.get("open"),
+            "high": spot.get("high"),
+            "low": spot.get("low"),
+            "close": spot.get("price"),
+            "pre_close": None,
+            "change": None,
+            "pct_chg": spot.get("change_pct"),
+            "volume": None,
+        }
+        written += store.upsert_index_daily(code, [row])
+        logger.info("tencent index fallback wrote %s for %s", code, trade_date)
     return written
 
 
