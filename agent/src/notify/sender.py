@@ -146,21 +146,8 @@ def send_with_noise(
         NoiseConfig, evaluate_noise, record_sent, record_blocked,
     )
 
-    # 将 Pydantic model 转为 dataclass（如果需要）
-    if noise_cfg is not None:
-        try:
-            if hasattr(noise_cfg, "model_dump"):
-                nc_dict = noise_cfg.model_dump()
-            elif hasattr(noise_cfg, "__dataclass_fields__"):
-                nc_dict = {k: getattr(noise_cfg, k) for k in noise_cfg.__dataclass_fields__}
-            else:
-                nc_dict = dict(noise_cfg) if not isinstance(noise_cfg, dict) else noise_cfg
-
-            nc = NoiseConfig(**nc_dict) if isinstance(nc_dict, dict) else noise_cfg
-        except Exception:
-            nc = NoiseConfig()
-    else:
-        nc = NoiseConfig()
+    # 统一转换为 NoiseConfig dataclass
+    nc = NoiseConfig.from_model(noise_cfg)
 
     content = f"{title}\n\n{markdown}"
     decision = evaluate_noise(nc, content=content, route_type=route_type, severity=severity)

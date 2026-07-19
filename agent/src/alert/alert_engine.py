@@ -272,22 +272,24 @@ def check_all_rules(funds_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
     triggered: list[dict[str, Any]] = []
     rules_modified = False
 
-    # Check if any rule needs historical data (change detection)
-    needs_history = any(
-        r.get("condition", {}).get(k) is not None
+    # 只对有 change-detection 规则的基金查历史（避免对所有基金无意义查询）
+    change_rule_codes = {
+        r.get("fund_code", "").strip()
         for r in rules
-        for k in ("premium_change_above", "premium_change_below", "nav_change_above")
-    )
+        if r.get("enabled", True) and any(
+            r.get("condition", {}).get(k) is not None
+            for k in ("premium_change_above", "premium_change_below", "nav_change_above")
+        )
+    }
 
     # Build historical lookup: fund_code → {prev_premium, prev_nav}
     history_map: dict[str, dict] = {}
-    if needs_history:
+    if change_rule_codes:
         try:
             from src.data.market_store import get_market_store
             store = get_market_store()
             if store is not None:
-                for fund in funds_data:
-                    code = str(fund.get("code", "")).strip()
+                for code in change_rule_codes:
                     if not code:
                         continue
                     try:

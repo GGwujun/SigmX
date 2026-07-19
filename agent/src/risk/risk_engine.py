@@ -98,8 +98,15 @@ def _calc_atr(bars: list[dict], period: int = 20) -> float:
     return float(np.mean(trs[-period:]))
 
 
+# ── 预取缓存（run_all_checks 填充，_get_* 优先读取）──
+_price_cache: dict[str, tuple[float, dict]] = {}
+_bars_cache: dict[str, list[dict]] = {}
+
+
 def _get_current_price(store, symbol: str) -> tuple[float, dict]:
-    """获取最新价格和行情数据。返回 (price, quote_dict)。"""
+    """获取最新价格和行情数据（优先从预取缓存读取）。"""
+    if symbol in _price_cache:
+        return _price_cache[symbol]
     quote = store.get_latest_realtime_quote(symbol)
     if quote:
         price = quote.get("price", 0) or quote.get("close", 0) or 0
@@ -108,7 +115,9 @@ def _get_current_price(store, symbol: str) -> tuple[float, dict]:
 
 
 def _get_bars(store, symbol: str, days: int = 30) -> list[dict]:
-    """获取历史 K 线。"""
+    """获取历史 K 线（优先从预取缓存读取）。"""
+    if symbol in _bars_cache:
+        return _bars_cache[symbol]
     df = store.get_daily_bars(symbol, days=days)
     if df is None or df.empty:
         return []
@@ -552,6 +561,25 @@ def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
             portfolio_health_score=100.0,
             summary="无持仓数据，请在跟踪看板中填写持仓信息",
         )
+
+    # ── 预取缓存：一次性加载所有持仓的价格和K线 ──
+    global _price_cache, _bars_cache
+    _price_cache = {}
+    _bars_cache = {}
+    for pos in positions:
+        sym = pos.get("symbol", "")
+        if not sym:
+            continue
+        quote = store.get_latest_realtime_quote(sym)
+        price = 0.0
+        if quote:
+            price = float(quote.get("price", 0) or quote.get("close", 0) or 0)
+        _price_cache[sym] = (price, quote or {})
+        df = store.get_daily_bars(sym, days=30)
+        if df is not None and not df.empty:
+            _bars_cache[sym] = df.reset_index().to_dict("records")
+        else:
+            _bars_cache[sym] = []
 
     # L1: 组合回撤（全持仓级别）
     checks.append(check_l1_drawdown_circuit_breaker(positions, store, regime_params))

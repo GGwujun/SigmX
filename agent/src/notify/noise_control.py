@@ -32,26 +32,42 @@ SEVERITY_RANK = {"info": 0, "warning": 1, "error": 2, "critical": 3}
 
 
 # ─────────────────────────────────────────────────────────────────
-# 数据模型
+# NoiseConfig — 统一使用 Pydantic 版本（见 models.py NoiseConfigModel）
+# 这里提供一个轻量 alias 供内部使用，避免循环导入
 # ─────────────────────────────────────────────────────────────────
 
 @dataclass
 class NoiseConfig:
-    """噪声控制配置。所有字段可选，默认值 = 当前行为（不拦截）。"""
-    dedup_ttl_seconds: int = 0          # 内容去重窗口（0 = 不启用）
-    cooldown_seconds: int = 0           # 同类型冷却（0 = 不启用）
-    quiet_hours: str = ""               # "23:00-08:00" 格式（空 = 不启用）
+    """轻量内部表示，从 NoiseConfigModel Pydantic 转换而来。"""
+    dedup_ttl_seconds: int = 0
+    cooldown_seconds: int = 0
+    quiet_hours: str = ""
     timezone: str = "Asia/Shanghai"
-    min_severity: str = ""              # "info"/"warning"/"error"/"critical"（空 = 不过滤）
+    min_severity: str = ""
 
     def is_effective(self) -> bool:
-        """是否有任何拦截规则生效。"""
         return bool(
             self.dedup_ttl_seconds > 0
             or self.cooldown_seconds > 0
             or self.quiet_hours.strip()
             or self.min_severity.strip()
         )
+
+    @classmethod
+    def from_model(cls, model: Any) -> "NoiseConfig":
+        """从 Pydantic NoiseConfigModel 或任意 dict 创建。"""
+        if model is None:
+            return cls()
+        try:
+            if hasattr(model, "model_dump"):
+                return cls(**model.model_dump())
+            elif hasattr(model, "__dataclass_fields__"):
+                return cls(**{k: getattr(model, k) for k in model.__dataclass_fields__})
+            elif isinstance(model, dict):
+                return cls(**model)
+        except Exception:
+            pass
+        return cls()
 
 
 @dataclass
