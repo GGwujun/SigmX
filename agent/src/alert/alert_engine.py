@@ -104,6 +104,9 @@ def create_rule(
     premium_above: float | None = None,
     premium_below: float | None = None,
     amount_above: float | None = None,
+    premium_change_above: float | None = None,
+    premium_change_below: float | None = None,
+    nav_change_above: float | None = None,
     webhook_type: str = "wechat",
     throttle_minutes: int = 60,
 ) -> dict[str, Any]:
@@ -120,6 +123,9 @@ def create_rule(
             "premium_above": premium_above,
             "premium_below": premium_below,
             "amount_above": amount_above,
+            "premium_change_above": premium_change_above,
+            "premium_change_below": premium_change_below,
+            "nav_change_above": nav_change_above,
         },
         "notification": {
             "webhook_type": webhook_type,
@@ -197,12 +203,23 @@ def is_throttled(rule: dict[str, Any]) -> bool:
         return False
 
 
-def check_condition(fund: dict[str, Any], rule: dict[str, Any]) -> bool:
-    """Check if a fund matches the rule's conditions."""
+def check_condition(fund: dict[str, Any], rule: dict[str, Any],
+                    prev_premium: float | None = None,
+                    prev_nav: float | None = None) -> bool:
+    """Check if a fund matches the rule's conditions.
+
+    Args:
+        fund: Current fund data dict
+        rule: Alert rule dict
+        prev_premium: Previous day's premium rate (for change detection)
+        prev_nav: Previous day's NAV (for change detection)
+    """
     cond = rule.get("condition", {})
     premium = float(fund.get("premium_rate") or 0.0)
     amount = float(fund.get("amount") or 0.0)
+    nav = float(fund.get("nav") or 0.0)
 
+    # Static thresholds
     premium_above = cond.get("premium_above")
     if premium_above is not None and premium < float(premium_above):
         return False
@@ -215,6 +232,26 @@ def check_condition(fund: dict[str, Any], rule: dict[str, Any]) -> bool:
     if amount_above is not None and amount < float(amount_above):
         return False
 
+    # Premium rate change (日环比)
+    premium_change_above = cond.get("premium_change_above")
+    if premium_change_above is not None and prev_premium is not None:
+        change = premium - prev_premium
+        if change < float(premium_change_above):
+            return False
+
+    premium_change_below = cond.get("premium_change_below")
+    if premium_change_below is not None and prev_premium is not None:
+        change = premium - prev_premium
+        if change > float(premium_change_below):
+            return False
+
+    # NAV change (净值跳变)
+    nav_change_above = cond.get("nav_change_above")
+    if nav_change_above is not None and prev_nav is not None and prev_nav > 0:
+        nav_change_pct = abs(nav - prev_nav) / prev_nav * 100
+        if nav_change_pct < float(nav_change_above):
+            return False
+
     return True
 
 
@@ -223,10 +260,42 @@ def check_all_rules(funds_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     Returns list of triggered alert dicts (ready for notification + history).
     Updates last_triggered and trigger_count in the rules file.
+    Automatically fetches historical data for change-detection conditions.
     """
     rules = load_rules()
     triggered: list[dict[str, Any]] = []
     rules_modified = False
+
+    # Check if any rule needs historical data (change detection)
+    needs_history = any(
+        r.get("condition", {}).get(k) is not None
+        for r in rules
+        for k in ("premium_change_above", "premium_change_below", "nav_change_above")
+    )
+
+    # Build historical lookup: fund_code → {prev_premium, prev_nav}
+    history_map: dict[str, dict] = {}
+    if needs_history:
+        try:
+            from src.data.market_store import get_market_store
+            store = get_market_store()
+            if store is not None:
+                for fund in funds_data:
+                    code = str(fund.get("code", "")).strip()
+                    if not code:
+                        continue
+                    try:
+                        hist = store.get_fund_premium_history(code, days=2)
+                        if hist and len(hist) >= 2:
+                            prev = hist[-2]  # second most recent
+                            history_map[code] = {
+                                "prev_premium": float(prev.get("premium_rate") or 0.0),
+                                "prev_nav": float(prev.get("nav") or 0.0),
+                            }
+                    except Exception:
+                        continue
+        except Exception:
+            logger.debug("alert_engine: failed to load historical data", exc_info=True)
 
     for rule in rules:
         if not rule.get("enabled", True):
@@ -248,7 +317,11 @@ def check_all_rules(funds_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if fund is None:
             continue
 
-        if not check_condition(fund, rule):
+        # Get historical data for this fund
+        hist = history_map.get(fund_code, {})
+        if not check_condition(fund, rule,
+                               prev_premium=hist.get("prev_premium"),
+                               prev_nav=hist.get("prev_nav")):
             continue
 
         # Rule triggered!
@@ -264,6 +337,8 @@ def check_all_rules(funds_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "amount": float(fund.get("amount") or 0.0),
             "price": float(fund.get("price") or 0.0),
             "nav": float(fund.get("nav") or 0.0),
+            "prev_premium": hist.get("prev_premium"),
+            "prev_nav": hist.get("prev_nav"),
             "webhook_type": rule.get("notification", {}).get("webhook_type", "wechat"),
             "triggered_at": _now_iso(),
         }

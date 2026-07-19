@@ -23,6 +23,9 @@ class CreateRuleRequest(BaseModel):
     premium_above: float | None = None
     premium_below: float | None = None
     amount_above: float | None = None
+    premium_change_above: float | None = None
+    premium_change_below: float | None = None
+    nav_change_above: float | None = None
     webhook_type: str = "wechat"
     throttle_minutes: int = 60
 
@@ -57,14 +60,24 @@ def register_alert_routes(
         from src.alert.alert_engine import create_rule
         if not req.fund_code.strip():
             raise HTTPException(400, "基金代码不能为空")
-        if req.premium_above is None and req.premium_below is None:
-            raise HTTPException(400, "至少设置一个溢价阈值（premium_above 或 premium_below）")
+        has_condition = any([
+            req.premium_above is not None,
+            req.premium_below is not None,
+            req.premium_change_above is not None,
+            req.premium_change_below is not None,
+            req.nav_change_above is not None,
+        ])
+        if not has_condition:
+            raise HTTPException(400, "至少设置一个告警条件")
         rule = create_rule(
             fund_code=req.fund_code,
             fund_name=req.fund_name,
             premium_above=req.premium_above,
             premium_below=req.premium_below,
             amount_above=req.amount_above,
+            premium_change_above=req.premium_change_above,
+            premium_change_below=req.premium_change_below,
+            nav_change_above=req.nav_change_above,
             webhook_type=req.webhook_type,
             throttle_minutes=req.throttle_minutes,
         )
@@ -107,6 +120,20 @@ def register_alert_routes(
         history = load_history()
         # Return most recent first
         return {"history": list(reversed(history[-100:])), "total": len(history)}
+
+    @app.get("/alert/rules/types")
+    async def get_rule_types(_=Depends(require_auth)):
+        """返回支持的告警规则条件类型。"""
+        return {
+            "types": [
+                {"key": "premium_above", "label": "溢价率上限(%)", "type": "number", "description": "溢价率超过此值时触发"},
+                {"key": "premium_below", "label": "折价率下限(%)", "type": "number", "description": "折价率超过此值时触发（负值）"},
+                {"key": "amount_above", "label": "成交额下限(元)", "type": "number", "description": "成交额需超过此值才触发"},
+                {"key": "premium_change_above", "label": "溢价率上升(%)", "type": "number", "description": "溢价率日环比上升超过此值时触发"},
+                {"key": "premium_change_below", "label": "溢价率下降(%)", "type": "number", "description": "溢价率日环比下降超过此值时触发（负值）"},
+                {"key": "nav_change_above", "label": "净值跳变(%)", "type": "number", "description": "净值日环比变化超过此值时触发"},
+            ]
+        }
 
     # ── Signal endpoints ───────────────────────────────────────────
 

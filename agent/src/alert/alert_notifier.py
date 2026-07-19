@@ -18,6 +18,7 @@ def _format_alert(alert: dict[str, Any]) -> tuple[str, str]:
     Tiered severity (3 tiers, inspired by lof-monitor):
     - |premium| >= 8%  → 🚨 超高溢价/折价（紧急，含操作建议）
     - |premium| >= 5%  → 🔥 高溢价/折价（重要，含套利空间）
+    - premium_change / nav_change → 📊 变化提醒
     - Otherwise         → 📊 套利提醒（标准）
     """
     premium = alert.get("premium_rate", 0.0)
@@ -28,11 +29,31 @@ def _format_alert(alert: dict[str, Any]) -> tuple[str, str]:
     nav = alert.get("nav", 0.0)
     amount = alert.get("amount", 0.0)
     triggered_at = alert.get("triggered_at", "")
+    prev_premium = alert.get("prev_premium")
+    prev_nav = alert.get("prev_nav")
 
     is_premium = premium > 0
     direction = "溢价" if is_premium else "折价"
     emoji_dir = "📈" if is_premium else "📉"
     amount_wan = amount / 10000 if amount else 0
+
+    # Detect change-based alerts
+    is_change_alert = False
+    change_lines: list[str] = []
+    if prev_premium is not None:
+        change = premium - prev_premium
+        if abs(change) >= 1.0:  # significant change
+            is_change_alert = True
+            change_lines = [
+                f"**📊 溢价率变化提醒**",
+                f"前日溢价率：{prev_premium:+.2f}% → 今日：**{premium:+.2f}%**",
+                f"变化：**{change:+.2f}%**",
+            ]
+    if prev_nav is not None and prev_nav > 0:
+        nav_change = abs(nav - prev_nav) / prev_nav * 100
+        if nav_change >= 1.0:
+            is_change_alert = True
+            change_lines.append(f"净值变化：{prev_nav:.4f} → {nav:.4f}（{nav_change:.2f}%）")
 
     # Calculate estimated profit for 10万 investment
     invest = 100000
@@ -71,6 +92,17 @@ def _format_alert(alert: dict[str, Any]) -> tuple[str, str]:
             f"成交额：{amount_wan:,.0f} 万元",
             f"",
             f"**💰 10万预估利润：{est_profit:+,.0f} 元**",
+        ]
+    elif is_change_alert:
+        title = f"📊 折溢价变化提醒 — {fund_name}({fund_code})"
+        lines = [
+            f"## 📊 折溢价变化提醒",
+            f"**{fund_name}**（{fund_code}）",
+        ] + change_lines + [
+            f"",
+            f"当前溢价率：**{premium:+.2f}%**",
+            f"场内价格：{price:.4f} | 净值：{nav:.4f}",
+            f"成交额：{amount_wan:,.0f} 万元",
         ]
     else:
         title = f"📊 套利提醒 — {fund_name}({fund_code})"
