@@ -66,6 +66,25 @@ export function FundOpportunity() {
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [refreshInterval, setRefreshInterval] = useState(60); // seconds
   const [countdown, setCountdown] = useState(60);
+
+  // 扫描函数（必须在引用它的 useEffect 之前定义，避免 TDZ）
+  const doScan = useCallback(async (targetPage: number, targetSize: number, typeVal: string, minVal: number, sortVal: SortKey, kw: string = "", showToast = false) => {
+    setLoading(true);
+    try {
+      const res = await api.scanFunds(typeVal, minVal, targetPage, targetSize, sortVal, kw);
+      setItems(res.items || []);
+      setTotal(res.count || 0);
+      setTotalPages(res.total_pages || 1);
+      setSource(res.source || "snapshot");
+      setServerUpdatedAt(res.updated_at);
+      if (showToast) toast.success(`扫描到 ${res.count} 只基金`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "扫描失败");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!autoRefresh) return;
     const timer = setInterval(() => {
@@ -116,23 +135,6 @@ export function FundOpportunity() {
     }
     return { profit, profitPct: (profit / invest) * 100, isPremium };
   };
-
-  const doScan = useCallback(async (targetPage: number, targetSize: number, typeVal: string, minVal: number, sortVal: SortKey, kw: string = "", showToast = false) => {
-    setLoading(true);
-    try {
-      const res = await api.scanFunds(typeVal, minVal, targetPage, targetSize, sortVal, kw);
-      setItems(res.items || []);
-      setTotal(res.count || 0);
-      setTotalPages(res.total_pages || 1);
-      setSource(res.source || "snapshot");
-      setServerUpdatedAt(res.updated_at);
-      if (showToast) toast.success(`扫描到 ${res.count} 只基金`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "扫描失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
     doScan(page, pageSize, fundType, minPremium, sort, keyword); // auto-scan on mount

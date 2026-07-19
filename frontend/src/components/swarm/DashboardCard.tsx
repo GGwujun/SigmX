@@ -66,9 +66,8 @@ function PriceTag({ label, value }: { label: string; value: number }) {
   );
 }
 
-export function DashboardCard({ dashboard, decision, confidence }: {
+export function DashboardCard({ dashboard, confidence }: {
   dashboard: DashboardData;
-  decision: string;
   confidence: number;
 }) {
   const signalClass = SIGNAL_COLORS[dashboard.core_conclusion?.signal_type] || SIGNAL_COLORS["🟡持有观望"];

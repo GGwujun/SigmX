@@ -140,9 +140,10 @@ export default function BigScreen() {
   const loadData = useCallback(async () => {
     try {
       const [indicesRes, sectorsRes, fundsRes] = await Promise.all([
-        api.getMarketIndices?.() ?? Promise.resolve([]),
-        api.getSectorRanking?.(18) ?? Promise.resolve([]),
-        api.scanFunds?.("all", 0, 1, 50, "premium_abs", "", false) ?? Promise.resolve({ items: [] }),
+        // 后端暂无 getMarketIndices/getSectorRanking 独立接口 → 降级为空，UI 区块隐藏
+        Promise.resolve([]),
+        Promise.resolve([]),
+        api.scanFunds?.("all", 0, 1, 50, "premium_abs", "") ?? Promise.resolve({ items: [] }),
       ]);
       if (Array.isArray(indicesRes)) setIndices(indicesRes);
       if (Array.isArray(sectorsRes)) setSectors(sectorsRes);
