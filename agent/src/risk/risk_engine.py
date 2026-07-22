@@ -651,9 +651,10 @@ def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
             continue
         current_pct = (price - avg_cost) / avg_cost
         old_peak = pos.get("peak_profit_pct", 0) or 0
-        if current_pct > old_peak:
+        task_id = pos.get("task_id")
+        if task_id and current_pct > old_peak:
             from src.data.schedule_store import update_position_fields
-            update_position_fields(pos["task_id"], peak_profit_pct=current_pct)
+            update_position_fields(task_id, peak_profit_pct=current_pct)
 
     # 健康评分
     health = compute_health_score(positions, store, regime_params)

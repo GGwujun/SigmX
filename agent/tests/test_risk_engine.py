@@ -205,6 +205,39 @@ def test_l4_take_profit_passes_below_tp1(store: MarketStore) -> None:
     assert res.triggered is False
 
 
+def test_run_all_checks_accepts_profitable_watchlist_position(
+    store: MarketStore,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Watchlist positions have no schedule task_id and must still be checked."""
+    from src.data import schedule_store, watchlist_store
+
+    _seed_quote(store, "600519.SH", price=110.0)
+    monkeypatch.setattr(schedule_store, "get_positions", lambda: [])
+    monkeypatch.setattr(
+        watchlist_store,
+        "load_watchlist",
+        lambda: [{
+            "symbol": "600519.SH",
+            "name": "demo",
+            "shares": 100,
+            "cost": 100.0,
+            "date": "2026-07-01",
+        }],
+    )
+
+    report = re.run_all_checks(store, trade_date="2026-07-22")
+
+    try:
+        assert report.trade_date == "2026-07-22"
+        assert report.checks
+    finally:
+        # run_all_checks 会写模块级 _price_cache/_bars_cache（跨 store 泄漏），
+        # 清空以免污染同进程后续的 health_score / L7 / L8 等测试。
+        re._price_cache.clear()
+        re._bars_cache.clear()
+
+
 # ── L5: stampede + index ────────────────────────────────────────────────
 
 def test_l5_index_circuit_breaker_triggers_on_three_percent_drop(store: MarketStore) -> None:
