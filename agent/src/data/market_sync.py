@@ -59,6 +59,10 @@ _DAILY_COMPENSATION_LIMIT = 200
 # akshare 同花顺单股资金流兜底：限流 ~1 QPS 易被封，sleep 比较保守
 _AKSHARE_CAPITAL_SLEEP = float(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_SLEEP", "0.6"))
 _AKSHARE_CAPITAL_BUDGET = int(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_BUDGET", "1500"))  # 25 分钟时间盒
+# tpdog fund/stock 全市场逐股资金流：30次/秒 限流, 5000+ 只逐股拉。
+# 时间盒保护单次 tick 不超时(超时 break, 下个 tick 断点续传)。积分消耗 ~5000/天,
+# 套餐 8万/天 绰绰有余。默认 600s(10分钟) ≈ 拉 1万只, 够单 tick 内拉完全市场。
+_TPDOG_CAPITAL_BUDGET = int(os.getenv("MARKET_SYNC_TPDOG_CAPITAL_BUDGET", "600"))
 _DEFAULT_INDEX_CODES = (
     "000001.SH",  # 上证指数
     "399001.SZ",  # 深证成指
@@ -2162,7 +2166,16 @@ def _sync_stock_capital_tpdog_history(store: MarketStore, trade_date: str) -> in
 
     securities = store.list_security_master()
     total = 0
+    deadline = time.monotonic() + _TPDOG_CAPITAL_BUDGET  # 时间盒: 防止单 tick 超时
+    processed = 0
     for security in securities:
+        if time.monotonic() > deadline:
+            logger.warning(
+                "tpdog fund/stock hit budget at %d/%d codes for %s",
+                processed, len(securities), trade_date,
+            )
+            break
+        processed += 1
         code = str(security.get("code") or "").upper()
         if not code:
             continue
@@ -2291,13 +2304,22 @@ def _sync_stock_capital_akshare_ths(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_stock_capital(store: MarketStore, trade_date: str) -> int:
+    """个股资金流明细。免费优先, 不够再用付费 tpdog 补。
+
+    两段式(都有断点续传, 互不重复):
+      1. akshare(免费, 同花顺逐股, 有时间盒) — 先尽力拉, 拉多少算多少
+      2. tpdog fund/stock(付费 1积分/只, 有时间盒) — 把 akshare 没拉到的剩余 code 补上
+    免费源拉满则 tpdog 一只都不调(断点续传全跳过, 零积分消耗)。
+    """
+    total = 0
+    # 免费源优先
+    total += _sync_stock_capital_akshare_ths(store, trade_date)
+    # akshare 没拉全(时间盒到点/被封) 的剩余 code, 用 tpdog 补(断点续传, 已拉的跳过)
+    total += _sync_stock_capital_tpdog_history(store, trade_date)
+    if total:
+        return total
+    # 两段都没出数据, 兜底
     written = _sync_stock_capital_tushare_by_date(store, trade_date)
-    if written:
-        return written
-    written = _sync_stock_capital_tpdog_history(store, trade_date)
-    if written:
-        return written
-    written = _sync_stock_capital_akshare_ths(store, trade_date)
     if written:
         return written
     return _sync_stock_capital_tpdog_current(store, trade_date)
