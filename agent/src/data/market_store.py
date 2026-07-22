@@ -695,9 +695,17 @@ class MarketStore:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
-        # 用 DELETE 模式替代 WAL：避免 Windows bind mount 下 -wal/-shm 文件权限问题
-        self._conn.execute("PRAGMA journal_mode=DELETE")
+        # busy_timeout 必须在 journal_mode 切换之前设置：切换 journal_mode 需要
+        # 排他锁，若此时还没 busy_timeout，多进程并发会立刻 database is locked
+        # 而非等待重试（market-sync/data-sync/vibe-trading 三进程共写同一 db）。
         self._conn.execute("PRAGMA busy_timeout=5000")
+        # 用 DELETE 模式替代 WAL：避免 Windows bind mount 下 -wal/-shm 文件权限问题。
+        # 切换需排他锁，并发下可能拿不到 —— 已是 DELETE 模式时无需切换，失败时
+        # 退化为默认 journal 模式，不让构造崩溃（market-sync worker tick 的致命点）。
+        try:
+            self._conn.execute("PRAGMA journal_mode=DELETE")
+        except sqlite3.OperationalError:
+            pass
         self._conn.execute("PRAGMA synchronous=NORMAL")
         self._lock = threading.RLock()
         self._init_db()
