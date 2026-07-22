@@ -4256,8 +4256,20 @@ def _sync_stage_snapshots(store: MarketStore, trade_date: str) -> int:
                     close = float(tail["close"].iloc[-1])
                     prev_close = float(tail["close"].iloc[-2]) if len(tail) >= 2 else None
                     source_date = tail.index[-1].strftime("%Y-%m-%d")
-                if change_pct is None and close and prev_close:
-                    change_pct = round((close - prev_close) / prev_close * 100, 2)
+                # 涨幅只信数据源直接给的(rise_rate / rise), 绝不自己 close/prev 算 ——
+                # 缺历史日时自己算会跳到错误的"前收", 算出离谱涨幅(002015 曾显示 +9.92%)。
+                # 注意 get_daily_bars 只返回 OHLCV(无 rise_rate), 故单独查 bars_daily 当天 rise_rate。
+                if change_pct is None:
+                    try:
+                        row = store._conn.execute(  # noqa: SLF001
+                            "SELECT rise_rate FROM bars_daily WHERE code = ? AND trade_date = ? LIMIT 1",
+                            (symbol, trade_date),
+                        ).fetchone()
+                        rr = _num(row[0]) if row and row[0] is not None else 0.0
+                        if rr:
+                            change_pct = round(rr, 2)
+                    except Exception:  # noqa: BLE001
+                        pass
                 if change_pct is None and is_etf and df is not None and not df.empty and "rise" in df.columns:
                     change_pct = round(_num(df["rise"].iloc[-1]) * 100, 2)
             cost = _num(item.get("cost"))
