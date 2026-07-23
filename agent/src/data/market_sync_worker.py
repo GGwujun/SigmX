@@ -304,7 +304,12 @@ _DATE_KEYED_TABLES = (
     "announcements",
 )
 # Tables merged wholesale (no per-date isolation; PK covers whole row).
-_WHOLE_TABLES = ("security_master", "trade_calendar")
+# sync_runs / sync_dataset_runs MUST be included: the run is created on the
+# shadow DB, and after merge the caller does published_store.finish_sync_run(
+# run_id, PUBLISHED) on LIVE. Without merging them, live has no such run_id
+# and finish_sync_run raises KeyError → the run never reaches PUBLISHED →
+# data-sync never ships the day (the post_close freeze regression).
+_WHOLE_TABLES = ("security_master", "trade_calendar", "sync_runs", "sync_dataset_runs")
 
 
 def _merge_shadow_to_live(shadow_db: Path, live_db: Path, trade_date: str) -> None:
@@ -503,12 +508,15 @@ def _validate_tier_quality(
                 source="configured-provider-chain",
             ),
         )
-        # A blocking contract fails the run on any degradation.  An
-        # advisory contract only fails the run when the provider returned
-        # rows but every one was rejected as corrupt — coverage shortfall or
-        # an empty result degrades (PARTIAL + readiness) but still publishes.
+        # Fail the run ONLY on genuine corruption: the provider returned rows
+        # (received>0) but every one was rejected (valid==0). A *missing*
+        # blocking dataset (received==0 — provider unavailable / rate-limited)
+        # is NOT corruption: it records PARTIAL here and the lenient
+        # missing_critical path upstream decides whether to publish. This keeps
+        # "data is broken" (must block) distinct from "data is absent" (can
+        # degrade), so a temporarily-unavailable source never freezes the day.
         corrupt = received > 0 and valid_rows == 0
-        if reasons and (contract.blocking or (contract.hard_fail_on_zero_valid and corrupt)):
+        if corrupt and (contract.blocking or contract.hard_fail_on_zero_valid):
             failed_contracts.append(
                 f"{dataset} received={received} valid={valid_rows} minimum={minimum}"
             )
@@ -724,16 +732,16 @@ def _run_one_tier(
                 QualityStatus.PARTIAL,
                 error_summary="; ".join(failed_contracts),
             )
-            if strict:
-                raise MarketDataQualityError(
-                    f"blocking dataset quality contracts failed: {'; '.join(failed_contracts)}"
-                )
-            # Lenient mode: log and continue to publish. The failing datasets
-            # are recorded PARTIAL (downstream readiness reflects it), but a
-            # single degraded dataset must not freeze the entire tier's data.
-            logger.warning(
-                "post-close %s: contracts failed but lenient mode publishing: %s",
-                tier_name, "; ".join(failed_contracts),
+            # failed_contracts only contains blocking contracts or
+            # hard_fail_on_zero_valid datasets whose rows were ALL corrupt (see
+            # _validate_tier_quality). That is genuine data corruption, NOT a
+            # provider-being-unavailable degradation — it must ALWAYS block
+            # publication, regardless of lenient mode. Leniency already covers
+            # the recoverable cases (missing_critical, coverage shortfall)
+            # above, which never reach this list. Publishing corrupt rows
+            # would poison the live DB.
+            raise MarketDataQualityError(
+                f"blocking dataset quality contracts failed: {'; '.join(failed_contracts)}"
             )
 
         if enable_daily_reference and "daily" in tier_datasets:

@@ -332,22 +332,41 @@ def test_independently_verified_tpdog_fallback_can_publish(
 
 
 def test_swallowed_dataset_failure_blocks_publication(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # A missing critical dataset (provider temporarily unavailable) is lenient
+    # by default: it degrades to PARTIAL + warning rather than freezing the
+    # whole day's publish. Hard-block happens only under MARKET_SYNC_CORE_STRICT=1.
     live = tmp_path / "live.db"
     shadow = tmp_path / "shadow.db"
     _seed_live(live)
     monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"daily": 1})
 
+    # Default (lenient): missing index does NOT raise; the run still publishes.
+    monkeypatch.delenv("MARKET_SYNC_CORE_STRICT", raising=False)
+    result = worker._run_post_close_shadow_sync(
+        "2026-07-14",
+        live_db=live,
+        shadow_db=shadow,
+        datasets={"daily", "index"},
+        deadline_seconds=60,
+        lookback_days=30,
+    )
+    assert result == {"daily": 1}
+
+    # Strict mode: the same missing critical dataset must hard-block publication.
+    monkeypatch.setenv("MARKET_SYNC_CORE_STRICT", "1")
+    live2 = tmp_path / "live2.db"
+    shadow2 = tmp_path / "shadow2.db"
+    _seed_live(live2)
     with pytest.raises(worker.MarketDataQualityError, match="missing critical dataset results"):
         worker._run_post_close_shadow_sync(
             "2026-07-14",
-            live_db=live,
-            shadow_db=shadow,
+            live_db=live2,
+            shadow_db=shadow2,
             datasets={"daily", "index"},
             deadline_seconds=60,
             lookback_days=30,
         )
-
-    assert MarketStore(live).get_meta("daemon:2026-07-14") is None
+    assert MarketStore(live2).get_meta("daemon:2026-07-14") is None
 
 
 def test_run_once_rejects_unsafe_no_shadow_mode() -> None:
