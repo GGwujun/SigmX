@@ -28,6 +28,7 @@ from src.data.market_quality import (
 )
 from src.data.market_sync import (
     _all_a_share_codes,
+    _data_integrity_check,
     _maybe_run_fund_premium_sync,
     _maybe_run_index_history_sync,
     _maybe_run_intraday_sync,
@@ -244,12 +245,124 @@ def _prepare_shadow(live_db: Path, shadow_db: Path) -> None:
 
 
 def _publish_shadow(shadow_db: Path, live_db: Path) -> None:
-    """Copy the verified shadow DB into the live DB with a short write phase."""
+    """Copy the verified shadow DB into the live DB with a short write phase.
+
+    DEPRECATED: full backup overwrite clears live-side intraday/backfill data.
+    Kept only as a fallback if _merge_shadow_to_live is disabled. Use
+    _merge_shadow_to_live instead.
+    """
     live_db.parent.mkdir(parents=True, exist_ok=True)
     with sqlite3.connect(f"file:{shadow_db}?mode=ro", uri=True, timeout=30) as source:
         with sqlite3.connect(str(live_db), timeout=30) as target:
             target.execute("PRAGMA busy_timeout=30000")
             source.backup(target, pages=1000, sleep=0.02)
+
+
+# Tables merged by (code, trade_date) — only rows for the run's trade_date are
+# copied from shadow to live. INSERT OR REPLACE keeps other dates intact.
+_DATE_KEYED_TABLES = (
+    "bars_daily",
+    "stock_daily_basic",
+    "index_daily",
+    "etf_daily",
+    "fund_daily",
+    "board_daily",
+    "dragon_tiger",
+    "stock_pool",
+    "zt_pool",
+    "zb_pool",
+    "dt_pool",
+    "yzt_pool",
+    "ths_limit_up",
+    "stock_capital_flow",
+    "stock_capital_rank",
+    "sector_capital_flow",
+    "sector_snapshot",
+    "sector_snapshot_industry",
+    "sector_snapshot_concept",
+    "market_breadth_snapshot",
+    "market_stage_snapshot",
+    "global_market_index_daily",
+    "us_theme_snapshot",
+    "premarket_news",
+    "ths_hot_reason",
+    "hot_list",
+    "popularity_rank",
+    "cls_telegraph",
+    "stock_news",
+    "fund_flow_daily",
+    "margin_trading",
+    "block_trade",
+    "holder_num",
+    "dividend_history",
+    "lockup_expiry",
+    "option_chain",
+    "northbound_flow",
+    "eps_forecast",
+    "financial_snapshot",
+    "financial_statement",
+    "announcements",
+)
+# Tables merged wholesale (no per-date isolation; PK covers whole row).
+_WHOLE_TABLES = ("security_master", "trade_calendar")
+
+
+def _merge_shadow_to_live(shadow_db: Path, live_db: Path, trade_date: str) -> None:
+    """Incrementally merge shadow rows into live by INSERT OR REPLACE.
+
+    Replaces the old ``source.backup(target)`` full-overwrite publish (which
+    wiped live-side intraday/backfill data every post_close). Now only the
+    run's trade_date slice (or the whole table for universe tables) is merged,
+    preserving live data for other dates and for tables the shadow never wrote
+    (realtime intraday, integrity backfill).
+    """
+    live_db.parent.mkdir(parents=True, exist_ok=True)
+    src = sqlite3.connect(f"file:{shadow_db}?mode=ro", uri=True, timeout=30)
+    src.row_factory = sqlite3.Row
+    tgt = sqlite3.connect(str(live_db), timeout=30)
+    tgt.execute("PRAGMA busy_timeout=30000")
+    tgt.execute("BEGIN IMMEDIATE")
+    try:
+        # Date-keyed tables: copy only this run's trade_date rows.
+        for table in _DATE_KEYED_TABLES:
+            try:
+                rows = src.execute(
+                    f"SELECT * FROM {table} WHERE trade_date = ?", (trade_date,)
+                ).fetchall()
+            except sqlite3.Error:
+                # Table may not exist in this shadow build — skip.
+                continue
+            if not rows:
+                continue
+            cols = [d[0] for d in src.execute(f"SELECT * FROM {table} LIMIT 0").description]
+            placeholders = ",".join("?" for _ in cols)
+            collist = ",".join(cols)
+            tgt.executemany(
+                f"INSERT OR REPLACE INTO {table} ({collist}) VALUES ({placeholders})",
+                [tuple(r) for r in rows],
+            )
+        # Whole tables: merge entire shadow table (universe/calendar).
+        for table in _WHOLE_TABLES:
+            try:
+                rows = src.execute(f"SELECT * FROM {table}").fetchall()
+            except sqlite3.Error:
+                continue
+            if not rows:
+                continue
+            cols = [d[0] for d in src.execute(f"SELECT * FROM {table} LIMIT 0").description]
+            placeholders = ",".join("?" for _ in cols)
+            collist = ",".join(cols)
+            tgt.executemany(
+                f"INSERT OR REPLACE INTO {table} ({collist}) VALUES ({placeholders})",
+                [tuple(r) for r in rows],
+            )
+        tgt.commit()
+    except Exception:
+        tgt.rollback()
+        raise
+    finally:
+        tgt.close()
+        src.close()
 
 
 def _integrity_ok(db_path: Path) -> bool:
@@ -264,6 +377,8 @@ def _validate_tier_quality(
     run_id: str,
     tier_datasets: set[str],
     rows: dict[str, int],
+    *,
+    active_code_count: int | None = None,
 ) -> list[str]:
     """Per-dataset contract loop for one tier. Persists each dataset's quality
     report and returns the list of violating-contract strings (empty = pass).
@@ -294,10 +409,19 @@ def _validate_tier_quality(
             reasons.append(f"semantic_validation_error:{exc}")
         expected_rows = minimum
         if dataset == "realtime":
-            active_rows = shadow_store._conn.execute(
-                "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
-            ).fetchone()
-            active_codes = int(active_rows[0] or 0) if active_rows else 0
+            # security_master is authoritative on the LIVE db (core tier writes
+            # it there). The shadow db may not contain it (e.g. enhanced-only
+            # run, or a fresh shadow), so querying shadow here silently returns
+            # 0 active codes and skips the coverage gate — letting an
+            # under-covered realtime publish as PUBLISHED. Prefer the count the
+            # caller read from live; fall back to shadow only if not provided.
+            if active_code_count is not None:
+                active_codes = active_code_count
+            else:
+                active_rows = shadow_store._conn.execute(
+                    "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
+                ).fetchone()
+                active_codes = int(active_rows[0] or 0) if active_rows else 0
             coverage_minimum = int(active_codes * _REALTIME_MIN_COVERAGE + 0.999999)
             expected_rows = max(minimum, coverage_minimum)
             if active_codes and valid_rows < coverage_minimum:
@@ -506,8 +630,25 @@ def _run_one_tier(
                 f"missing critical dataset results after sync: {', '.join(missing_critical)}"
             )
 
+        # realtime coverage gate needs the authoritative active-code count from
+        # the LIVE security_master (shadow may be empty of it). Only query when
+        # this tier actually includes realtime.
+        active_code_count: int | None = None
+        if "realtime" in tier_datasets:
+            probe = MarketStore(live_db)
+            try:
+                row = probe._conn.execute(
+                    "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
+                ).fetchone()
+                active_code_count = int(row[0] or 0) if row else 0
+            except Exception:
+                active_code_count = None
+            finally:
+                probe._conn.close()
+
         failed_contracts = _validate_tier_quality(
-            shadow_store, trade_date, run_id, tier_datasets, rows
+            shadow_store, trade_date, run_id, tier_datasets, rows,
+            active_code_count=active_code_count,
         )
         if failed_contracts:
             shadow_store.finish_sync_run(
@@ -546,7 +687,8 @@ def _run_one_tier(
         raise RuntimeError(f"shadow DB integrity check failed: {shadow_db}")
     shadow_store._conn.close()
     logger.info("post-close %s tier publishing %s rows=%s", tier_name, trade_date, rows)
-    _publish_shadow(shadow_db, live_db)
+    # Incremental merge (not full overwrite) — preserves live intraday/backfill.
+    _merge_shadow_to_live(shadow_db, live_db, trade_date)
     published_store = MarketStore(live_db)
     # Post-publish readiness recheck. Only enforced in strict mode: in lenient
     # mode the daily dataset may legitimately be PARTIAL (reference sources
@@ -691,6 +833,13 @@ def run_worker(interval_seconds: int = 60) -> None:
     token = mark_background(True)
     live_db = _default_live_db()
     live_store = MarketStore(live_db)
+    # Periodic integrity sweep: cleans stale pending sync_runs, backfills shallow
+    # history, and re-syncs low daily coverage. The in-process daemon (_loop) that
+    # used to host this is disabled in production (start_market_sync_daemon returns
+    # immediately), so it MUST run here too or auto-remediation never happens.
+    # Wall-clock throttled; set MARKET_SYNC_INTEGRITY_INTERVAL=0 to disable.
+    integrity_interval = int(os.getenv("MARKET_SYNC_INTEGRITY_INTERVAL", "600"))
+    last_integrity = 0.0
     try:
         while True:
             try:
@@ -717,6 +866,13 @@ def run_worker(interval_seconds: int = 60) -> None:
                     # snapshot publish, on its own idempotent meta_key. Slow/idempotent;
                     # must never block the day's core publish. See plan step ③.
                     _maybe_run_index_history_sync(live_store)
+
+                if integrity_interval > 0 and time.monotonic() - last_integrity >= integrity_interval:
+                    last_integrity = time.monotonic()
+                    try:
+                        _data_integrity_check(live_store, _today_cst_str())
+                    except Exception:
+                        logger.exception("data integrity check failed")
             except Exception:
                 logger.exception("market sync worker tick failed")
             time.sleep(interval_seconds)

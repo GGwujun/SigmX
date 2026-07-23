@@ -45,9 +45,29 @@ def _cache_set(key: str, val: Any) -> None:
 
 def _safe_float(v: Any) -> float:
     try:
-        return float(v)
+        f = float(v)
     except (ValueError, TypeError):
         return 0.0
+    if f != f or f in (float("inf"), float("-inf")):  # NaN/Inf → 0 (JSON-safe)
+        return 0.0
+    return f
+
+
+# Min spacing between akshare calls. akshare proxies east-money/sina which both
+# rate-limit by IP; serial back-to-back calls trip the ban and return empty
+# payloads indistinguishable from "no data".
+_AK_CALL_GAP = 0.4
+_ak_last_call = 0.0
+_ak_call_lock = threading.Lock()
+
+
+def _pace_ak_call() -> None:
+    global _ak_last_call
+    with _ak_call_lock:
+        elapsed = time.time() - _ak_last_call
+        if elapsed < _AK_CALL_GAP:
+            time.sleep(_AK_CALL_GAP - elapsed)
+        _ak_last_call = time.time()
 
 
 def _pct_change(df: pd.DataFrame) -> tuple[float, float]:
@@ -84,14 +104,18 @@ def get_us_indices() -> dict[str, Any]:
     result: dict[str, Any] = {}
     for label, sym in _US_INDEX_SYMBOLS.items():
         try:
+            _pace_ak_call()
             df = ak.index_us_stock_sina(symbol=sym)
             last, chg = _pct_change(df)
             date = str(df["date"].iloc[-1]) if df is not None and not df.empty else ""
             result[label] = {"close": round(last, 2), "change_pct": round(chg, 2), "date": date}
         except Exception as exc:
-            logger.info("global_market: US index %s failed: %s", label, exc)
+            logger.warning("global_market: US index %s degraded: %s", label, exc)
             result[label] = None
-    _cache_set(cache_key, result)
+    # Only cache if at least one index resolved; otherwise leave uncached so a
+    # transient sina ban doesn't pin an all-None snapshot for _CACHE_TTL seconds.
+    if any(v is not None for v in result.values()):
+        _cache_set(cache_key, result)
     return result
 
 
@@ -124,6 +148,7 @@ def get_commodities() -> dict[str, Any]:
                 got = False
                 for sym in syms:
                     try:
+                        _pace_ak_call()
                         df = hist_fn(symbol=sym)
                         last, chg = _pct_change(df)
                         if last > 0:
@@ -137,8 +162,9 @@ def get_commodities() -> dict[str, Any]:
         else:
             logger.info("global_market: futures_foreign_hist not available in this akshare version")
     except Exception as exc:
-        logger.info("global_market: commodities failed: %s", exc)
-    _cache_set(cache_key, result)
+        logger.warning("global_market: commodities degraded: %s", exc)
+    if any(v is not None for v in result.values()):
+        _cache_set(cache_key, result)
     return result
 
 
@@ -156,11 +182,19 @@ def get_fx() -> dict[str, Any]:
     try:
         import akshare as ak
         # USD/CNY 汇率（currency_boc_safe 或 fx_spot_quote）
+        # Use the current year window dynamically — a hardcoded 2026 window goes
+        # empty from 2027 onward and silently drops FX context.
+        from datetime import datetime as _dt
+        _year = _dt.now().year
+        _start = f"{_year}0101"
+        _end = f"{_year}1231"
         for label, sym in [("usd_cny", "美元"), ("usd_index", "美元指数")]:
             try:
                 fn = getattr(ak, "currency_boc_safe", None) or getattr(ak, "currency_boc_sina", None)
                 if fn:
-                    df = fn(symbol=sym, start_date="20260101", end_date="20261231") if "start_date" in fn.__code__.co_varnames else fn(sym)
+                    _pace_ak_call()
+                    has_window = "start_date" in getattr(fn, "__code__", None).co_varnames if hasattr(fn, "__code__") else False
+                    df = fn(symbol=sym, start_date=_start, end_date=_end) if has_window else fn(sym)
                     if df is not None and not df.empty:
                         # find a numeric close-ish column
                         for col in ["中行折算价", "现汇卖出价", "收盘价", "close"]:
@@ -172,10 +206,11 @@ def get_fx() -> dict[str, Any]:
                                     result[label] = {"close": round(last, 4), "change_pct": round(((last - prev) / prev * 100), 2)}
                                     break
             except Exception as exc:
-                logger.info("global_market: fx %s failed: %s", label, exc)
+                logger.warning("global_market: fx %s degraded: %s", label, exc)
     except Exception as exc:
-        logger.info("global_market: fx block failed: %s", exc)
-    _cache_set(cache_key, result)
+        logger.warning("global_market: fx block degraded: %s", exc)
+    if any(v is not None for v in result.values()):
+        _cache_set(cache_key, result)
     return result
 
 

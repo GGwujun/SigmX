@@ -237,14 +237,34 @@ def main() -> None:
     if not SERVER_URL or not INGEST_TOKEN:
         raise SystemExit("SERVER_URL and MARKET_INGEST_TOKEN are required")
     watcher = PublishedRunWatcher(DB_PATH)
+    # Heartbeat: write a line to sync.log at least this often so a Docker
+    # healthcheck can tell a live-but-idle loop from a frozen one. Backs off
+    # exponentially on repeated failures (capped) so a long server outage does
+    # not re-pack+re-upload the whole DB every SYNC_INTERVAL seconds.
+    heartbeat_every = max(SYNC_INTERVAL * 2, 60)
+    last_heartbeat = 0.0
+    backoff = SYNC_INTERVAL
+    max_backoff = 900  # 15 minutes
     while True:
+        now = time.time()
         run_id = watcher.next_run_id()
         if run_id:
             try:
                 sync_once(run_id)
                 watcher.mark_sent(run_id)
+                backoff = SYNC_INTERVAL  # reset on success
             except Exception as exc:  # noqa: BLE001
                 log(f"snapshot delivery failed and will retry run={run_id}: {exc}")
+                # Exponential backoff with a cap; avoids hammering the receiver
+                # (and re-running the full sqlite backup + gzip) when it is down.
+                sleep_for = min(backoff, max_backoff)
+                log(f"backing off {sleep_for}s before next attempt")
+                time.sleep(sleep_for)
+                backoff = min(backoff * 2, max_backoff)
+                continue
+        elif now - last_heartbeat >= heartbeat_every:
+            log(f"heartbeat: no new published run; next check in {SYNC_INTERVAL}s")
+            last_heartbeat = now
         time.sleep(SYNC_INTERVAL)
 
 
