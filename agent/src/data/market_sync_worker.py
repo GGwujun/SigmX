@@ -421,6 +421,24 @@ def _validate_daily_reference(
         "publishing in lenient mode: %s",
         "; ".join(report.blocking_reasons) or "(no reasons)",
     )
+    # Lenient publish: the run will ship, so the per-dataset report must
+    # reflect "published & usable" — otherwise downstream readiness gates
+    # (get_data_readiness) see PARTIAL and reject consumers (recommendations)
+    # even though the data is live. Promote the report status to PUBLISHED
+    # while keeping the blocking_reasons for traceability.
+    if report.status is not QualityStatus.PUBLISHED:
+        promoted = DatasetQualityReport(
+            dataset=report.dataset,
+            trade_date=report.trade_date,
+            status=QualityStatus.PUBLISHED,
+            expected_rows=report.expected_rows,
+            received_rows=report.received_rows,
+            valid_rows=report.valid_rows,
+            published_rows=report.valid_rows,
+            blocking_reasons=report.blocking_reasons,
+            source=report.source + "+lenient_promoted",
+        )
+        shadow_store.record_dataset_result(run_id, promoted)
 
 
 def _split_deadline(
