@@ -19,39 +19,9 @@ def test_market_dashboard_aggregates_sources(monkeypatch) -> None:
     app = FastAPI()
     routes.register_market_dashboard_routes(app, _auth, _auth)
 
-    monkeypatch.setattr(
-        routes,
-        "_load_recommendations",
-        lambda: {
-            "items": [
-                {
-                    "id": "2026-06-24:morning:000001.SZ",
-                    "date": "2026-06-24",
-                    "slot": "morning",
-                    "score": 0.8,
-                    "ai_review": {"score": 0.7},
-                    "factor_review": {"score": 0.6},
-                }
-            ],
-            "date": "2026-06-24",
-        },
-    )
-    monkeypatch.setattr(
-        routes,
-        "_load_opportunities",
-        lambda: {
-            "categories": [
-                {
-                    "id": "breakout",
-                    "label": "突破",
-                    "opportunities": [{"symbol": "000001.SZ", "change_pct": 6.2, "confidence": 0.8}],
-                }
-            ]
-        },
-    )
-    monkeypatch.setattr(routes, "_load_news", lambda: {"articles": [{"title": "news"}]})
-    monkeypatch.setattr(routes, "_load_events", lambda: {"categories": [{"events": [{"title": "event"}]}]})
-    monkeypatch.setattr(routes, "_load_tracking", lambda: {"watchlist": [{"symbol": "000001.SZ"}], "tasks": [{"task_id": "t1"}]})
+    # The dashboard aggregates exactly these five sources via _run_source.
+    # recommendations/opportunities/news are NOT loaded here (they come from the
+    # stage-snapshot path), so we only mock what the endpoint actually calls.
     monkeypatch.setattr(
         routes,
         "_load_market_overview",
@@ -64,45 +34,48 @@ def test_market_dashboard_aggregates_sources(monkeypatch) -> None:
             "top_losers": [],
         },
     )
+    monkeypatch.setattr(routes, "_load_capital", lambda: {"sectors": [], "northbound": []})
+    monkeypatch.setattr(routes, "_load_themes", lambda: {"themes": []})
+    monkeypatch.setattr(routes, "_load_pools", lambda today: {"zt": [], "lb": []})
+    monkeypatch.setattr(
+        routes,
+        "_load_tracking",
+        lambda: {"holdings": [], "watchlist": [{"symbol": "000001.SZ"}], "tasks": [{"task_id": "t1"}]},
+    )
 
     res = TestClient(app).get("/market-dashboard")
 
     assert res.status_code == 200
     body = res.json()
-    assert body["counts"] == {
-        "recommendations": 1,
-        "opportunities": 1,
-        "indices": 1,
-        "hot_sectors": 1,
-        "news": 1,
-        "events": 1,
-        "watchlist": 1,
-        "tasks": 1,
-        "tail_decisions": 1,
-    }
     assert body["errors"] == []
-    assert body["tail_decisions"][0]["symbol"] == "000001.SZ"
-    assert body["mood"]["label"] == "进攻观察"
+    # Aggregated counts reflect the five mocked sources.
+    assert body["counts"]["indices"] == 1
+    assert body["counts"]["hot_sectors"] == 1
+    assert body["counts"]["watchlist"] == 1
+    assert body["counts"]["tasks"] == 1
+    assert body["market_overview"]["breadth"]["advancers"] == 10
+    # No recommendations/opportunities are loaded on this endpoint.
+    assert body["recommendations"] == []
+    assert body["opportunities"] == []
 
 
 def test_market_dashboard_degrades_failed_source(monkeypatch) -> None:
     app = FastAPI()
     routes.register_market_dashboard_routes(app, _auth, _auth)
 
-    monkeypatch.setattr(routes, "_load_recommendations", lambda: {"items": [], "date": "2026-06-24"})
-    monkeypatch.setattr(routes, "_load_opportunities", lambda: (_ for _ in ()).throw(RuntimeError("scan failed")))
-    monkeypatch.setattr(routes, "_load_news", lambda: {"articles": []})
-    monkeypatch.setattr(routes, "_load_events", lambda: {"categories": []})
-    monkeypatch.setattr(routes, "_load_tracking", lambda: {"watchlist": [], "tasks": []})
+    # A failing source must surface in `errors` without breaking the response.
     monkeypatch.setattr(routes, "_load_market_overview", lambda: {"breadth": {}, "indices": [], "hot_sectors": []})
+    monkeypatch.setattr(routes, "_load_capital", lambda: (_ for _ in ()).throw(RuntimeError("scan failed")))
+    monkeypatch.setattr(routes, "_load_themes", lambda: {"themes": []})
+    monkeypatch.setattr(routes, "_load_pools", lambda today: None)
+    monkeypatch.setattr(routes, "_load_tracking", lambda: {"watchlist": [], "tasks": []})
 
     res = TestClient(app).get("/market-dashboard")
 
     assert res.status_code == 200
     body = res.json()
-    assert body["opportunities"] == []
-    assert body["counts"]["opportunities"] == 0
-    assert body["errors"] == [{"source": "opportunities", "message": "scan failed"}]
+    assert body["capital"] is None
+    assert {"source": "capital", "message": "scan failed"} in body["errors"]
 
 
 def test_tail_decisions_fall_back_to_opportunities() -> None:
@@ -130,12 +103,18 @@ def test_market_dashboard_stage_endpoint(monkeypatch) -> None:
     app = FastAPI()
     routes.register_market_dashboard_routes(app, _auth, _auth)
 
-    monkeypatch.setattr(routes, "_load_recommendations", lambda: {"items": [], "date": "2026-06-24"})
-    monkeypatch.setattr(routes, "_load_opportunities", lambda: {"categories": []})
-    monkeypatch.setattr(routes, "_load_news", lambda: {"articles": [{"title": "policy"}]})
-    monkeypatch.setattr(routes, "_load_events", lambda: {"categories": []})
-    monkeypatch.setattr(routes, "_load_tracking", lambda: {"watchlist": [], "tasks": []})
-    monkeypatch.setattr(routes, "_load_market_overview", lambda: {"breadth": {"advancers": 3, "decliners": 1}, "indices": [], "hot_sectors": []})
+    # The stage endpoint reads from market_stage_snapshot via _market_store(),
+    # not from the per-source _load_* helpers. Provide a snapshot whose payload
+    # carries the morning-brief title.
+    class FakeStore:
+        def get_market_stage_snapshot_fast(self, stage, trade_date=None):
+            return {
+                "trade_date": "2026-06-24",
+                "updated_at": "2026-06-24T08:50:00+08:00",
+                "payload": {"title": "早盘内参", "market_breadth": {"advancers": 3, "decliners": 1}},
+            }
+
+    monkeypatch.setattr(routes, "_market_store", lambda: FakeStore())
 
     res = TestClient(app).get("/market-dashboard/stages/morning-brief")
 

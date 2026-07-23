@@ -14,8 +14,12 @@ def test_recommendation_inputs_keep_realistic_minimums() -> None:
 
 def test_core_universe_contracts_block_publication() -> None:
     # Only the structural backbone blocks the whole snapshot when it fails.
-    for dataset in ("master", "daily_basic", "index", "calendar"):
+    # daily_basic is intentionally advisory: it is tushare-only with no degraded
+    # fallback, so making it blocking would let a single rate-limited fetch
+    # freeze the entire core publish (see dataset_registry._CRITICAL note).
+    for dataset in ("master", "index", "calendar"):
         assert contract_for(dataset).blocking is True
+    assert contract_for("daily_basic").blocking is False
 
 
 def test_market_wide_snapshots_are_advisory_not_blocking() -> None:
