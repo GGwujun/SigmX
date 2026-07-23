@@ -1456,7 +1456,9 @@ def _sync_index_daily_tushare(
         try:
             df = api.index_daily(ts_code=code, start_date=date_key, end_date=date_key)
         except Exception as exc:  # noqa: BLE001
-            logger.debug("tushare index_daily failed for %s/%s: %s", code, trade_date, exc)
+            # index is CRITICAL — surface failures at warning level so a stuck
+            # index source isn't silently masked by the degraded fallback chain.
+            logger.warning("tushare index_daily failed for %s/%s: %s", code, trade_date, exc)
             continue
         if df is None or df.empty:
             continue
