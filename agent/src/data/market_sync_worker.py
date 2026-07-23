@@ -229,22 +229,18 @@ def _parse_datasets(value: str | None, default: set[str]) -> set[str]:
     return {part.strip() for part in value.split(",") if part.strip()}
 
 
-def _sqlite_backup(src: Path, dst: Path, *, pages: int = 1000, sleep: float = 0.02) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(f"file:{src}?mode=ro", uri=True, timeout=30) as source:
-        with sqlite3.connect(str(dst), timeout=30) as target:
-            source.backup(target, pages=pages, sleep=sleep)
-
-
 def _prepare_shadow(live_db: Path, shadow_db: Path) -> None:
-    for suffix in ("", "-wal", "-shm"):
-        path = Path(str(shadow_db) + suffix)
-        if path.exists():
-            path.unlink()
-    if live_db.exists():
-        _sqlite_backup(live_db, shadow_db)
-    else:
-        MarketStore(shadow_db)
+    """Ensure the shadow DB exists; reuse it across cycles.
+
+    旧实现每轮删除 shadow 再从 live 全量拷贝——Windows bind mount 下
+    unlink WAL/SHM 文件会因文件句柄残留而 PermissionError / 卡死。
+
+    现在直接复用：所有写入按 (code, trade_date) 隔离，
+    INSERT OR REPLACE / DELETE+INSERT 天然处理覆盖；shadow 自带的
+    bars_daily 历史还能让逐股增量回退 (last_daily_date) 更高效。
+    首次运行由后续 MarketStore(shadow_db) 的 _init_db 自动建表。
+    """
+    shadow_db.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _publish_shadow(shadow_db: Path, live_db: Path) -> None:
