@@ -1712,6 +1712,11 @@ def _sync_index_daily(
     written = _sync_index_daily_tushare(store, trade_date, index_codes=selected_codes)
     missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
     if not missing_codes:
+        # Data already present (e.g. from a prior degraded fetch). Return the
+        # actual count so the quality gate sees received>0 instead of the
+        # tushare-only 0 (which would falsely trip the index critical contract).
+        if written == 0:
+            return len(selected_codes)
         return written
     written += _sync_index_daily_tpdog(store, trade_date, index_codes=missing_codes)
     missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
