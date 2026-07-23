@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shield, RefreshCw, AlertTriangle, Activity } from "lucide-react";
 import { api } from "@/lib/api";
 import { RegimeCard } from "@/components/risk/RegimeCard";
@@ -30,7 +30,8 @@ export interface RiskCheckData {
   trade_date: string;
   regime: string;
   checks: RiskCheck[];
-  portfolio_health_score: number;
+  portfolio_health_score: number | null;
+  has_positions: boolean;
   summary: string;
 }
 
@@ -71,6 +72,20 @@ export default function RiskDashboard() {
   }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // 事件展示去重：同一 (layer, code) 只保留最新一条。
+  // 后端已按当天去重，这里再做一层跨天去重，避免同一深套票多日堆积。
+  const dedupedEvents = useMemo(() => {
+    const seen = new Set<string>();
+    const out: RiskEvent[] = [];
+    for (const e of events) {
+      const key = `${e.layer}|${e.code ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(e);
+    }
+    return out;
+  }, [events]);
 
   const runCheck = async () => {
     setLoading(true);
@@ -113,7 +128,7 @@ export default function RiskDashboard() {
         <div className="lg:col-span-2">
           <RegimeCard data={regime} />
         </div>
-        <HealthScore score={riskCheck?.portfolio_health_score ?? 100} />
+        <HealthScore score={riskCheck?.portfolio_health_score ?? null} />
       </div>
 
       {/* Risk Matrix */}
@@ -127,14 +142,14 @@ export default function RiskDashboard() {
       )}
 
       {/* Events timeline */}
-      {events.length > 0 && (
+      {dedupedEvents.length > 0 && (
         <div className="rounded-xl border border-white/10 bg-white/5 overflow-hidden">
           <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
             <Activity className="h-4 w-4 text-white/50" />
-            <h3 className="text-sm font-semibold text-white/80">风控事件（近 7 天）</h3>
+            <h3 className="text-sm font-semibold text-white/80">风控事件（近 7 天，已去重）</h3>
           </div>
           <div className="divide-y divide-white/5 max-h-80 overflow-y-auto">
-            {events.map((e) => (
+            {dedupedEvents.map((e) => (
               <div key={e.event_id} className="px-4 py-2.5 flex items-start gap-3">
                 <AlertTriangle className={`h-4 w-4 mt-0.5 flex-shrink-0 ${
                   e.severity === "critical" ? "text-red-400" :

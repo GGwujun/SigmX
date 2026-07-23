@@ -59,12 +59,17 @@ def save_event(
     details: dict | None = None,
     trade_date: str | None = None,
 ) -> dict[str, Any]:
-    """保存一条风控事件。"""
+    """保存一条风控事件。
+
+    当天去重：同一 (trade_date, layer, code) 已有事件则替换为最新一条，
+    避免长期深套/未达 TP1 的持仓逐日刷屏淹没新风险。
+    """
     with _LOCK:
         events = load_events()
+        today = trade_date or datetime.now(_CST).strftime("%Y-%m-%d")
         event = {
             "event_id": _new_event_id(),
-            "trade_date": trade_date or datetime.now(_CST).strftime("%Y-%m-%d"),
+            "trade_date": today,
             "layer": layer,
             "severity": severity,
             "code": code,
@@ -73,6 +78,15 @@ def save_event(
             "notified": False,
             "created_at": datetime.now(_CST).isoformat(),
         }
+        # 移除当天同 (layer, code) 的旧事件，只保留本次最新
+        events = [
+            e for e in events
+            if not (
+                e.get("trade_date") == today
+                and e.get("layer") == layer
+                and e.get("code") == code
+            )
+        ]
         events.insert(0, event)
         # 裁剪
         if len(events) > _MAX_EVENTS:

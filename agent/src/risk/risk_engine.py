@@ -20,7 +20,7 @@ import logging
 import math
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
-from typing import Any
+from typing import Any, Optional
 
 import numpy as np
 
@@ -49,7 +49,8 @@ class RiskReport:
     trade_date: str
     regime: str
     checks: list[RiskCheckResult] = field(default_factory=list)
-    portfolio_health_score: float = 100.0
+    portfolio_health_score: Optional[float] = None  # None = 无持仓/未监控
+    has_positions: bool = True
     summary: str = ""
 
     def to_dict(self) -> dict:
@@ -68,7 +69,12 @@ class RiskReport:
                 }
                 for c in self.checks
             ],
-            "portfolio_health_score": round(self.portfolio_health_score, 1),
+            "portfolio_health_score": (
+                round(self.portfolio_health_score, 1)
+                if self.portfolio_health_score is not None
+                else None
+            ),
+            "has_positions": self.has_positions,
             "summary": self.summary,
         }
 
@@ -182,8 +188,15 @@ def check_l1_drawdown_circuit_breaker(
         return RiskCheckResult(
             layer=1, name="组合回撤熔断", triggered=True,
             severity="critical",
-            message=f"🔴 组合回撤 {drawdown:.1%} ≥ 10% 阈值，建议减仓",
-            details={"drawdown_pct": round(drawdown * 100, 2), "threshold": 10},
+            message=(f"🔴 组合相对成本浮亏 {drawdown:.1%} ≥ 10% 阈值，建议减仓 "
+                     f"（成本 {total_cost:.0f} → 市值 {total_value:.0f}）"),
+            details={
+                "drawdown_pct": round(drawdown * 100, 2),
+                "basis": "cost",  # 标明这是相对成本，非峰值回撤
+                "total_cost": round(total_cost, 2),
+                "total_value": round(total_value, 2),
+                "threshold": 10,
+            },
             action="suggest_sell",
         )
     return _pass(1, "组合回撤熔断")
@@ -223,7 +236,12 @@ def check_l2_trailing_stop_profit(
 def check_l3_atr_stop_loss(
     position: dict, store, regime_params: dict
 ) -> RiskCheckResult:
-    """L3: ATR 动态止损 — 止损 = avg_cost - atr_mult × 20d ATR → warning。"""
+    """L3: ATR 动态止损 — 初始止损 = avg_cost - atr_mult × 20d ATR。
+
+    分两种状态，避免深套后止损价(从成本算的固定值)反高于现价导致语义混乱：
+      未破位(现价 ≥ 初始止损价)：正常监控，距止损 <2% 预警。
+      已破位(现价 < 初始止损价)：不再拿过时的止损价比对，改报"浮亏 X%"。
+    """
     avg_cost = position.get("avg_cost", 0) or 0
     if avg_cost <= 0:
         return _pass(3, "ATR动态止损")
@@ -243,31 +261,43 @@ def check_l3_atr_stop_loss(
     if price <= 0:
         return _pass(3, "ATR动态止损")
 
-    if price <= stop_price:
+    loss_pct = (price - avg_cost) / avg_cost  # 相对成本浮亏，<0 即亏损
+
+    # 已跌破初始止损位（含深套）：改用浮亏表达，不再比止损价
+    if price < stop_price:
         return RiskCheckResult(
             layer=3, name="ATR动态止损", triggered=True,
             severity="warning",
-            message=f"⚠️ {position.get('name', position['symbol'])} "
-                    f"当前价 {price:.2f} ≤ ATR止损价 {stop_price:.2f}",
+            message=(f"⚠️ {position.get('name', position['symbol'])} "
+                     f"已跌破止损位，当前浮亏 {loss_pct:.1%}（成本 {avg_cost:.2f} → 现价 {price:.2f}），建议止损审视"),
             details={
                 "symbol": position["symbol"],
                 "current_price": price,
+                "avg_cost": avg_cost,
                 "stop_price": round(stop_price, 2),
+                "loss_pct": round(loss_pct * 100, 2),
+                "broken": True,
                 "atr": round(atr, 3),
                 "atr_mult": atr_mult,
             },
             action="suggest_sell",
         )
 
-    # 距离止损 < 2% 也预警
+    # 未破位：距离初始止损 < 2% 预警
     distance_pct = (price - stop_price) / price if price > 0 else 0
     if distance_pct < 0.02:
         return RiskCheckResult(
             layer=3, name="ATR动态止损", triggered=True,
             severity="info",
             message=f"ℹ️ {position.get('name', position['symbol'])} "
-                    f"距ATR止损仅 {distance_pct:.1%}",
-            details={"distance_pct": round(distance_pct * 100, 2)},
+                    f"距ATR止损 {stop_price:.2f} 仅 {distance_pct:.1%}",
+            details={
+                "symbol": position["symbol"],
+                "current_price": price,
+                "stop_price": round(stop_price, 2),
+                "distance_pct": round(distance_pct * 100, 2),
+                "broken": False,
+            },
         )
     return _pass(3, "ATR动态止损")
 
@@ -292,7 +322,11 @@ def check_l4_tiered_take_profit(
     profit_pct = (price - avg_cost) / avg_cost
 
     # 从高到低检查
-    for level, tp_val, label in [(3, tp3, "TP3"), (2, tp2, "TP2"), (1, tp1, "TP1")]:
+    for level, tp_val, label in [
+        (3, tp3, "第三档止盈目标"),
+        (2, tp2, "第二档止盈目标"),
+        (1, tp1, "第一档止盈目标"),
+    ]:
         if profit_pct >= tp_val and level not in tp_triggered:
             sev = "warning" if level >= 2 else "info"
             return RiskCheckResult(
@@ -300,11 +334,11 @@ def check_l4_tiered_take_profit(
                 severity=sev,
                 message=f"{'🟡' if sev == 'warning' else 'ℹ️'} "
                         f"{position.get('name', position['symbol'])} "
-                        f"浮盈 {profit_pct:.1%} 达到 {label}（{tp_val:.0%}），建议减仓1/3",
+                        f"浮盈 {profit_pct:.1%} 达到{label}（{tp_val:.0%}），建议减仓1/3锁定利润",
                 details={
                     "symbol": position["symbol"],
                     "profit_pct": round(profit_pct * 100, 2),
-                    "level": label,
+                    "level": f"TP{level}",
                     "threshold": round(tp_val * 100, 1),
                 },
             )
@@ -368,16 +402,29 @@ def check_l6_max_holding_period(
     tp1 = regime_params.get("tp1", 0.15)
     tp_triggered = set(position.get("tp_triggered", []))
     if 1 in tp_triggered:
-        return _pass(6, "持仓天数")  # 已达 TP1，不检查
+        return _pass(6, "持仓天数")  # 已达第一档止盈目标，不检查
 
     days = _trading_days_between(buy_date)
     if days >= 20:
+        # 附带当前盈亏，让用户直观判断这只票是套着还是没涨
+        profit_str = ""
+        profit_pct = None
+        price, _ = _get_current_price(store, position["symbol"])
+        if avg_cost > 0 and price > 0:
+            profit_pct = (price - avg_cost) / avg_cost
+            profit_str = f"，目前{'浮亏' if profit_pct < 0 else '浮盈'} {abs(profit_pct):.1%}"
         return RiskCheckResult(
             layer=6, name="持仓天数", triggered=True,
             severity="warning",
-            message=f"⚠️ {position.get('name', position['symbol'])} "
-                    f"持仓 {days} 天未达 TP1，建议审视持仓逻辑",
-            details={"symbol": position["symbol"], "holding_days": days, "tp1": round(tp1 * 100, 1)},
+            message=(f"⚠️ {position.get('name', position['symbol'])} "
+                     f"已持有 {days} 天仍未赚到 {tp1:.0%}（第一档止盈目标）{profit_str}，"
+                     f"长期不涨建议考虑换股或重新评估"),
+            details={
+                "symbol": position["symbol"],
+                "holding_days": days,
+                "tp1": round(tp1 * 100, 1),
+                "profit_pct": round(profit_pct * 100, 2) if profit_pct is not None else None,
+            },
         )
     return _pass(6, "持仓天数")
 
@@ -601,7 +648,8 @@ def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
             trade_date=trade_date,
             regime=regime,
             checks=[],
-            portfolio_health_score=100.0,
+            portfolio_health_score=None,
+            has_positions=False,
             summary="无持仓数据，请在跟踪看板中填写持仓信息",
         )
 

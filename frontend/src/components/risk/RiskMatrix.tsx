@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { CheckCircle, AlertTriangle, XCircle } from "lucide-react";
+import { CheckCircle, AlertTriangle, XCircle, MinusCircle } from "lucide-react";
 
 interface CheckItem {
   layer: number;
@@ -10,6 +10,19 @@ interface CheckItem {
   details: Record<string, unknown>;
   action: string;
 }
+
+// 固定 8 层骨架：即使后端没返回某层（无持仓/未触发）也照常显示，
+// 避免出现"L8 空白"或空仓时整层消失让人误读为"缺失=没问题"。
+const LAYER_DEFS: { layer: number; name: string }[] = [
+  { layer: 1, name: "组合回撤熔断" },
+  { layer: 2, name: "移动止盈" },
+  { layer: 3, name: "ATR动态止损" },
+  { layer: 4, name: "分级止盈" },
+  { layer: 5, name: "防踩踏+指数熔断" },
+  { layer: 6, name: "持仓天数" },
+  { layer: 7, name: "跌停封板" },
+  { layer: 8, name: "持仓相关性" },
+];
 
 const SEVERITY_ICON: Record<string, typeof CheckCircle> = {
   info: CheckCircle,
@@ -24,22 +37,12 @@ const SEVERITY_COLOR: Record<string, string> = {
 };
 
 export function RiskMatrix({ checks }: { checks: CheckItem[] }) {
-  // Group by layer, show worst severity per layer
+  // 按层聚合
   const layerMap = new Map<number, CheckItem[]>();
   for (const c of checks) {
     const existing = layerMap.get(c.layer) || [];
     existing.push(c);
     layerMap.set(c.layer, existing);
-  }
-
-  const layers = Array.from(layerMap.entries()).sort(([a], [b]) => a - b);
-
-  if (layers.length === 0) {
-    return (
-      <div className="rounded-xl border border-white/10 bg-white/5 p-6 text-center text-sm text-white/40">
-        暂无风控检查数据
-      </div>
-    );
   }
 
   return (
@@ -48,27 +51,36 @@ export function RiskMatrix({ checks }: { checks: CheckItem[] }) {
         <h3 className="text-sm font-semibold text-white/80">8 层风控状态</h3>
       </div>
       <div className="divide-y divide-white/5">
-        {layers.map(([layer, items]) => {
-          const triggered = items.filter(c => c.triggered);
+        {LAYER_DEFS.map(({ layer, name }) => {
+          const items = layerMap.get(layer) || [];
+          const triggered = items.filter((c) => c.triggered);
           const worst = triggered.length > 0
             ? triggered.reduce((a, b) =>
                 (["critical", "warning", "info"].indexOf(a.severity) < ["critical", "warning", "info"].indexOf(b.severity) ? a : b))
             : null;
+
+          // 该层后端根本没返回 check（无持仓时 L2-L7，或持仓不足时 L8）
+          const noData = items.length === 0;
+
           const Icon = worst ? SEVERITY_ICON[worst.severity] || CheckCircle : CheckCircle;
           const color = worst ? SEVERITY_COLOR[worst.severity] || "text-green-400" : "text-green-400";
 
           return (
             <div key={layer} className="px-4 py-3 flex items-start gap-3">
               <div className="flex-shrink-0 w-6 h-6 flex items-center justify-center">
-                <Icon className={cn("h-4 w-4", color)} />
+                {noData ? (
+                  <MinusCircle className="h-4 w-4 text-white/25" />
+                ) : (
+                  <Icon className={cn("h-4 w-4", color)} />
+                )}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-white/70">
-                    L{layer}: {items[0]?.name || `Layer ${layer}`}
+                    L{layer}: {name}
                   </span>
-                  <span className={cn("text-xs font-medium", color)}>
-                    {worst ? worst.severity.toUpperCase() : "PASS"}
+                  <span className={cn("text-xs font-medium", noData ? "text-white/30" : color)}>
+                    {noData ? "无持仓·跳过" : worst ? worst.severity.toUpperCase() : "PASS"}
                   </span>
                 </div>
                 {worst && (

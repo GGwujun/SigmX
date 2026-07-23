@@ -37,7 +37,8 @@ class RiskCheckResponse(BaseModel):
     trade_date: str
     regime: str
     checks: list[dict] = []
-    portfolio_health_score: float = 100.0
+    portfolio_health_score: float | None = None
+    has_positions: bool = True
     summary: str = ""
 
 
@@ -158,9 +159,10 @@ async def run_risk_check():
         loop = asyncio.get_event_loop()
         report = await loop.run_in_executor(None, run_all_checks, store)
         report_dict = report.to_dict()
-        # 持久化风控事件和健康评分
+        # 持久化风控事件和健康评分（无持仓时 score 为 None，跳过持久化）
         save_risk_report(report_dict)
-        save_health_score(report.portfolio_health_score)
+        if report.portfolio_health_score is not None:
+            save_health_score(report.portfolio_health_score)
         return RiskCheckResponse(**report_dict)
     except Exception as exc:
         logger.exception("风控检查失败")
@@ -169,10 +171,10 @@ async def run_risk_check():
 
 @router.get("/health")
 async def get_health_score():
-    """返回当前持仓健康评分。"""
+    """返回当前持仓健康评分（无持仓/未检查时为 null）。"""
     from src.risk.risk_store import get_latest_health_score
     score = get_latest_health_score()
-    return {"health_score": score if score is not None else 100.0}
+    return {"health_score": score}
 
 
 @router.get("/check/history")
