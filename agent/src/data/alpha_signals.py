@@ -244,8 +244,13 @@ def compute_alpha_signals(code: str) -> dict[str, Any]:
                 "direction": direction, "status": "ok",
             })
             successes += 1
-        except Exception:
-            pass  # Factor couldn't be computed — keep status='skipped'
+        except Exception as exc:
+            # Keep status='skipped' (a factor not applying is fine), but record
+            # the reason so a real bug (KeyError/TypeError) is not silently
+            # indistinguishable from "factor N/A". Logged at debug to avoid noise
+            # on factors that legitimately lack peer data.
+            entry["skip_reason"] = f"{type(exc).__name__}: {exc}"
+            logger.debug("alpha_signals: factor %s skipped: %s", entry.get("name"), exc, exc_info=True)
         signals.append(entry)
 
     result["signals"] = signals

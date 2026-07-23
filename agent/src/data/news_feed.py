@@ -57,14 +57,18 @@ def _fetch_feed(route: str, timeout: int = 10) -> list[dict[str, Any]]:
     try:
         resp = requests.get(url, timeout=timeout)
     except requests.RequestException as exc:
-        logger.info("news_feed: fetch %s failed: %s", route, exc)
+        logger.warning("news_feed: fetch %s degraded: %s", route, exc)
         return []
     if resp.status_code != 200 or not resp.content:
+        # A non-200 (often 404/500 from RSSHub when the upstream source changed
+        # its anti-scraping) is a degraded signal, not "no news" — log it so the
+        # empty result is not silently treated as a successful empty fetch.
+        logger.warning("news_feed: %s returned status=%s", route, resp.status_code)
         return []
     try:
         root = ET.fromstring(resp.content)
     except ET.ParseError as exc:
-        logger.info("news_feed: parse %s failed: %s", route, exc)
+        logger.warning("news_feed: parse %s degraded: %s", route, exc)
         return []
 
     # RSS 2.0: channel/item ; Atom: feed/entry
@@ -107,7 +111,12 @@ def get_news(limit_per_feed: int = 15) -> dict[str, Any]:
 
     Returns {feed_name: [items]} with a flat `all` list merged + deduped.
     """
-    cache_key = f"news:{limit_per_feed}"
+    # Cache key includes the CST date so a cached result never survives past
+    # midnight — news is time-sensitive and a stale "today" cache would serve
+    # yesterday's headlines.
+    from datetime import datetime, timezone, timedelta
+    _today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")
+    cache_key = f"news:{_today}:{limit_per_feed}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
@@ -122,7 +131,10 @@ def get_news(limit_per_feed: int = 15) -> dict[str, Any]:
             if t and t not in seen_titles:
                 seen_titles.add(t)
                 result["all"].append({"source": name, **it})
-    _cache_set(cache_key, result)
+    # Only cache if we actually got something; an all-empty result usually means
+    # RSSHub/upstream is down and should not be pinned for _CACHE_TTL seconds.
+    if result["all"]:
+        _cache_set(cache_key, result)
     return result
 
 

@@ -435,6 +435,7 @@ def _fetch_lof_via_mootdx_batch() -> list[dict[str, Any]]:
 
 
 
+def _akshare_sina_prices() -> dict[str, dict[str, Any]]:
     """Akshare sina spot prices (works on Aliyun when mootdx port blocked).
 
     Returns {code: {price, amount}} for exchange-traded assets (stocks + funds).

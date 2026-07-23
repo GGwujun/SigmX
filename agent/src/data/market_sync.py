@@ -1715,8 +1715,10 @@ def _sync_index_daily(
         # Data already present (e.g. from a prior degraded fetch). Return the
         # actual count so the quality gate sees received>0 instead of the
         # tushare-only 0 (which would falsely trip the index critical contract).
+        # Count codes that actually have rows for this trade_date — accurate
+        # telemetry beats reporting len(selected_codes) which may overstate.
         if written == 0:
-            return len(selected_codes)
+            return sum(1 for code in selected_codes if store.has_index_daily(code, trade_date))
         return written
     written += _sync_index_daily_tpdog(store, trade_date, index_codes=missing_codes)
     missing_codes = [code for code in selected_codes if not store.has_index_daily(code, trade_date)]
@@ -6006,6 +6008,11 @@ def _data_integrity_check(store: MarketStore, trade_date: str) -> None:
 
     # 6. Security master coverage
     try:
+        # Re-query here instead of reusing the ``active`` bound in step 1: each
+        # step is wrapped in its own try/except, so if step 1 raised before the
+        # assignment ``active`` would be undefined here and the NameError would
+        # be silently swallowed — silently disabling this coverage check.
+        active = store.count_active_codes()
         if active < _SECURITY_MIN_CODES:
             findings.append(f"security_master: {active} active (need {_SECURITY_MIN_CODES})")
     except Exception:

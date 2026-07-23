@@ -29,6 +29,24 @@ _CACHE_TTL = 300
 _cache_lock = threading.Lock()
 _cache: dict[str, tuple[float, Any]] = {}
 
+# Min spacing between east-money-backed calls (akshare/efinance both hit EM).
+# East-money rate-limits by IP; firing requests back-to-back trips the ban and
+# the source then returns an empty/anti-crawl payload that we cannot tell apart
+# from "no data". A small gap is the single most effective defense.
+_EM_CALL_GAP = 0.4
+_em_last_call_lock = threading.Lock()
+_em_last_call = 0.0
+
+
+def _pace_em_call() -> None:
+    """Throttle consecutive east-money calls to avoid tripping the IP ban."""
+    global _em_last_call
+    with _em_last_call_lock:
+        elapsed = time.time() - _em_last_call
+        if elapsed < _EM_CALL_GAP:
+            time.sleep(_EM_CALL_GAP - elapsed)
+        _em_last_call = time.time()
+
 
 def _cache_get(key: str) -> Any | None:
     with _cache_lock:
@@ -43,11 +61,27 @@ def _cache_set(key: str, val: Any) -> None:
         _cache[key] = (time.time(), val)
 
 
+def _today_cst() -> str:
+    """CST calendar date (YYYYMMDD) for cache key namespacing.
+
+    Capital-flow figures are trading-day scoped; keying on the date guarantees a
+    cached entry built right after close does not survive into the next session
+    (the _CACHE_TTL window alone could bridge an overnight gap on quiet days).
+    """
+    from datetime import datetime, timezone, timedelta
+    return datetime.now(timezone(timedelta(hours=8))).strftime("%Y%m%d")
+
+
 def _safe_float(v: Any) -> float:
     try:
-        return float(v)
+        f = float(v)
     except (ValueError, TypeError):
         return 0.0
+    # float("nan") / float("inf") 不抛异常，但会让 FastAPI JSON 编码报
+    # "Out of range float values are not JSON compliant"。归零。
+    if f != f or f in (float("inf"), float("-inf")):  # NaN check + Inf
+        return 0.0
+    return f
 
 
 # ---------------------------------------------------------------------------
@@ -60,7 +94,7 @@ def get_stock_capital(code: str, days: int = 10) -> list[dict[str, Any]]:
     Returns a list of daily dicts: {date, main_net, super_net, big_net,
     mid_net, small_net, main_pct}. Sorted by date desc.
     """
-    cache_key = f"stock_cap:{code}:{days}"
+    cache_key = f"stock_cap:{_today_cst()}:{code}:{days}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
@@ -68,16 +102,21 @@ def get_stock_capital(code: str, days: int = 10) -> list[dict[str, Any]]:
     rows = _stock_capital_efinance(code, days)
     if not rows:
         rows = _stock_capital_akshare(code, days)
-    _cache_set(cache_key, rows)
+    # Do NOT cache an empty result: an empty list usually means the source was
+    # rate-limited/banned (not "genuinely no data"), and caching it would pin
+    # that degraded state for _CACHE_TTL seconds and hide recovery.
+    if rows:
+        _cache_set(cache_key, rows)
     return rows
 
 
 def _stock_capital_efinance(code: str, days: int) -> list[dict[str, Any]]:
     try:
         import efinance as ef
+        _pace_em_call()
         df = ef.stock.get_history_bill(code)
     except Exception as exc:
-        logger.info("capital_flow: efinance failed for %s: %s", code, exc)
+        logger.warning("capital_flow: efinance degraded for %s: %s", code, exc)
         return []
     if df is None or df.empty:
         return []
@@ -107,9 +146,10 @@ def _stock_capital_efinance(code: str, days: int) -> list[dict[str, Any]]:
 def _stock_capital_akshare(code: str, days: int) -> list[dict[str, Any]]:
     try:
         import akshare as ak
+        _pace_em_call()
         df = ak.stock_individual_fund_flow(stock=code, market="sh" if code.startswith("6") else "sz")
     except Exception as exc:
-        logger.info("capital_flow: akshare failed for %s: %s", code, exc)
+        logger.warning("capital_flow: akshare degraded for %s: %s", code, exc)
         return []
     if df is None or df.empty:
         return []
@@ -134,21 +174,23 @@ def _stock_capital_akshare(code: str, days: int) -> list[dict[str, Any]]:
 
 def get_sector_capital() -> list[dict[str, Any]]:
     """Industry sector fund-flow ranking (net inflow, today)."""
-    cache_key = "sector_cap"
+    cache_key = f"sector_cap:{_today_cst()}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
     rows = _sector_capital_akshare()
-    _cache_set(cache_key, rows)
+    if rows:
+        _cache_set(cache_key, rows)
     return rows
 
 
 def _sector_capital_akshare() -> list[dict[str, Any]]:
     try:
         import akshare as ak
+        _pace_em_call()
         df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
     except Exception as exc:
-        logger.info("capital_flow: sector akshare failed: %s", exc)
+        logger.warning("capital_flow: sector akshare degraded: %s", exc)
         return []
     if df is None or df.empty:
         return []
@@ -168,21 +210,23 @@ def _sector_capital_akshare() -> list[dict[str, Any]]:
 
 def get_north_capital(days: int = 30) -> list[dict[str, Any]]:
     """North-bound (Stock Connect) net inflow history."""
-    cache_key = f"north_cap:{days}"
+    cache_key = f"north_cap:{_today_cst()}:{days}"
     cached = _cache_get(cache_key)
     if cached is not None:
         return cached
     rows = _north_capital_akshare(days)
-    _cache_set(cache_key, rows)
+    if rows:
+        _cache_set(cache_key, rows)
     return rows
 
 
 def _north_capital_akshare(days: int) -> list[dict[str, Any]]:
     try:
         import akshare as ak
+        _pace_em_call()
         df = ak.stock_hsgt_hist_em(symbol="北向资金")
     except Exception as exc:
-        logger.info("capital_flow: north akshare failed: %s", exc)
+        logger.warning("capital_flow: north akshare degraded: %s", exc)
         return []
     if df is None or df.empty:
         return []
