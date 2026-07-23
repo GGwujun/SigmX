@@ -618,6 +618,38 @@ def _positions_from_watchlist() -> list[dict]:
     return out
 
 
+def _enrich_position_names(store, positions: list[dict]) -> None:
+    """给每个 position 补上股票中文名（原地修改）。
+
+    watchlist 只存 symbol 不存名称，导致风控 message 只显示编码（如 "601099.SH"）
+    用户看不懂。这里从 security_master 批量反查 name，缺名时回退 symbol。
+    """
+    # 只补 name 缺失或 name==symbol 的（已有真实名称的不动）
+    need = [p for p in positions if not p.get("name") or p.get("name") == p.get("symbol")]
+    if not need:
+        return
+    wanted = {p.get("symbol") for p in need if p.get("symbol")}
+    if not wanted:
+        return
+    try:
+        placeholders = ",".join("?" * len(wanted))
+        # security_master: code 列带后缀(如 601099.SH)，symbol 列是裸 6 位；持仓 symbol 是带后缀格式
+        rows = store._conn.execute(
+            f"SELECT code, name FROM security_master WHERE code IN ({placeholders})",
+            tuple(wanted),
+        ).fetchall()
+        name_map = {r["code"]: r["name"] for r in rows if r["name"]}
+    except Exception:  # noqa: BLE001  # security_master 不存在或查询失败，静默回退
+        return
+    if not name_map:
+        return
+    for p in need:
+        sym = p.get("symbol")
+        if sym in name_map:
+            # 名称 + 编码，既直观又能定位（如 "太平洋(601099.SH)"）
+            p["name"] = f"{name_map[sym]}({sym})"
+
+
 def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
     """运行全部 8 层风控检查，返回 RiskReport。"""
     from src.data.schedule_store import get_positions
@@ -640,6 +672,9 @@ def run_all_checks(store, trade_date: str | None = None) -> RiskReport:
         if wp.get("symbol") and wp["symbol"] not in seen:
             positions.append(wp)
             seen.add(wp["symbol"])
+
+    # 补股票中文名（watchlist 无名称字段），让风控 message 显示名称而非编码
+    _enrich_position_names(store, positions)
 
     checks: list[RiskCheckResult] = []
 
