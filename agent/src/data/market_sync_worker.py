@@ -28,6 +28,7 @@ from src.data.market_quality import (
 )
 from src.data.market_sync import (
     _all_a_share_codes,
+    _data_integrity_check,
     _maybe_run_fund_premium_sync,
     _maybe_run_index_history_sync,
     _maybe_run_intraday_sync,
@@ -264,6 +265,8 @@ def _validate_tier_quality(
     run_id: str,
     tier_datasets: set[str],
     rows: dict[str, int],
+    *,
+    active_code_count: int | None = None,
 ) -> list[str]:
     """Per-dataset contract loop for one tier. Persists each dataset's quality
     report and returns the list of violating-contract strings (empty = pass).
@@ -294,10 +297,19 @@ def _validate_tier_quality(
             reasons.append(f"semantic_validation_error:{exc}")
         expected_rows = minimum
         if dataset == "realtime":
-            active_rows = shadow_store._conn.execute(
-                "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
-            ).fetchone()
-            active_codes = int(active_rows[0] or 0) if active_rows else 0
+            # security_master is authoritative on the LIVE db (core tier writes
+            # it there). The shadow db may not contain it (e.g. enhanced-only
+            # run, or a fresh shadow), so querying shadow here silently returns
+            # 0 active codes and skips the coverage gate — letting an
+            # under-covered realtime publish as PUBLISHED. Prefer the count the
+            # caller read from live; fall back to shadow only if not provided.
+            if active_code_count is not None:
+                active_codes = active_code_count
+            else:
+                active_rows = shadow_store._conn.execute(
+                    "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
+                ).fetchone()
+                active_codes = int(active_rows[0] or 0) if active_rows else 0
             coverage_minimum = int(active_codes * _REALTIME_MIN_COVERAGE + 0.999999)
             expected_rows = max(minimum, coverage_minimum)
             if active_codes and valid_rows < coverage_minimum:
@@ -506,8 +518,25 @@ def _run_one_tier(
                 f"missing critical dataset results after sync: {', '.join(missing_critical)}"
             )
 
+        # realtime coverage gate needs the authoritative active-code count from
+        # the LIVE security_master (shadow may be empty of it). Only query when
+        # this tier actually includes realtime.
+        active_code_count: int | None = None
+        if "realtime" in tier_datasets:
+            probe = MarketStore(live_db)
+            try:
+                row = probe._conn.execute(
+                    "SELECT COUNT(*) FROM security_master WHERE list_status = 'L'"
+                ).fetchone()
+                active_code_count = int(row[0] or 0) if row else 0
+            except Exception:
+                active_code_count = None
+            finally:
+                probe._conn.close()
+
         failed_contracts = _validate_tier_quality(
-            shadow_store, trade_date, run_id, tier_datasets, rows
+            shadow_store, trade_date, run_id, tier_datasets, rows,
+            active_code_count=active_code_count,
         )
         if failed_contracts:
             shadow_store.finish_sync_run(
@@ -691,6 +720,13 @@ def run_worker(interval_seconds: int = 60) -> None:
     token = mark_background(True)
     live_db = _default_live_db()
     live_store = MarketStore(live_db)
+    # Periodic integrity sweep: cleans stale pending sync_runs, backfills shallow
+    # history, and re-syncs low daily coverage. The in-process daemon (_loop) that
+    # used to host this is disabled in production (start_market_sync_daemon returns
+    # immediately), so it MUST run here too or auto-remediation never happens.
+    # Wall-clock throttled; set MARKET_SYNC_INTEGRITY_INTERVAL=0 to disable.
+    integrity_interval = int(os.getenv("MARKET_SYNC_INTEGRITY_INTERVAL", "600"))
+    last_integrity = 0.0
     try:
         while True:
             try:
@@ -717,6 +753,13 @@ def run_worker(interval_seconds: int = 60) -> None:
                     # snapshot publish, on its own idempotent meta_key. Slow/idempotent;
                     # must never block the day's core publish. See plan step ③.
                     _maybe_run_index_history_sync(live_store)
+
+                if integrity_interval > 0 and time.monotonic() - last_integrity >= integrity_interval:
+                    last_integrity = time.monotonic()
+                    try:
+                        _data_integrity_check(live_store, _today_cst_str())
+                    except Exception:
+                        logger.exception("data integrity check failed")
             except Exception:
                 logger.exception("market sync worker tick failed")
             time.sleep(interval_seconds)
