@@ -1142,6 +1142,38 @@ def _sync_stock_daily_basic_tushare_by_date(
     written = store.upsert_stock_daily_basic(rows)
     if written:
         logger.info("tushare daily_basic wrote %d rows for %s", written, trade_date)
+        return written
+
+    # tpdog not viable for daily_basic (per-code 1 credit × 5000 = too expensive).
+    # Retry tushare with backoff instead.
+    if not rows:
+        time.sleep(60)  # respect rate limit
+        try:
+            df2 = api.daily_basic(trade_date=trade_date.replace("-", ""), fields=fields)
+            if df2 is not None and not df2.empty:
+                rows2 = []
+                for _, r in df2.iterrows():
+                    code = str(r.get("ts_code", "")).upper()
+                    if not code or (wanted is not None and code not in wanted):
+                        continue
+                    rows2.append({
+                        "code": code, "trade_date": trade_date,
+                        "close": r.get("close"), "turnover_rate": r.get("turnover_rate"),
+                        "turnover_rate_f": r.get("turnover_rate_f"),
+                        "volume_ratio": r.get("volume_ratio"),
+                        "pe": r.get("pe"), "pe_ttm": r.get("pe_ttm"),
+                        "pb": r.get("pb"), "ps": r.get("ps"), "ps_ttm": r.get("ps_ttm"),
+                        "dv_ratio": r.get("dv_ratio"), "dv_ttm": r.get("dv_ttm"),
+                        "total_share": r.get("total_share"),
+                        "float_share": r.get("float_share"),
+                        "free_share": r.get("free_share"),
+                        "total_mv": r.get("total_mv"), "circ_mv": r.get("circ_mv"),
+                    })
+                written = store.upsert_stock_daily_basic(rows2)
+                if written:
+                    logger.info("tushare daily_basic retry wrote %d rows for %s", written, trade_date)
+        except Exception as exc:
+            logger.debug("tushare daily_basic retry failed for %s: %s", trade_date, exc)
     return written
 
 
@@ -4524,6 +4556,44 @@ def _sync_zt_pool(store: MarketStore, trade_date: str) -> dict[str, int]:
         counts["zt_pool_ths"] = store.upsert_zt_pool(trade_date, ths, source="ths")
     except Exception as exc:
         logger.debug("ths_limit_up_pool failed: %s", exc)
+
+    # tpdog fallback — only when ALL primary sources returned nothing (save credits)
+    if not any(counts.values()):
+        try:
+            from src.data.tpdog_client import call as tpdog_call
+            tpdog_zt = tpdog_call("pool/v1/limitup/list", date=trade_date)
+            if tpdog_zt and isinstance(tpdog_zt, list):
+                rows = []
+                for item in tpdog_zt:
+                    code_raw = str(item.get("code", ""))
+                    code_type = str(item.get("type", "")).lower()
+                    if code_type in ("sz", "2"):
+                        code = f"{code_raw}.SZ"
+                    elif code_type in ("sh", "1"):
+                        code = f"{code_raw}.SH"
+                    elif code_type in ("bj",):
+                        code = f"{code_raw}.BJ"
+                    else:
+                        code = code_raw
+                    rows.append({
+                        "code": code,
+                        "name": item.get("name", ""),
+                        "trade_date": trade_date,
+                        "price": item.get("price") or item.get("new_price"),
+                        "change_pct": item.get("change_pct") or item.get("up_down_rate"),
+                        "turnover_rate": item.get("turnover_rate"),
+                        "amount": item.get("amount"),
+                        "first_limit_time": item.get("first_limit_time") or item.get("first_time"),
+                        "last_limit_time": item.get("last_limit_time") or item.get("last_time"),
+                        "limit_count": item.get("limit_count") or item.get("zttj_ztcts"),
+                        "reason": item.get("reason") or item.get("hy_name", ""),
+                    })
+                if rows:
+                    counts["zt_pool_tpdog"] = store.upsert_zt_pool(trade_date, rows, source="tpdog")
+                    logger.info("tpdog zt_pool fallback wrote %d rows", len(rows))
+        except Exception as exc:
+            logger.debug("tpdog zt_pool fallback failed: %s", exc)
+
     return {"zt_pool": sum(counts.values()), **counts}
 
 

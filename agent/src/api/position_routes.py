@@ -693,6 +693,33 @@ def _analyze_symbol(code: str, df: pd.DataFrame) -> dict[str, Any]:
     except Exception:
         open_today = day_high = day_low = 0
         day_volume = 0
+
+    # ---- Realtime override during trading hours ----
+    # bars_daily is only updated post-close; during trading hours, prefer
+    # realtime_quote_snapshot for accurate intraday data.
+    now_cst = datetime.now(timezone(timedelta(hours=8)))
+    hour_min = now_cst.hour * 100 + now_cst.minute
+    weekday = now_cst.weekday()  # 0=Mon, 6=Sun
+    if weekday < 5 and (930 <= hour_min <= 1130 or 1300 <= hour_min <= 1500):
+        try:
+            from src.data.market_store import MarketStore
+            store = MarketStore()
+            today_str = now_cst.strftime("%Y-%m-%d")
+            rt = store.get_latest_realtime_quote(code, trade_date=today_str)
+            if rt:
+                rt_price = float(rt.get("price") or 0)
+                if rt_price > 0:
+                    open_today = round(float(rt.get("open") or open_today), 2)
+                    day_high = round(float(rt.get("high") or day_high), 2)
+                    day_low = round(float(rt.get("low") or day_low), 2)
+                    day_volume = int(float(rt.get("volume") or day_volume))
+                    cur_price = round(rt_price, 2)
+                    prev_close_rt = float(rt.get("pre_close") or prev_price)
+                    if prev_close_rt > 0:
+                        change_pct = round((cur_price - prev_close_rt) / prev_close_rt * 100, 2)
+                        prev_price = round(prev_close_rt, 2)
+        except Exception:
+            pass  # fall through to bars_daily data
     market_basics = {
         "open": open_today,            # 今开
         "prev_close": prev_price,      # 昨收
