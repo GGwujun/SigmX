@@ -1,0 +1,4 @@
+# Shell scripts must use LF line endings for Docker/Linux compatibility.
+# Without this, Windows core.autocrlf=true converts to CRLF on checkout,
+# causing "exec: no such file or directory" in Docker (shebang /bin/sh\r).
+*.sh text eol=lf
