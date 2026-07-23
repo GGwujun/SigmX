@@ -5750,7 +5750,10 @@ def _backfill_shallow_codes(store: MarketStore, limit: int) -> int:
             try:
                 conn.commit()
             except Exception:
-                pass
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
         time.sleep(1.0)
 
     return total_written
@@ -5862,6 +5865,13 @@ def _data_integrity_check(store: MarketStore, trade_date: str) -> None:
 
     if findings:
         logger.warning("data integrity check: %s", "; ".join(findings))
+
+    # Ensure connection is in a clean state — roll back any dangling transaction
+    # left by partial operations (e.g. backfill commit failure).
+    try:
+        store._conn.rollback()
+    except Exception:
+        pass
 
 
 def _loop() -> None:
