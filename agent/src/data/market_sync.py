@@ -27,6 +27,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from src.data.dataset_contracts import validate_dataset
 from src.data.dataset_registry import contract_for
 from src.data.sector_matching import match_sector_row, sector_name_keys
 from src.data.market_quality import (
@@ -1951,8 +1952,6 @@ def _sync_realtime_quotes_tpdog(store: MarketStore, trade_date: str) -> int:
     expected_set = set(expected_codes)
 
     def sufficient(candidate_rows: list[dict[str, Any]]) -> bool:
-        from src.data.dataset_contracts import validate_dataset
-
         valid = validate_dataset("realtime", candidate_rows).rows
         if expected_set:
             covered = {str(row.get("code") or "") for row in valid} & expected_set
