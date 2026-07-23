@@ -50,6 +50,49 @@ os.environ.setdefault("NO_PROXY", "*")
 
 logger = logging.getLogger(__name__)
 
+
+def _settled_trade_date(store=None) -> str:
+    """The latest trading day whose close has actually settled, as of now.
+
+    Strict time semantics: data must be written under its real trade date, never
+    under "today" when today hasn't produced a bar yet. Before 15:05 CST this is
+    the prior trading day; from 15:05 onward it's today (if a trading day).
+    Prevents post_close (which spans overnight — 15:00→next 09:30) from writing
+    an empty snapshot under a not-yet-traded date (e.g. 00:50 on day N+1 must
+    still target day N, not N+1 which has no data yet).
+
+    Tries the akshare (sina) calendar first, then the persisted trade_calendar
+    table (db) as fallback, then today as last resort.
+    """
+    try:
+        from src.data.trade_calendar import expected_settled_date
+
+        d = expected_settled_date()
+        if d:
+            return d
+    except Exception:  # noqa: BLE001
+        pass
+    if store is not None:
+        try:
+            from src.data.market_sync import _now_cst
+            from datetime import timedelta
+
+            now = _now_cst()
+            cutoff = now.date().isoformat()
+            if now.hour < 15 or (now.hour == 15 and now.minute < 5):
+                cutoff = (now.date() - timedelta(days=1)).isoformat()
+            row = store._conn.execute(  # noqa: SLF001
+                "SELECT MAX(trade_date) AS d FROM trade_calendar "
+                "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ?",
+                (cutoff,),
+            ).fetchone()
+            if row and row["d"]:
+                return str(row["d"])
+        except Exception:  # noqa: BLE001
+            pass
+    return _today_cst_str()
+
+
 _REALTIME_MIN_COVERAGE = float(os.getenv("MARKET_SYNC_REALTIME_MIN_COVERAGE", "0.90"))
 
 _POST_CLOSE_DATASETS = {
@@ -616,7 +659,7 @@ def run_once(
     """Run one operator-triggered sync outside the API process."""
     live_db = _default_live_db()
     ds = set(datasets) if datasets is not None else set(_POST_CLOSE_DATASETS)
-    day = trade_date or _today_cst_str()
+    day = trade_date or _settled_trade_date()
     if not shadow:
         raise ValueError("shadow publication is mandatory for canonical market data")
     return _run_post_close_shadow_sync(
@@ -649,7 +692,7 @@ def run_worker(interval_seconds: int = 60) -> None:
                         _POST_CLOSE_DATASETS,
                     )
                     _run_post_close_shadow_sync(
-                        _today_cst_str(),
+                        _settled_trade_date(live_store),
                         live_db=live_db,
                         shadow_db=_shadow_db_path(live_db),
                         datasets=datasets,
