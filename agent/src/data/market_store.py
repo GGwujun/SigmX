@@ -1597,6 +1597,51 @@ class MarketStore:
         ).fetchone()[0]
 
     # ------------------------------------------------------------------
+    # Data-integrity query helpers
+    # ------------------------------------------------------------------
+
+    def count_codes_with_date(self, trade_date: str) -> int:
+        """Count distinct codes with bars_daily data on *trade_date*."""
+        return self._conn.execute(
+            "SELECT COUNT(DISTINCT code) FROM bars_daily WHERE trade_date = ?",
+            (trade_date,),
+        ).fetchone()[0]
+
+    def count_active_codes(self) -> int:
+        """Count active codes in security_master."""
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM security_master WHERE is_active = 1"
+        ).fetchone()[0]
+
+    def count_codes_with_min_bars(self, min_bars: int) -> int:
+        """Count codes that have at least *min_bars* rows in bars_daily."""
+        return self._conn.execute(
+            "SELECT COUNT(*) FROM (SELECT code FROM bars_daily GROUP BY code HAVING COUNT(*) >= ?)",
+            (min_bars,),
+        ).fetchone()[0]
+
+    def count_stale_pending_runs(self, minutes: int = 30) -> int:
+        """Count sync_runs still 'pending' for more than *minutes*."""
+        return self._conn.execute(
+            """SELECT COUNT(*) FROM sync_runs
+               WHERE status = 'pending'
+                 AND started_at < datetime('now', ? || ' minutes')""",
+            (f"-{minutes}",),
+        ).fetchone()[0]
+
+    def fail_stale_pending_runs(self, minutes: int = 30) -> int:
+        """Mark long-pending sync_runs as 'failed'."""
+        return self._conn.execute(
+            """UPDATE sync_runs
+               SET status = 'failed',
+                   error_summary = 'stale pending (auto-failed by integrity check)',
+                   finished_at = datetime('now')
+               WHERE status = 'pending'
+                 AND started_at < datetime('now', ? || ' minutes')""",
+            (f"-{minutes}",),
+        ).rowcount
+
+    # ------------------------------------------------------------------
     # Index and board master / board daily
     # ------------------------------------------------------------------
 

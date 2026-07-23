@@ -5615,6 +5615,255 @@ def _maybe_run_fund_premium_sync(store: MarketStore) -> None:
         logger.exception("market-sync daemon fund-premium tick failed")
 
 
+# ---------------------------------------------------------------------------
+# Data-integrity check + auto-remediation
+# ---------------------------------------------------------------------------
+
+_INTEGRITY_CHECK_INTERVAL = 10          # run every N ticks (~10 min)
+_REMEDIATION_BACKFILL_LIMIT = 200       # max codes per backfill round
+_remediation_cooldowns: dict[str, float] = {}
+
+# Integrity thresholds
+_BARS_DAILY_COVERAGE = 0.95             # 95% active codes need today's data
+_HISTORY_MIN_BARS = 60
+_HISTORY_MIN_CODES = 2000               # codes with ≥60 bars
+_SECURITY_MIN_CODES = 5500
+
+
+def _can_remediate(key: str, cooldown: float = 1800) -> bool:
+    """Return True if *key* hasn't been remediated within *cooldown* seconds."""
+    last = _remediation_cooldowns.get(key, 0)
+    if time.monotonic() - last < cooldown:
+        return False
+    _remediation_cooldowns[key] = time.monotonic()
+    return True
+
+
+def _backfill_shallow_codes(store: MarketStore, limit: int) -> int:
+    """Backfill codes with < 60 bars.  Free sources first, tpdog as paid last resort.
+
+    Uses akshare → tushare → tpdog fallback chain.  Returns rows written.
+    """
+    conn = store._conn
+    rows = conn.execute(
+        "SELECT code, COUNT(*) as cnt FROM bars_daily GROUP BY code HAVING cnt < ?",
+        (_HISTORY_MIN_BARS,),
+    ).fetchall()
+    if not rows:
+        return 0
+
+    end_date = datetime.now() - timedelta(days=1)
+    start_date = end_date - timedelta(days=_LOOKBACK_DAYS if '_LOOKBACK_DAYS' in dir() else 120)
+    start_str = start_date.strftime("%Y%m%d")
+    end_str = end_date.strftime("%Y%m%d")
+    now_iso = _now_cst().isoformat()
+    total_written = 0
+
+    for code, _cnt in rows[:limit]:
+        ak_code = code.split(".")[0] if "." in code else None
+        written = 0
+
+        # 1. akshare (free)
+        if ak_code:
+            try:
+                import akshare as ak
+                df = ak.stock_zh_a_hist(symbol=ak_code, period="daily",
+                                        start_date=start_str, end_date=end_str, adjust="")
+                if df is not None and not df.empty:
+                    for _, r in df.iterrows():
+                        d = str(r.get("日期", r.get("date", "")))[:10]
+                        if not d:
+                            continue
+                        conn.execute(
+                            """INSERT OR REPLACE INTO bars_daily
+                               (code, trade_date, open, high, low, close, volume, total_amt, rise_rate,
+                                updated_at, source, sync_run_id, quality_status, ingested_at)
+                               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                            (code, d, r.get("开盘", r.get("open")), r.get("最高", r.get("high")),
+                             r.get("最低", r.get("low")), r.get("收盘", r.get("close")),
+                             r.get("成交量", r.get("volume")), r.get("成交额"),
+                             r.get("涨跌幅"), now_iso, "akshare_backfill", "backfill",
+                             "verified", now_iso),
+                        )
+                        written += 1
+            except Exception:
+                pass  # fall through
+
+        # 2. tushare (free, rate-limited) — only if akshare failed
+        if not written:
+            try:
+                token = _env_token("TUSHARE_TOKEN")
+                if token and token.lower() != "your-tushare-token":
+                    import tushare as ts
+                    api = ts.pro_api(token)
+                    df = api.daily(ts_code=code, start_date=start_str, end_date=end_str)
+                    if df is not None and not df.empty:
+                        for _, r in df.iterrows():
+                            td = str(r.get("trade_date", ""))
+                            if len(td) == 8:
+                                td = f"{td[:4]}-{td[4:6]}-{td[6:]}"
+                            conn.execute(
+                                """INSERT OR REPLACE INTO bars_daily
+                                   (code, trade_date, open, high, low, close, volume, total_amt, rise_rate,
+                                    updated_at, source, sync_run_id, quality_status, ingested_at)
+                                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (code, td, r.get("open"), r.get("high"), r.get("low"),
+                                 r.get("close"), r.get("vol"), r.get("amount"),
+                                 r.get("pct_chg"), now_iso, "tushare_backfill", "backfill",
+                                 "verified", now_iso),
+                            )
+                            written += 1
+                        time.sleep(1.5)  # respect rate limit
+            except Exception:
+                pass  # fall through
+
+        # 3. tpdog (PAID — last resort only)
+        if not written:
+            tpdog_code = _to_tpdog_code(code)
+            if tpdog_code:
+                try:
+                    from src.data.tpdog_client import call as tpdog_call
+                    content = tpdog_call("stock_his/daily", code=tpdog_code,
+                                         start=start_date.strftime("%Y-%m-%d"),
+                                         end=end_date.strftime("%Y-%m-%d"))
+                    if content:
+                        for r in content:
+                            d = str(r.get("date", ""))[:10]
+                            if not d:
+                                continue
+                            conn.execute(
+                                """INSERT OR REPLACE INTO bars_daily
+                                   (code, trade_date, open, high, low, close, volume, total_amt, rise_rate,
+                                    updated_at, source, sync_run_id, quality_status, ingested_at)
+                                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                                (code, d, r.get("open"), r.get("high"), r.get("low"),
+                                 r.get("close"), r.get("volume"), r.get("total_amt"),
+                                 r.get("rise_rate"), now_iso, "tpdog_backfill", "backfill",
+                                 "verified", now_iso),
+                            )
+                            written += 1
+                except Exception:
+                    pass
+
+        if written:
+            total_written += written
+            try:
+                conn.commit()
+            except Exception:
+                pass
+        time.sleep(1.0)
+
+    return total_written
+
+
+def _data_integrity_check(store: MarketStore, trade_date: str) -> None:
+    """Periodic data-integrity check with auto-remediation.
+
+    Runs every ``_INTEGRITY_CHECK_INTERVAL`` ticks from ``_loop()``.
+    Each remediation has an independent cooldown to avoid thrashing.
+    """
+    findings: list[str] = []
+
+    # 0. DB integrity (fast PRAGMA check)
+    try:
+        ic = store._conn.execute("PRAGMA quick_check(100)").fetchone()[0]
+        if ic != "ok":
+            logger.error("data integrity: DB corruption detected: %s", ic)
+            return  # don't proceed if DB is corrupt
+    except Exception:
+        pass
+
+    # 1. Daily bars coverage
+    try:
+        today_codes = store.count_codes_with_date(trade_date)
+        active = store.count_active_codes()
+        if active > 0 and today_codes < active * _BARS_DAILY_COVERAGE:
+            pct = today_codes / active * 100
+            findings.append(f"daily coverage {today_codes}/{active} ({pct:.0f}%)")
+            if _can_remediate("daily_coverage", cooldown=1800):
+                logger.warning("integrity: daily coverage low (%.0f%%), triggering re-sync", pct)
+                try:
+                    _sync_daily_tushare_by_date(store, trade_date, sync_run_id="integrity_fix")
+                except Exception:
+                    logger.exception("integrity: daily re-sync failed")
+    except Exception:
+        pass
+
+    # 2. History depth
+    try:
+        deep = store.count_codes_with_min_bars(_HISTORY_MIN_BARS)
+        if deep < _HISTORY_MIN_CODES:
+            findings.append(f"history depth {deep}/{_HISTORY_MIN_CODES} (≥{_HISTORY_MIN_BARS}d bars)")
+            if _can_remediate("history_depth", cooldown=14400):  # 4h
+                limit = min(_REMEDIATION_BACKFILL_LIMIT, _HISTORY_MIN_CODES - deep)
+                logger.warning("integrity: history shallow (%d codes), backfilling %d codes",
+                               deep, limit)
+                try:
+                    n = _backfill_shallow_codes(store, limit)
+                    logger.info("integrity: backfill wrote %d rows", n)
+                except Exception:
+                    logger.exception("integrity: backfill failed")
+    except Exception:
+        pass
+
+    # 3. Sync freshness
+    try:
+        last_daemon = store.get_meta(f"daemon:{trade_date}")
+        if not last_daemon:
+            # Check if it's a trading day and past post-close
+            phase = cn_market_phase(_now_cst())
+            if phase == "post_close" and _is_trading_day(trade_date):
+                findings.append(f"no post-close sync for {trade_date}")
+                if _can_remediate("sync_freshness", cooldown=3600):
+                    logger.warning("integrity: triggering daily sync for %s", trade_date)
+                    try:
+                        _maybe_run_daily_sync(store)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 4. Active sync errors
+    try:
+        errors = store.list_sync_errors()
+        if errors:
+            findings.append(f"sync errors: {len(errors)} active")
+            if _can_remediate("sync_errors", cooldown=3600):
+                logger.warning("integrity: %d active sync errors, clearing for retry", len(errors))
+                for e in errors:
+                    try:
+                        store._conn.execute(
+                            "DELETE FROM sync_meta WHERE key LIKE ?",
+                            (f"sync_error:{e.get('dataset', '%')}:%",),
+                        )
+                        store._conn.commit()
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 5. Stale pending runs
+    try:
+        stale = store.count_stale_pending_runs(minutes=30)
+        if stale > 5:
+            findings.append(f"pending runs: {stale} stale (>30min)")
+            if _can_remediate("pending_pile", cooldown=1800):
+                n = store.fail_stale_pending_runs(minutes=30)
+                logger.warning("integrity: failed %d stale pending runs", n)
+    except Exception:
+        pass
+
+    # 6. Security master coverage
+    try:
+        if active < _SECURITY_MIN_CODES:
+            findings.append(f"security_master: {active} active (need {_SECURITY_MIN_CODES})")
+    except Exception:
+        pass
+
+    if findings:
+        logger.warning("data integrity check: %s", "; ".join(findings))
+
+
 def _loop() -> None:
     from src.data.rate_limiter import mark_background, reset_background
 
@@ -5622,12 +5871,17 @@ def _loop() -> None:
     # foreground requests and reclaims permits if a sync stalls.
     token = mark_background(True)
     store = MarketStore()
+    tick_count = 0
     while True:
         try:
             _maybe_run_premarket_sync(store)
             _maybe_run_intraday_sync(store)
             _maybe_run_fund_premium_sync(store)
             _maybe_run_daily_sync(store)
+            # Periodic data-integrity check with auto-remediation
+            tick_count += 1
+            if tick_count % _INTEGRITY_CHECK_INTERVAL == 0:
+                _data_integrity_check(store, _today_cst_str())
         except Exception:  # noqa: BLE001
             logger.exception("market-sync loop error")
         time.sleep(_SYNC_TICK_SECONDS)
