@@ -217,10 +217,27 @@ def validate_daily_dataset(
         valid_rows += 1
 
     if invalid_rows:
-        blocking_reasons.append("cross_source_close_mismatch" if any(
-            row["reason"] == "cross_source_close_mismatch" for row in invalid_rows
-        ) else "invalid_ohlcv_rows")
-        status = QualityStatus.QUARANTINED
+        # Distinguish hard corruption (invalid OHLC / wrong date) from cross-source
+        # close mismatches.  A few close mismatches between tushare and tpdog are
+        # normal (rounding/_delay/adjustment) — quarantine those individual rows
+        # (already done above) but only fail the whole run if the mismatch RATIO
+        # is high.  Otherwise a single divergent code freezes the entire day's
+        # post-close publish.
+        hard_invalid = [r for r in invalid_rows if r["reason"] != "cross_source_close_mismatch"]
+        mismatch_rows = [r for r in invalid_rows if r["reason"] == "cross_source_close_mismatch"]
+        total_checked = valid_rows + len(invalid_rows)
+        mismatch_ratio = len(mismatch_rows) / total_checked if total_checked else 0.0
+        if hard_invalid:
+            blocking_reasons.append("invalid_ohlcv_rows")
+            status = QualityStatus.QUARANTINED
+        elif mismatch_ratio > 0.05:
+            # >5% of codes mismatch the reference → genuine data corruption.
+            blocking_reasons.append("cross_source_close_mismatch")
+            status = QualityStatus.QUARANTINED
+        else:
+            # Isolated mismatches: quarantine the bad rows, publish the rest.
+            blocking_reasons.append("cross_source_close_mismatch")
+            status = QualityStatus.PARTIAL
     elif blocking_reasons:
         status = QualityStatus.PARTIAL
     else:
