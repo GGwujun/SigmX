@@ -3550,7 +3550,24 @@ def _sync_global_market_indices(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_us_theme_snapshot(store: MarketStore, trade_date: str) -> int:
-    histories = _yf_last_rows([str(item["proxy_symbol"]) for item in _US_THEME_PROXIES])
+    """美股主题映射 — yfinance 为主，失败后重试一次。"""
+    histories = {}
+    for attempt in range(2):
+        try:
+            histories = _yf_last_rows([str(item["proxy_symbol"]) for item in _US_THEME_PROXIES])
+            if histories:
+                break
+        except Exception:
+            pass
+        if attempt == 0:
+            time.sleep(10)
+    # akshare fallback for global indices if yfinance completely failed
+    if not histories:
+        try:
+            from src.data.market_sync import _sync_global_market_indices
+            _sync_global_market_indices(store, trade_date)
+        except Exception:
+            pass
     rows: list[dict[str, Any]] = []
     for item in _US_THEME_PROXIES:
         symbol = str(item["proxy_symbol"])
@@ -4795,7 +4812,9 @@ def _sync_announcements(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
-    """新浪资金流备胎 — 对 stock_capital_rank 中的股票拉日级资金流。"""
+    """新浪资金流备胎 — 对 stock_capital_rank 中的股票拉日级资金流。
+    新浪失败时 tpdog fund/stock 作终极兜底。
+    """
     from src.data.astock_client import fund_flow_backup
     total = 0
     try:
@@ -4807,6 +4826,7 @@ def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
+        flows = []
         try:
             flows = _contract_rows(
                 store,
@@ -4815,14 +4835,37 @@ def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
                 trade_date,
                 identity=stored_code,
             )
-            current_rows = [
-                row for row in flows if str(row.get("date") or "")[:10] == trade_date
-            ]
-            if current_rows:
-                store.upsert_fund_flow_daily(stored_code, flows)
-                total += len(current_rows)
         except Exception:
-            continue
+            flows = []
+        # 新浪失败/无数据 → tpdog fund/stock 兜底
+        current_rows = [r for r in flows if str(r.get("date") or "")[:10] == trade_date] if flows else []
+        if not current_rows:
+            try:
+                from src.data.tpdog_client import call as tpdog_call
+                tpdog_code = _to_tpdog_code(stored_code)
+                if tpdog_code:
+                    result = tpdog_call("fund/stock", code=tpdog_code)
+                    if result and isinstance(result, list):
+                        tpdog_rows = []
+                        for item in result:
+                            d = str(item.get("date", ""))[:10]
+                            if d:
+                                tpdog_rows.append({
+                                    "date": d,
+                                    "net_amount": item.get("net_amount") or item.get("net"),
+                                    "turnover": item.get("turnover") or item.get("amount"),
+                                    "source": "tpdog",
+                                })
+                        if tpdog_rows:
+                            store.upsert_fund_flow_daily(stored_code, tpdog_rows)
+                            total += len([r for r in tpdog_rows if r.get("date") == trade_date])
+                            time.sleep(0.3)
+                            continue
+            except Exception:
+                pass
+        if current_rows:
+            store.upsert_fund_flow_daily(stored_code, flows)
+            total += len(current_rows)
         time.sleep(0.3)
     return total
 
@@ -4861,7 +4904,7 @@ def _sync_margin_trading(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
-    """大宗交易 — 东财。"""
+    """大宗交易 — 东财，失败后延时重试。"""
     from src.data.astock_client import block_trade
     total = 0
     try:
@@ -4873,12 +4916,18 @@ def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
-        try:
-            data = block_trade(code, page_size=5)
-            if data:
-                total += store.upsert_block_trade(stored_code, data)
-        except Exception:
-            continue
+        data = None
+        for attempt in range(2):
+            try:
+                data = block_trade(code, page_size=5)
+                if data:
+                    break
+            except Exception:
+                pass
+            if attempt == 0:
+                time.sleep(5)  # retry after brief pause
+        if data:
+            total += store.upsert_block_trade(stored_code, data)
     return total
 
 
@@ -4916,7 +4965,7 @@ def _sync_holder_num(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_dividend_history(store: MarketStore, trade_date: str) -> int:
-    """分红送转历史 — 东财。"""
+    """分红送转历史 — 东财，失败后延时重试。"""
     from src.data.astock_client import dividend_history
     total = 0
     try:
@@ -4928,12 +4977,18 @@ def _sync_dividend_history(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
-        try:
-            data = dividend_history(code, page_size=10)
-            if data:
-                total += store.upsert_dividend_history(stored_code, data)
-        except Exception:
-            continue
+        data = None
+        for attempt in range(2):
+            try:
+                data = dividend_history(code, page_size=10)
+                if data:
+                    break
+            except Exception:
+                pass
+            if attempt == 0:
+                time.sleep(5)
+        if data:
+            total += store.upsert_dividend_history(stored_code, data)
     return total
 
 
@@ -4941,29 +4996,35 @@ _OPTION_UNDERLYINGS = ("510050", "510300", "588000")
 
 
 def _sync_option_chain(store: MarketStore, trade_date: str) -> int:
-    """ETF 期权合约 — 新浪（50ETF/300ETF/科创50ETF）。"""
+    """ETF 期权合约 — 新浪（50ETF/300ETF/科创50ETF），失败后重试。"""
     from src.data.astock_client import sina_option_codes, sina_option_tquote, sina_option_greeks
     total = 0
     for underlying in _OPTION_UNDERLYINGS:
         snapshot: list[dict] = []
-        try:
-            for call in (True, False):
-                months = sina_option_codes(underlying, call=call)
-                for month, codes in months.items():
-                    rows = []
-                    for code in codes[:20]:
-                        tq = sina_option_tquote(code)
-                        gk = sina_option_greeks(code)
-                        if tq:
-                            rows.append({
-                                "month": month, "code": code,
-                                "call_put": "call" if call else "put",
-                                **tq, **gk,
-                            })
-                    snapshot.extend(rows)
+        for attempt in range(2):
+            try:
+                for call in (True, False):
+                    months = sina_option_codes(underlying, call=call)
+                    for month, codes in months.items():
+                        rows = []
+                        for code in codes[:20]:
+                            tq = sina_option_tquote(code)
+                            gk = sina_option_greeks(code)
+                            if tq:
+                                rows.append({
+                                    "month": month, "code": code,
+                                    "call_put": "call" if call else "put",
+                                    **tq, **gk,
+                                })
+                        snapshot.extend(rows)
+                break  # success
+            except Exception as exc:
+                if attempt == 0:
+                    logger.debug("option_chain %s attempt 1 failed: %s, retrying...", underlying, exc)
+                    time.sleep(10)
+                    snapshot = []
+        if snapshot:
             total += store.replace_option_chain(underlying, trade_date, snapshot)
-        except Exception as exc:
-            logger.debug("option_chain %s failed: %s", underlying, exc)
     return total
 
 
@@ -4999,23 +5060,28 @@ def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_northbound(store: MarketStore, trade_date: str) -> int:
-    """同花顺北向资金分钟流向（不封 IP）。
+    """同花顺北向资金分钟流向（不封 IP），失败后延时重试。
 
     单源现状是客观限制：2024 后北向净买额(hgt/sgt)披露全网收紧，HKEX 官方端点
     已 404、东财 datacenter 沪股通 NET_DEAL_AMT=None —— 均补不齐 hgt 净额，故不接
     假降级。详见 docs/data-source-plan.md「#36 复核」。
     """
     from src.data.astock_client import hsgt_realtime
-    try:
-        rows = _contract_rows(
-            store,
-            "northbound_flow",
-            [("ths", hsgt_realtime)],
-            trade_date,
-        )
-    except Exception as exc:
-        logger.debug("hsgt_realtime failed: %s", exc)
-        return 0
+    rows = []
+    for attempt in range(2):
+        try:
+            rows = _contract_rows(
+                store,
+                "northbound_flow",
+                [("ths", hsgt_realtime)],
+                trade_date,
+            )
+            if rows:
+                break
+        except Exception as exc:
+            logger.debug("hsgt_realtime failed (attempt %d): %s", attempt + 1, exc)
+        if attempt == 0:
+            time.sleep(30)  # retry after longer pause
     if not rows:
         return 0
     return store.upsert_northbound_flow(trade_date, rows)
@@ -5110,7 +5176,7 @@ def _sync_stock_news(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_lockup_expiry(store: MarketStore, trade_date: str) -> int:
-    """限售解禁日历（东财，IP 解封后生效）。"""
+    """限售解禁日历（东财，IP 解封后生效，失败后延时重试）。"""
     from src.data.astock_client import lockup_expiry
     total = 0
     try:
@@ -5122,13 +5188,20 @@ def _sync_lockup_expiry(store: MarketStore, trade_date: str) -> int:
         return 0
     for stored_code in codes:
         code = stored_code.split(".")[0]
-        try:
-            data = lockup_expiry(code, trade_date)
+        data = None
+        for attempt in range(2):
+            try:
+                data = lockup_expiry(code, trade_date)
+                if data:
+                    break
+            except Exception:
+                pass
+            if attempt == 0:
+                time.sleep(5)
+        if data:
             all_items = data.get("history", []) + data.get("upcoming", [])
             if all_items:
                 total += store.upsert_lockup_expiry(stored_code, all_items)
-        except Exception:
-            continue
     return total
 
 
