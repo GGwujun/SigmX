@@ -1960,15 +1960,22 @@ def _sync_realtime_quotes_tpdog(store: MarketStore, trade_date: str) -> int:
             return len(covered) >= required
         return len(valid) >= 3000
 
-    if sufficient(rows):
+    # Partial publish: even if coverage is below the 90% threshold, write the
+    # valid rows we DID get rather than discarding them entirely. A partial
+    # realtime snapshot is far more useful than none. Still fall through to
+    # tencent/akshare to try to fill the gap.
+    written = 0
+    if validate_dataset("realtime", rows).rows:
         written = store.upsert_realtime_quotes(trade_date, rows, snapshot_at=snapshot_at)
+    if sufficient(rows):
         _clear_sync_error(store, "realtime", "tpdog.current_funds")
         return written
     _set_sync_error(
         store,
         "realtime",
         "tpdog.current_funds",
-        f"insufficient coverage rows={len(rows)} expected={len(expected_set)}",
+        f"insufficient coverage rows={len(rows)} expected={len(expected_set)} "
+        f"(partial {written} written, trying fallback)",
     )
 
     try:

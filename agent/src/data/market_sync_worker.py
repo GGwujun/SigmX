@@ -371,6 +371,57 @@ def _integrity_ok(db_path: Path) -> bool:
     return bool(row and row[0] == "ok")
 
 
+# Map dataset name → DB table for the row-count fallback (datasets without a
+# semantic validator). Used so the quality gate trusts actual DB rows over a
+# possibly-fabricated provider return value (e.g. index when tushare is
+# rate-limited but degraded sources wrote rows).
+_DATASET_TABLE = {
+    "calendar": "trade_calendar",
+    "master": "security_master",
+    "index_master": "index_master",
+    "board_master": "board_master",
+    "daily_basic": "stock_daily_basic",
+    "index": "index_daily",
+    "etf": "etf_daily",
+    "fund_daily": "fund_daily",
+    "etf_size": "etf_share_size",
+    "dragon": "dragon_tiger",
+    "pool": "stock_pool",
+    "zt_pool": "zt_pool",
+    "capital": "stock_capital_flow",
+    "capital_rank": "stock_capital_rank",
+    "sector_capital": "sector_capital_flow",
+    "sector_snapshot": "sector_snapshot",
+    "market_breadth": "market_breadth_snapshot",
+    "global_indices": "global_market_index_daily",
+    "us_theme": "us_theme_snapshot",
+    "premarket_news": "premarket_news",
+    "stage_snapshot": "market_stage_snapshot",
+    "premium": "fund_premium_snapshot",
+    "board": "board_daily",
+}
+
+
+def _dataset_db_row_count(store: MarketStore, dataset: str, trade_date: str) -> int:
+    """Count actual rows for *dataset* on *trade_date* directly in the DB.
+
+    Returns 0 if the table doesn't exist or the query fails — never raises.
+    """
+    table = _DATASET_TABLE.get(dataset)
+    if not table:
+        return 0
+    try:
+        if table in ("security_master", "trade_calendar", "index_master", "board_master"):
+            row = store._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+        else:
+            row = store._conn.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE trade_date = ?", (trade_date,)
+            ).fetchone()
+        return int(row[0] or 0) if row else 0
+    except Exception:  # noqa: BLE001
+        return 0
+
+
 def _validate_tier_quality(
     shadow_store: MarketStore,
     trade_date: str,
@@ -404,6 +455,15 @@ def _validate_tier_quality(
                 )
                 valid_rows = len(validation.rows)
                 reasons.extend(validation.reasons)
+            elif received == 0:
+                # No semantic validator AND provider reported 0 rows. Trust the
+                # DB over the (possibly-fabricated) return value: a degraded
+                # fetch may have written rows even when the tushare-only count
+                # is 0. Read actual rows for this trade_date.
+                db_count = _dataset_db_row_count(shadow_store, dataset, trade_date)
+                if db_count > 0:
+                    valid_rows = db_count
+                    received = db_count
         except Exception as exc:  # noqa: BLE001
             valid_rows = 0
             reasons.append(f"semantic_validation_error:{exc}")
@@ -619,15 +679,23 @@ def _run_one_tier(
             sync_run_id=run_id,
         )
         # A dataset with no result row either failed or returned nothing. For
-        # CORE (critical) datasets that's fatal — refuse to publish. For
-        # advisory/enhanced datasets it's a normal degradation (rate-limited
-        # provider, empty news day) and is recorded PARTIAL by the contract
-        # loop below rather than aborting the whole tier.
+        # CORE (critical) datasets that's normally fatal. But in lenient mode
+        # (default), a missing critical dataset due to a provider being
+        # temporarily unavailable (rate-limit / weekend / third-party down)
+        # degrades to a warning + PARTIAL publish rather than freezing the
+        # whole day's data. Hard strict only when MARKET_SYNC_CORE_STRICT=1.
+        strict = os.getenv("MARKET_SYNC_CORE_STRICT", "0") == "1"
         missing_results = sorted(tier_datasets - rows.keys())
         missing_critical = [d for d in missing_results if contract_for(d).blocking]
         if missing_critical:
-            raise MarketDataQualityError(
-                f"missing critical dataset results after sync: {', '.join(missing_critical)}"
+            if strict:
+                raise MarketDataQualityError(
+                    f"missing critical dataset results after sync: {', '.join(missing_critical)}"
+                )
+            logger.warning(
+                "post-close %s: missing critical datasets %s (lenient mode, "
+                "provider likely unavailable) — continuing to publish",
+                tier_name, missing_critical,
             )
 
         # realtime coverage gate needs the authoritative active-code count from
@@ -656,8 +724,16 @@ def _run_one_tier(
                 QualityStatus.PARTIAL,
                 error_summary="; ".join(failed_contracts),
             )
-            raise MarketDataQualityError(
-                f"blocking dataset quality contracts failed: {'; '.join(failed_contracts)}"
+            if strict:
+                raise MarketDataQualityError(
+                    f"blocking dataset quality contracts failed: {'; '.join(failed_contracts)}"
+                )
+            # Lenient mode: log and continue to publish. The failing datasets
+            # are recorded PARTIAL (downstream readiness reflects it), but a
+            # single degraded dataset must not freeze the entire tier's data.
+            logger.warning(
+                "post-close %s: contracts failed but lenient mode publishing: %s",
+                tier_name, "; ".join(failed_contracts),
             )
 
         if enable_daily_reference and "daily" in tier_datasets:

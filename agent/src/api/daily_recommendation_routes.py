@@ -475,15 +475,22 @@ def _validated_realtime_quote(
         trade_date,
     )
     if not quote:
-        raise HTTPException(
-            status_code=503,
-            detail={
-                "code": "DATA_NOT_READY",
-                "slot": slot,
-                "trade_date": trade_date,
-                "blocking_reasons": ["realtime_snapshot_missing"],
-            },
-        )
+        # Degraded fallback: no realtime snapshot for today. Use the latest
+        # settled bars_daily close (yesterday's close) with a stale flag rather
+        # than hard-blocking the whole recommendation. Better to produce a
+        # recommendation marked quote_stale than none at all.
+        fallback = _bars_daily_fallback_quote(store, normalize_code(symbol), trade_date)
+        if fallback is None:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "DATA_NOT_READY",
+                    "slot": slot,
+                    "trade_date": trade_date,
+                    "blocking_reasons": ["realtime_snapshot_missing"],
+                },
+            )
+        return _apply_quote(item, fallback, stale=True)
 
     snapshot_at = str(quote.get("snapshot_at") or "")
     try:
@@ -514,6 +521,19 @@ def _validated_realtime_quote(
             },
         )
 
+    enriched = _apply_quote(item, quote, snapshot_at=snapshot_at, age_seconds=age_seconds)
+    return enriched
+
+
+def _apply_quote(
+    item: dict[str, Any],
+    quote: dict[str, Any],
+    *,
+    snapshot_at: str = "",
+    age_seconds: float | None = None,
+    stale: bool = False,
+) -> dict[str, Any]:
+    """Build the enriched item dict from a quote (realtime or stale fallback)."""
     enriched = dict(item)
     enriched.update(
         {
@@ -525,16 +545,58 @@ def _validated_realtime_quote(
             "volume": float(quote.get("volume") or 0),
             "quote_date": str(quote.get("trade_date") or "")[:10],
             "quote_source": quote.get("source"),
+            "quote_stale": stale,
             "market_context": {
                 "trade_date": str(quote.get("trade_date") or "")[:10],
                 "snapshot_at": snapshot_at,
-                "snapshot_age_seconds": round(age_seconds, 3),
+                "snapshot_age_seconds": round(age_seconds, 3) if age_seconds is not None else None,
                 "quote_source": quote.get("source"),
-                "valid": True,
+                "stale": stale,
+                "valid": not stale,
             },
         }
     )
     return enriched
+
+
+def _bars_daily_fallback_quote(store, code: str, trade_date: str) -> dict[str, Any] | None:
+    """Build a degraded quote from the latest settled bars_daily row.
+
+    Used when no realtime snapshot exists (post-close / worker stall). Returns
+    None if there's no daily bar at all (caller then hard-blocks).
+    """
+    if store is None or not code:
+        return None
+    try:
+        row = store._conn.execute(
+            "SELECT code, trade_date, open, high, low, close, volume, rise_rate "
+            "FROM bars_daily WHERE code = ? AND trade_date <= ? "
+            "ORDER BY trade_date DESC LIMIT 1",
+            (code, trade_date),
+        ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    prev = store._conn.execute(
+        "SELECT close FROM bars_daily WHERE code = ? AND trade_date < ? "
+        "ORDER BY trade_date DESC LIMIT 1",
+        (code, row["trade_date"]),
+    ).fetchone()
+    prev_close = float(prev["close"]) if prev and prev["close"] else 0.0
+    close = float(row["close"] or 0)
+    return {
+        "code": row["code"],
+        "trade_date": row["trade_date"],
+        "price": close,
+        "pre_close": prev_close or close,
+        "open": row["open"],
+        "high": row["high"],
+        "low": row["low"],
+        "volume": row["volume"],
+        "rise_rate": row["rise_rate"],
+        "source": "bars_daily_fallback",
+    }
 
 
 def _attach_intraday_history_metrics(item: dict[str, Any]) -> dict[str, Any]:

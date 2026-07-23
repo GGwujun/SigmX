@@ -2934,16 +2934,21 @@ class MarketStore:
             except Exception:
                 actual = 0
             if actual > 0:
+                # Rows exist but there is NO quality-record for this exact date
+                # (e.g. intraday/backfill wrote directly). Be honest: this is
+                # NOT verified — return PARTIAL so consumers know the data is
+                # present but unvalidated, rather than falsely claiming VERIFIED
+                # (which let bypass writes fake "ready" status).
                 return DataReadiness(
                     dataset=dataset,
                     as_of=as_of,
-                    status=QualityStatus.VERIFIED,
+                    status=QualityStatus.PARTIAL,
                     expected_rows=actual,
                     valid_rows=actual,
                     published_rows=actual,
-                    source="data_exists",
+                    source="data_exists_unvalidated",
                     run_id="",
-                    blocking_reasons=[],
+                    blocking_reasons=["no_quality_result_for_exact_date"],
                 )
             return DataReadiness(
                 dataset=dataset,
