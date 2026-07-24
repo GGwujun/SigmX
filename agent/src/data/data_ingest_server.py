@@ -39,6 +39,10 @@ class SnapshotManifest(BaseModel):
     size_bytes: int = Field(gt=0)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     compression: Literal["gzip"] = "gzip"
+    # Incremental sync (table-level, by trade_date slice). Default "full"
+    # preserves backward compat with old full-snapshot senders (no mode field).
+    mode: Literal["incremental", "full"] = "full"
+    tables: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class SnapshotReceiver:
@@ -182,7 +186,11 @@ class SnapshotReceiver:
                         str(latest[0]), str(latest[1])
                     ):
                         raise ValueError("snapshot is older than the live published run")
-                    source_db.backup(target, pages=2000, sleep=0.02)
+                    if manifest.mode == "incremental":
+                        self._merge_incremental(source_db, target, manifest)
+                    else:
+                        # Full snapshot: wholesale replace via online backup.
+                        source_db.backup(target, pages=2000, sleep=0.02)
                     target.execute(
                         "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) "
                         "VALUES (?, ?, datetime('now'))",
@@ -202,6 +210,57 @@ class SnapshotReceiver:
                     pass
             self._cleanup_staging(snapshot_id)
             return {"ok": True, "committed": True, "idempotent": False}
+
+    @staticmethod
+    def _merge_incremental(
+        source_db: sqlite3.Connection,
+        target: sqlite3.Connection,
+        manifest: SnapshotManifest,
+    ) -> None:
+        """Merge an incremental package table-by-table via INSERT OR REPLACE.
+
+        For each table in manifest.tables: copy rows from the unpacked snapshot
+        into live. Date-scoped tables copy only the run's trade_date slice;
+        whole tables copy everything. Columns are introspected at runtime so
+        schema drift between snapshot and live is tolerated (missing tables
+        in the snapshot are skipped). Caller holds the live write transaction.
+        """
+        src = source_db
+        src.row_factory = sqlite3.Row
+        for entry in manifest.tables:
+            table = str(entry.get("name") or "").strip()
+            if not table or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
+                raise ValueError(f"invalid table name in incremental manifest: {table!r}")
+            scope = str(entry.get("scope") or "date")
+            trade_date = str(entry.get("trade_date") or manifest.trade_date)
+            try:
+                if scope == "whole":
+                    rows = src.execute(f"SELECT * FROM {table}").fetchall()
+                else:
+                    rows = src.execute(
+                        f"SELECT * FROM {table} WHERE trade_date = ?", (trade_date,)
+                    ).fetchall()
+            except sqlite3.Error as exc:
+                # Table absent from this incremental snapshot — skip (it just
+                # means this run didn't write it).
+                continue
+            if not rows:
+                continue
+            try:
+                cols = [
+                    d[0] for d in src.execute(f"SELECT * FROM {table} LIMIT 0").description
+                ]
+            except sqlite3.Error:
+                continue
+            collist = ",".join(cols)
+            placeholders = ",".join("?" for _ in cols)
+            try:
+                target.executemany(
+                    f"INSERT OR REPLACE INTO {table} ({collist}) VALUES ({placeholders})",
+                    [tuple(r) for r in rows],
+                )
+            except sqlite3.Error as exc:
+                raise ValueError(f"incremental merge failed for {table}: {exc}") from exc
 
 
 def _default_receiver() -> SnapshotReceiver:
