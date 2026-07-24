@@ -25,7 +25,7 @@ import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Optional, TypeVar
@@ -60,8 +60,16 @@ def _default_db_path() -> Path:
     return Path(env) if env else _DEFAULT_DB_PATH
 
 
+_CST = timezone(timedelta(hours=8))
+
+
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    # Use CST (UTC+8) timestamps so all sync_runs / updated_at fields sort
+    # consistently regardless of whether the caller uses _now_iso() or
+    # _now_cst().isoformat().  Previously _now_iso() returned UTC which caused
+    # "2026-07-24T09:16:38+08:00" (CST) to sort AFTER "2026-07-24T10:48:03+00:00"
+    # (UTC) — making data-sync think an older run was the latest.
+    return datetime.now(_CST).isoformat()
 
 
 _SCHEMA = """
