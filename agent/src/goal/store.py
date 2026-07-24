@@ -110,7 +110,13 @@ class GoalStore:
         """
         self.db_path = Path(db_path) if db_path is not None else _default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # isolation_level=None: explicit transaction management via
+        # _write_transaction(); prevents implicit/implicit nesting errors.
+        self._conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            isolation_level=None,
+        )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.execute("PRAGMA busy_timeout=5000")
@@ -242,7 +248,15 @@ class GoalStore:
 
     @contextmanager
     def _write_transaction(self):
-        """Open an immediate write transaction for cross-connection safety."""
+        """Open an immediate write transaction for cross-connection safety.
+
+        Safety: rolls back any residual transaction before BEGIN IMMEDIATE.
+        """
+        if self._conn.in_transaction:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             yield

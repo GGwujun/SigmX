@@ -693,7 +693,16 @@ class MarketStore:
     def __init__(self, db_path: Path | None = None) -> None:
         self.db_path = Path(db_path) if db_path is not None else _default_db_path()
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+        # isolation_level=None disables Python's implicit transaction management.
+        # All writes go through _write_transaction() with explicit BEGIN IMMEDIATE.
+        # This prevents "cannot start a transaction within a transaction" errors
+        # caused by Python auto-starting a deferred transaction before DML, then
+        # _write_transaction() trying BEGIN IMMEDIATE on top of it.
+        self._conn = sqlite3.connect(
+            str(self.db_path),
+            check_same_thread=False,
+            isolation_level=None,
+        )
         self._conn.row_factory = sqlite3.Row
         # busy_timeout 必须在 journal_mode 切换之前设置：切换 journal_mode 需要
         # 排他锁，若此时还没 busy_timeout，多进程并发会立刻 database is locked
@@ -751,7 +760,18 @@ class MarketStore:
 
     @contextmanager
     def _write_transaction(self):
-        """Open an immediate write transaction (GoalStore pattern)."""
+        """Open an immediate write transaction (GoalStore pattern).
+
+        Safety: rolls back any residual transaction left by a prior failed
+        operation before starting BEGIN IMMEDIATE. This prevents the
+        'cannot start a transaction within a transaction' error that would
+        otherwise permanently break the worker until restart.
+        """
+        if self._conn.in_transaction:
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
         self._conn.execute("BEGIN IMMEDIATE")
         try:
             yield
