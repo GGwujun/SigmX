@@ -5624,6 +5624,26 @@ def _maybe_run_premarket_sync(store: MarketStore) -> None:
         logger.info("market-sync daemon: starting premarket sync for %s slot=%s", today, slot)
         run_daily_sync(today, store=store, datasets=_premarket_slot_datasets(slot), deadline_seconds=240)
         store.set_meta(meta_key, _now_cst().isoformat())
+        # Publish a sync_run so data-sync pushes the refreshed premarket data to
+        # the server. premarket writes directly to live (no shadow tier), but
+        # data-sync only ships when the latest sync_runs row is `published` —
+        # without this the morning brief never reaches the server until the
+        # post-close run hours later.
+        try:
+            import uuid as _uuid
+            from src.data.market_quality import QualityStatus
+
+            run_id = str(_uuid.uuid4())
+            now_iso = _now_cst().isoformat()
+            store._conn.execute(
+                "INSERT INTO sync_runs (run_id, trade_date, worker_id, status, "
+                "started_at, finished_at, error_summary) VALUES (?,?,?,?,?,?,?)",
+                (run_id, today, f"premarket:{slot}", QualityStatus.PUBLISHED.value,
+                 now_iso, now_iso, ""),
+            )
+            store._conn.commit()
+        except Exception:  # noqa: BLE001
+            logger.debug("premarket publish-run insert failed: %s", exc)
         logger.info("market-sync daemon: premarket done for %s slot=%s", today, slot)
     except Exception:  # noqa: BLE001
         logger.exception("market-sync daemon premarket tick failed")
