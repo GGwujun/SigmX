@@ -178,13 +178,11 @@ class SnapshotReceiver:
                         latest = target.execute(
                             "SELECT trade_date, finished_at FROM sync_runs "
                             "WHERE status = 'published' "
-                            "ORDER BY trade_date DESC, finished_at DESC LIMIT 1"
+                            "ORDER BY trade_date DESC, rowid DESC LIMIT 1"
                         ).fetchone()
                     except sqlite3.OperationalError:
                         latest = None
-                    if latest and (manifest.trade_date, manifest.published_at) < (
-                        str(latest[0]), str(latest[1])
-                    ):
+                    if latest and manifest.trade_date < str(latest[0]):
                         raise ValueError("snapshot is older than the live published run")
                     if manifest.mode == "incremental":
                         self._merge_incremental(source_db, target, manifest)
