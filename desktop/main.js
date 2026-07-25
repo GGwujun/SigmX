@@ -296,13 +296,49 @@ function setupAutoUpdater() {
   // Don't check for updates in dev mode — only in packaged builds.
   if (isDev) return;
 
-  autoUpdater.on('update-available', (info) => {
-    console.log('[sigmx] update available:', info.version);
+  // ---- Download progress (bytes, percentage, speed) ----
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-progress', {
+        percent: Math.round(progress.percent),
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      });
+    }
+    console.log(
+      `[sigmx] update progress: ${Math.round(progress.percent)}% ` +
+      `(${(progress.transferred / 1024 / 1024).toFixed(1)} MB / ` +
+      `${(progress.total / 1024 / 1024).toFixed(1)} MB, ` +
+      `${(progress.bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s)`
+    );
   });
 
+  // ---- Update found, starting download ----
+  autoUpdater.on('update-available', (info) => {
+    console.log('[sigmx] update available:', info.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-available', {
+        version: info.version,
+        releaseNotes: info.releaseNotes,
+        releaseDate: info.releaseDate,
+      });
+    }
+  });
+
+  // ---- Not an update (already on latest) ----
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[sigmx] already up to date:', info.version);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-not-available', {
+        version: info.version,
+      });
+    }
+  });
+
+  // ---- Download complete, ready to install on quit ----
   autoUpdater.on('update-downloaded', (info) => {
     console.log('[sigmx] update downloaded:', info.version);
-    // Notify the renderer so it can show a banner.
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('update-downloaded', {
         version: info.version,
@@ -314,6 +350,9 @@ function setupAutoUpdater() {
 
   autoUpdater.on('error', (err) => {
     console.error('[sigmx] auto-update error:', err.message);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-error', { message: err.message });
+    }
   });
 
   // Check on startup, then every 4 hours.

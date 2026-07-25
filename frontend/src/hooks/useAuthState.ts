@@ -7,7 +7,16 @@ import {
 
 declare global {
   interface Window {
-    sigmxDesktop?: { isDesktop: boolean; [key: string]: unknown };
+    sigmxDesktop?: {
+      isDesktop: boolean;
+      checkForUpdates?: () => Promise<{ ok: boolean; version?: string }>;
+      quitAndInstall?: () => Promise<void>;
+      onUpdateAvailable?: (cb: (info: { version: string; releaseNotes?: string; releaseDate?: string }) => void) => () => void;
+      onUpdateNotAvailable?: (cb: (info: { version: string }) => void) => () => void;
+      onUpdateProgress?: (cb: (p: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => void) => () => void;
+      onUpdateDownloaded?: (cb: (info: { version: string; releaseNotes?: string; releaseDate?: string }) => void) => () => void;
+      onUpdateError?: (cb: (err: { message: string }) => void) => () => void;
+    };
   }
 }
 

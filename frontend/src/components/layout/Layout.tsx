@@ -7,6 +7,7 @@ import { api, type SessionItem } from "@/lib/api";
 import { isAdmin } from "@/lib/apiAuth";
 import { useAgentStore } from "@/stores/agent";
 import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
+import UpdateNotifier from "@/components/layout/UpdateNotifier";
 import { getDataMode, getDataHubUrl } from "@/lib/dataMode";
 import { Server } from "lucide-react";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
@@ -26,11 +27,6 @@ function DataHubBanner() {
   );
 }
 import { Watermark } from "@/components/Watermark";
-
-// App version injected at build time from package.json (see vite.config.ts `define`).
-// Declared globally so TS doesn't complain about the runtime constant.
-declare const __APP_VERSION__: string;
-const APP_VERSION = `v${__APP_VERSION__}`;
 
 const NAV_GROUPS = [
   {
@@ -345,7 +341,6 @@ export function Layout() {
                   </button>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground/70 dark:text-slate-600">{APP_VERSION}</p>
             </>
           )}
         </div>
@@ -355,6 +350,7 @@ export function Layout() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <ConnectionBanner status={sseStatus} retryAttempt={sseRetryAttempt} />
         <DataHubBanner />
+        <UpdateNotifier />
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>

@@ -6,12 +6,6 @@ import { api } from "@/lib/api";
 import { setToken, setUser } from "@/lib/apiAuth";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 
-declare global {
-  interface Window {
-    sigmxDesktop?: { isDesktop: boolean; [key: string]: unknown };
-  }
-}
-
 function isDesktopMode(): boolean {
   return !!window.sigmxDesktop?.isDesktop;
 }
