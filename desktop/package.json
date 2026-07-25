@@ -5,6 +5,10 @@
   "main": "main.js",
   "author": "SigmX",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GGwujun/SigmX.git"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "cross-env SIGMX_DEV=1 electron .",
