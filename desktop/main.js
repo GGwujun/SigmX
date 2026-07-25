@@ -59,20 +59,24 @@ function buildAppMenu() {
         {
           label: '检查更新',
           click: async () => {
+            const currentVersion = app.getVersion();
             try {
               const result = await autoUpdater.checkForUpdatesAndNotify();
-              if (result && result.updateInfo) {
+              // checkForUpdatesAndNotify always returns updateInfo from the server.
+              // Only treat as "update available" when server version > installed version.
+              const serverVersion = result?.updateInfo?.version;
+              if (serverVersion && serverVersion !== currentVersion) {
                 dialog.showMessageBox(mainWindow, {
                   type: 'info',
                   title: '更新可用',
-                  message: `发现新版本 ${result.updateInfo.version}`,
+                  message: `发现新版本 ${serverVersion}（当前 ${currentVersion}）`,
                   detail: '正在后台下载，安装完成后重启应用即可。',
                 });
               } else {
                 dialog.showMessageBox(mainWindow, {
                   type: 'info',
                   title: '已是最新版本',
-                  message: `SigmX ${app.getVersion()} 已是最新版本。`,
+                  message: `SigmX ${currentVersion} 已是最新版本。`,
                 });
               }
             } catch (err) {
