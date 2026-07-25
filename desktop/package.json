@@ -9,12 +9,16 @@
     "start": "electron .",
     "dev": "cross-env SIGMX_DEV=1 electron .",
     "build": "electron-builder",
-    "build:win": "electron-builder --win"
+    "build:win": "electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
   },
   "build": {
     "appId": "site.dsx-family.sigmx",
@@ -50,6 +54,11 @@
       "shortcutName": "SigmX",
       "installerHeaderIcon": "assets/icon.png",
       "uninstallDisplayName": "SigmX ${version}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "GGwujun",
+      "repo": "SigmX"
     },
     "directories": {
       "output": "release"
