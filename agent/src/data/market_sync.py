@@ -1178,6 +1178,105 @@ def _sync_stock_daily_basic_tushare_by_date(
     return written
 
 
+def _sync_stock_daily_basic_tpdog_by_date(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    codes: Optional[list[str]] = None,
+) -> int:
+    """Fallback: per-stock PE/PB/market-cap/turnover via TPDog.
+
+    stock/info (1积分): pe, pe_ttm, pb, valuation(总市值), c_valuation(流通市值)
+    stock/daily (1积分): close, t_rate(换手率)
+    组合 2积分/只, 全市场 ~10400 积分。tushare daily_basic 限流/失败时的兜底。
+    不覆盖: ps, ps_ttm, dv_ratio, dv_ttm, total_share, float_share, free_share。
+    """
+    from src.data.tpdog_client import call
+
+    securities = store.list_security_master()
+    wanted = {c.upper() for c in codes} if codes else None
+    if wanted:
+        securities = [s for s in securities if (str(s.get("code") or "") if isinstance(s, dict) else str(s)).upper() in wanted]
+
+    total = 0
+    deadline = time.monotonic() + _TPDOG_CAPITAL_BUDGET
+    rows: list[dict] = []
+    for security in securities:
+        if time.monotonic() > deadline:
+            logger.warning(
+                "tpdog daily_basic hit budget at %d/%d codes for %s",
+                total, len(securities), trade_date,
+            )
+            break
+        code_str = str(security.get("code") or security if isinstance(security, dict) else security).upper()
+        if not code_str:
+            continue
+        tpdog_code = _tpdog_stock_req_code(code_str)
+        info: dict = {}
+        daily: dict = {}
+        try:
+            info_result = call("stock/info", code=tpdog_code)
+            time.sleep(_SLEEP_BETWEEN_CALLS)
+            if info_result:
+                info = info_result[0] if isinstance(info_result, list) else info_result
+        except Exception as exc:
+            logger.debug("tpdog stock/info failed for %s: %s", tpdog_code, exc)
+        try:
+            daily_result = call("stock/daily", code=tpdog_code, date=trade_date)
+            time.sleep(_SLEEP_BETWEEN_CALLS)
+            if daily_result:
+                daily = daily_result[0] if isinstance(daily_result, list) else daily_result
+        except Exception as exc:
+            logger.debug("tpdog stock/daily failed for %s: %s", tpdog_code, exc)
+
+        if not info and not daily:
+            continue
+
+        rows.append({
+            "code": code_str,
+            "trade_date": trade_date,
+            "close": _num(daily.get("close")),
+            "turnover_rate": _num(daily.get("t_rate")),
+            "turnover_rate_f": None,
+            "volume_ratio": None,
+            "pe": _num(info.get("pe")),
+            "pe_ttm": _num(info.get("pe_ttm")),
+            "pb": _num(info.get("pb")),
+            "ps": None,
+            "ps_ttm": None,
+            "dv_ratio": None,
+            "dv_ttm": None,
+            "total_share": None,
+            "float_share": None,
+            "free_share": None,
+            "total_mv": _num(info.get("valuation")),
+            "circ_mv": _num(info.get("c_valuation")),
+        })
+        total += 1
+        if total % 500 == 0:
+            logger.info("tpdog daily_basic progress: %d/%d codes for %s", total, len(securities), trade_date)
+
+    if rows:
+        written = store.upsert_stock_daily_basic(rows)
+        if written:
+            logger.info("tpdog daily_basic wrote %d rows for %s", written, trade_date)
+        return written
+    return 0
+
+
+def _sync_stock_daily_basic_with_fallback(
+    store: MarketStore,
+    trade_date: str,
+    *,
+    codes: Optional[list[str]] = None,
+) -> int:
+    """daily_basic 全链路: tushare → tpdog 降级。"""
+    written = _sync_stock_daily_basic_tushare_by_date(store, trade_date, codes=codes)
+    if written:
+        return written
+    return _sync_stock_daily_basic_tpdog_by_date(store, trade_date, codes=codes)
+
+
 def _sync_etf_master_tushare(store: MarketStore) -> int:
     """Sync ETF metadata via Tushare etf_basic."""
     token = _env_token("TUSHARE_TOKEN")
@@ -5044,7 +5143,10 @@ def _sync_option_chain(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_fund_flow_120d(store: MarketStore, trade_date: str) -> int:
-    """东财日级资金流 120 日。"""
+    """东财日级资金流 120 日 → 新浪兜底。
+
+    tpdog fund/stock 不可行：只返回区间汇总数据(单行)，无法构造逐日序列。
+    """
     from src.data.astock_client import fund_flow_backup, stock_fund_flow_120d
     total = 0
     try:
@@ -5438,7 +5540,7 @@ def run_daily_sync(
             # run blocked on row count is diagnosable without grepping logs.
             _set_sync_error(store, name, "run_daily_sync", exc)
 
-    _run("daily_basic", lambda: _sync_stock_daily_basic_tushare_by_date(store, trade_date, codes=codes))
+    _run("daily_basic", lambda: _sync_stock_daily_basic_with_fallback(store, trade_date, codes=codes))
     _run("etf_master", lambda: _sync_etf_master(store))
     _run("fund_master", lambda: _sync_fund_master(store))  # after etf_master (reads it)
     _run("dragon", lambda: _sync_dragon_tiger(store, trade_date))
