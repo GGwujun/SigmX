@@ -360,11 +360,12 @@ app.whenReady().then(async () => {
     } catch (err) {
       console.error(`[sigmx] ${err.message}`);
     }
+    // Build application menu BEFORE creating the window — on Windows,
+    // Menu.setApplicationMenu() must be called first to attach to the window.
+    buildAppMenu();
+
     // Create the window first (user needs to see something).
     createWindow();
-
-    // Build application menu (File / View / Help with Check for Updates).
-    buildAppMenu();
 
     // Start auto-update checks (no-op in dev mode).
     setupAutoUpdater();
