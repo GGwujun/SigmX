@@ -1,0 +1,46 @@
+{
+  "name": "sigmx-desktop",
+  "version": "0.1.0",
+  "description": "SigmX desktop client — Electron shell that spawns the Python backend and serves the web UI in a native window.",
+  "main": "main.js",
+  "author": "SigmX",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dev": "cross-env SIGMX_DEV=1 electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "site.dsx-family.sigmx",
+    "productName": "SigmX",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../dist/vibe-trading",
+        "to": "python-dist/vibe-trading",
+        "filter": ["**/*"]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "artifactName": "SigmX-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "directories": {
+      "output": "release"
+    }
+  }
+}
