@@ -36,8 +36,32 @@ datas = []
 datas += collect_data_files("langchain")
 datas += collect_data_files("langchain_core")
 datas += collect_data_files("pydantic")
-# The built React frontend is served by the backend; ship it inside the bundle.
+
+# App-specific data files that PyInstaller's static analysis misses.
 import os
+_agent_dir = os.path.join("agent")
+# LLM provider config (json, required at import time).
+_providers_json = os.path.join(_agent_dir, "src", "providers", "llm_providers.json")
+if os.path.exists(_providers_json):
+    datas += [(_providers_json, os.path.join("src", "providers"))]
+# Swarm YAML presets.
+_presets_dir = os.path.join(_agent_dir, "src", "swarm", "presets")
+if os.path.isdir(_presets_dir):
+    for _f in os.listdir(_presets_dir):
+        if _f.endswith(".yaml") or _f.endswith(".yml"):
+            _fp = os.path.join(_presets_dir, _f)
+            if os.path.isfile(_fp):
+                datas += [(_fp, os.path.join("src", "swarm", "presets"))]
+# Prompts directory (markdown templates).
+_prompts_dir = os.path.join(_agent_dir, "src", "prompts")
+if os.path.isdir(_prompts_dir):
+    for _root, _dirs, _files in os.walk(_prompts_dir):
+        for _f in _files:
+            _fp = os.path.join(_root, _f)
+            _rel = os.path.relpath(_root, _agent_dir)
+            datas += [(_fp, _rel)]
+
+# The built React frontend is served by the backend; ship it inside the bundle.
 frontend_dist = os.path.join("frontend", "dist")
 if os.path.isdir(frontend_dist):
     datas += [(frontend_dist, "frontend/dist")]
