@@ -164,25 +164,6 @@ function loadPermanentEnv() {
   return vars;
 }
 
-// Ensure the permanent ~/.vibe-trading/.env is mirrored into the PyInstaller
-// bundle's _internal/ directory. The bundle directory is wiped on every update,
-// so this makes the config survive across versions without any migration step.
-function syncEnvToBundle() {
-  const permanentPath = path.join(os.homedir(), '.vibe-trading', '.env');
-  if (!fs.existsSync(permanentPath)) return;
-
-  const { cmd } = resolveBackendCommand();
-  const bundleDir = path.dirname(cmd);
-  const targetPath = path.join(bundleDir, '.env');
-
-  try {
-    fs.copyFileSync(permanentPath, targetPath);
-    console.log('[sigmx] .env synced from ~/.vibe-trading/ to bundle');
-  } catch (e) {
-    console.log('[sigmx] failed to sync .env to bundle:', e.message);
-  }
-}
-
 function spawnBackend() {
   const { cmd, args, cwd, label } = resolveBackendCommand();
   console.log(`[sigmx] starting backend: ${label}`);
@@ -448,9 +429,6 @@ function loadMainApp() {
 }
 
 app.whenReady().then(async () => {
-    // Sync permanent config into the bundle BEFORE spawning the backend,
-    // so load_dotenv() finds the tokens. Survives electron-updater wipes.
-    syncEnvToBundle();
     spawnBackend();
     try {
       await waitForBackend();

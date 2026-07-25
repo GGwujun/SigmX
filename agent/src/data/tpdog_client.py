@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 BASE_URL = "https://www.tpdog.com/api/hs"
 DEFAULT_TIMEOUT = 10  # seconds
-_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+_ENV_PATH = Path.home() / ".vibe-trading" / ".env"
 
 
 class TpdogError(RuntimeError):
