@@ -55,11 +55,6 @@
       "installerHeaderIcon": "assets/icon.png",
       "uninstallDisplayName": "SigmX ${version}"
     },
-    "publish": {
-      "provider": "github",
-      "owner": "GGwujun",
-      "repo": "SigmX"
-    },
     "directories": {
       "output": "release"
     }

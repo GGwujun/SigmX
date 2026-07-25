@@ -6,6 +6,9 @@ on:
       - "v*"
   workflow_dispatch:
 
+permissions:
+  contents: write   # required for GitHub Release upload
+
 jobs:
   build:
     runs-on: windows-latest
