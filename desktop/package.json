@@ -1,6 +1,6 @@
 {
   "name": "sigmx-desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "SigmX desktop client — Electron shell that spawns the Python backend and serves the web UI in a native window.",
   "main": "main.js",
   "author": "SigmX",
