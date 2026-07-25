@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
 import type { EChartsOption } from "echarts";
 import {
-  ArrowLeft,
   BarChart3,
   Bell,
   CalendarClock,
@@ -110,11 +108,7 @@ function StageShell({
       <header className="shrink-0 border-b bg-background/95 px-4 py-3 md:px-6">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <Link to="/market-dashboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-              <ArrowLeft className="h-3.5 w-3.5" />
-              总览大屏
-            </Link>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {meta.icon}
               <h1 className="text-xl font-semibold tracking-tight">{meta.title}</h1>
               <span className="rounded border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{meta.nav}</span>
