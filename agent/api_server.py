@@ -623,6 +623,15 @@ _security = HTTPBearer(auto_error=False)
 _API_KEY = os.getenv("API_AUTH_KEY")
 _SHELL_TOOLS_ENV = "VIBE_TRADING_ENABLE_SHELL_TOOLS"
 _DOCKER_LOOPBACK_ENV = "VIBE_TRADING_TRUST_DOCKER_LOOPBACK"
+# Desktop client mode: the Electron/Tauri shell spawns the backend locally and
+# loads it from loopback. Bypass JWT/API-key auth for loopback requests so the
+# app "just works" on first launch without a login flow. Production server
+# deployments leave this unset, so remote access still requires auth.
+_DESKTOP_MODE_ENV = "VIBE_TRADING_DESKTOP_MODE"
+# Run the market-sync worker as an in-process daemon thread (single-process
+# desktop client). Explicit opt-in OR implied by desktop mode (the client must
+# fetch its own data when there's no server). Same loop as the standalone CLI.
+_WORKER_INLINE_ENV = "VIBE_TRADING_START_MARKET_SYNC_WORKER"
 
 
 def _configured_api_key() -> str:
@@ -693,6 +702,12 @@ def _validate_api_auth(
     credential is first treated as a JWT; if that fails, it falls back to the
     legacy ``API_AUTH_KEY`` comparison (preserves remote API-key access).
     """
+    # Desktop client mode: loopback requests skip auth entirely (the Electron
+    # shell talks to a locally-spawned backend). Remote requests still require
+    # auth even in desktop mode — only _is_local_client is exempted.
+    if _env_flag_enabled(_DESKTOP_MODE_ENV) and _is_local_client(request):
+        return
+
     from src.auth.jwt_utils import user_id_from_token
 
     token = _auth_credential_from_header_or_query(cred, query_api_key, allow_query=allow_query)
@@ -3290,6 +3305,28 @@ register_risk_routes(app, require_auth, require_event_stream_auth)
 # Main Entry Point
 # ============================================================================
 
+def _maybe_start_inline_worker() -> None:
+    """Start the market-sync worker as an in-process daemon thread.
+
+    Enabled by VIBE_TRADING_START_MARKET_SYNC_WORKER=1 (explicit) or
+    VIBE_TRADING_DESKTOP_MODE=1 (the desktop client fetches its own data).
+    Runs the same run_worker() loop as the standalone `vibe-trading-sync worker`
+    CLI — one process serves the UI AND pulls data.
+    """
+    if not (_env_flag_enabled(_DESKTOP_MODE_ENV) or _env_flag_enabled(_WORKER_INLINE_ENV)):
+        return
+    import threading
+    from src.data.market_sync_worker import run_worker
+
+    interval = int(os.getenv("MARKET_SYNC_WORKER_INTERVAL", "60"))
+    thread = threading.Thread(
+        target=run_worker, args=(interval,),
+        name="market-sync-worker", daemon=True,
+    )
+    thread.start()
+    print(f"[worker] inline market-sync worker started (interval={interval}s, daemon thread)")
+
+
 def serve_main(argv: list[str] | None = None) -> int:
     """Start the API server from CLI-style arguments."""
     import argparse
@@ -3310,6 +3347,8 @@ def serve_main(argv: list[str] | None = None) -> int:
                 response = await super().get_response("index.html", scope)
                 path = "index.html"
             return _with_frontend_cache_headers(response, path)
+
+    _maybe_start_inline_worker()
 
     parser = argparse.ArgumentParser(description="Vibe-Trading Server")
     parser.add_argument("--port", type=int, default=8000, help="Listen port (default 8000)")

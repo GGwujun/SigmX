@@ -1,62 +1,40 @@
-# 本地部署覆盖配置
-# 用法：docker-compose -f docker-compose.yml -f docker-compose.local.yml up
+# 本地部署覆盖配置（单进程客户端模式）
+# 用法：docker-compose -f docker-compose.yml -f docker-compose.local.yml --profile local up
 # 数据目录：E:\gwj\sigmx-local\data（与代码分离）
+#
+# 客户端化后的本地拓扑：只有 vibe-trading 一个业务进程——它既服务 Web UI，
+# 又在内置 daemon 线程里跑 market-sync worker（VIBE_TRADING_START_MARKET_SYNC_WORKER=1）。
+# 不再有独立的 data-sync 推送服务和独立 market-sync 容器：本地就是数据源头，
+# 不依赖远程服务器。远程只读查看改用 Cloudflare Tunnel（见 docs）。
 
 services:
-  # 数据推送服务（本地 → 服务器）
-  data-sync:
-    build: ./data-sync
-    container_name: sigmx-data-sync
-    restart: unless-stopped
-    volumes:
-      - E:\gwj\sigmx-local\data:/data:rw
-    environment:
-      - TZ=Asia/Shanghai
-      - DB_PATH=/data/market.db
-      - SERVER_URL=${MARKET_INGEST_URL:-https://sigmx.dsx-family.site/market-ingest}
-      - MARKET_INGEST_TOKEN=${MARKET_INGEST_TOKEN:-}
-      - SYNC_INTERVAL=${SYNC_INTERVAL:-30}
-      - SNAPSHOT_PUSH_SLOTS=${SNAPSHOT_PUSH_SLOTS:-09:26,14:29,15:20}
-      # Persist sender-state.json inside the mounted /data so it survives
-      # container restarts (otherwise the last-delivered run is forgotten and
-      # only the latest run is re-delivered after a restart).
-      - SNAPSHOT_WORK_DIR=/data/sync-state
-    # Health: the loop writes to /data/sync.log at least once per heartbeat
-    # interval (~60s). If the log has not been touched in 10 minutes the
-    # process is almost certainly frozen (e.g. stuck in a sqlite backup).
-    healthcheck:
-      test:
-        - "CMD-SHELL"
-        - "find /data/sync.log -mmin -10 | grep -q sync.log || exit 1"
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 120s
-    mem_limit: 256m
-    mem_reservation: 128m
-
-  # Dedicated local fetch/quality worker. It shares the exact same database
-  # directory with data-sync; the production query host does not run this.
-  market-sync:
-    profiles: []
-    volumes:
-      - E:\gwj\sigmx-local\data:/home/vibe/.vibe-trading
-
-  # 本地 Web 服务（端口 8900，包含查询 API /api/v1/*）
+  # 唯一业务进程：Web UI + 内置 worker 拉数据（单进程客户端）
   vibe-trading:
+    profiles: ["local"]
     ports:
       - "8900:8900"
     volumes:
-      - E:\gwj\sigmx-local\data:/data:ro
+      # 改为可写：内置 worker 要写 market.db（旧模式 vibe-trading 只读、独立 market-sync 写）
+      - E:\gwj\sigmx-local\data:/home/vibe/.vibe-trading
     environment:
       - TZ=Asia/Shanghai
-      - DB_PATH=/data/market.db
+      - VIBE_TRADING_MARKET_DB_PATH=/home/vibe/.vibe-trading/market.db
       - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
+      # 客户端模式：loopback 免登录 + 内置 worker 拉数据
+      - VIBE_TRADING_DESKTOP_MODE=1
+      - VIBE_TRADING_START_MARKET_SYNC_WORKER=1
+      - MARKET_SYNC_POSTCLOSE_UNIVERSE=all
+      - MARKET_SYNC_POSTCLOSE_LOOKBACK_DAYS=365
+    mem_limit: 1500m
+    mem_reservation: 700m
 
-volumes:
-  data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: E:\gwj\sigmx-local\data
+  # RSSHub 仍在（新闻/电报聚合，可选）
+  rsshub:
+    profiles: ["local"]
+    ports:
+      - "11200:1200"
+
+# 注：以下组件已在客户端化后移除
+# - data-sync：本地→服务器快照推送。本地自包含后无服务器可推，纯死代码。
+# - 独立 market-sync 容器：worker 现在在 vibe-trading 进程内跑（VIBE_TRADING_START_MARKET_SYNC_WORKER=1）。
+# 若仍需"本地拉→推服务器"的旧双机模式，回退到 git 历史中的旧版 docker-compose.local.yml。
