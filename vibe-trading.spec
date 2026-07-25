@@ -31,11 +31,30 @@ hidden += collect_submodules("langgraph")
 # App route modules are imported by name in api_server; force them in.
 hidden += collect_submodules("src")
 
+# --- Data-source packages whose imports PyInstaller cannot statically trace ---
+# A-share: mootdx (通达信免费行情), tushare (Pro REST API), tpdog (托普量化).
+hidden += collect_submodules("mootdx")
+hidden += collect_submodules("tushare")
+hidden += collect_submodules("tpdog")
+# Global / macro: akshare + its transitive deps.
+hidden += collect_submodules("akshare")
+# Free A-share data: bao stock (baostock).
+hidden += collect_submodules("baostock")
+hidden += collect_submodules("bs4")
+hidden += collect_submodules("openpyxl")
+hidden += collect_submodules("xlsxwriter")
+hidden += collect_submodules("html5lib")
+hidden += collect_submodules("jsonpath_ng")
+hidden += collect_submodules("simplejson")
+hidden += collect_submodules("six")
+
 datas = []
 # Package data files (pydantic schemas, langchain json, etc.).
 datas += collect_data_files("langchain")
 datas += collect_data_files("langchain_core")
 datas += collect_data_files("pydantic")
+# akshare ships a trade calendar JSON that is read at runtime.
+datas += collect_data_files("akshare")
 
 # App-specific data files that PyInstaller's static analysis misses.
 import os

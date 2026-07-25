@@ -9,7 +9,7 @@
 // Dev mode (SIGMX_DEV=1): spawn the backend from source via `python -m api_server`.
 // Production (default): spawn the PyInstaller-bundled executable in resources/python-dist.
 
-const { app, BrowserWindow, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, Menu, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -19,6 +19,90 @@ const { autoUpdater } = require('electron-updater');
 const PORT = parseInt(process.env.SIGMX_PORT || '8899', 10);
 const HOST = '127.0.0.1';
 const isDev = !!process.env.SIGMX_DEV;
+
+function buildAppMenu() {
+  const isMac = process.platform === 'darwin';
+
+  const template = [
+    // macOS app menu
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    }] : []),
+    // File
+    {
+      label: '文件',
+      submenu: [
+        isMac ? { role: 'close' } : { role: 'quit' },
+      ],
+    },
+    // View
+    {
+      label: '视图',
+      submenu: [
+        { role: 'reload', label: '刷新' },
+        { role: 'toggleDevTools', label: '开发者工具' },
+        { type: 'separator' },
+        { role: 'zoomIn', label: '放大' },
+        { role: 'zoomOut', label: '缩小' },
+        { role: 'resetZoom', label: '恢复缩放' },
+      ],
+    },
+    // Help
+    {
+      label: '帮助',
+      submenu: [
+        {
+          label: '检查更新',
+          click: async () => {
+            try {
+              const result = await autoUpdater.checkForUpdatesAndNotify();
+              if (result && result.updateInfo) {
+                dialog.showMessageBox(mainWindow, {
+                  type: 'info',
+                  title: '更新可用',
+                  message: `发现新版本 ${result.updateInfo.version}`,
+                  detail: '正在后台下载，安装完成后重启应用即可。',
+                });
+              } else {
+                dialog.showMessageBox(mainWindow, {
+                  type: 'info',
+                  title: '已是最新版本',
+                  message: `SigmX ${app.getVersion()} 已是最新版本。`,
+                });
+              }
+            } catch (err) {
+              dialog.showMessageBox(mainWindow, {
+                type: 'error',
+                title: '检查更新失败',
+                message: err.message || '未知错误',
+              });
+            }
+          },
+        },
+        { type: 'separator' },
+        {
+          label: '关于 SigmX',
+          click: () => {
+            dialog.showMessageBox(mainWindow, {
+              type: 'info',
+              title: '关于 SigmX',
+              message: `SigmX v${app.getVersion()}`,
+              detail: 'AI Trading Research Agent\n本地优先桌面客户端',
+            });
+          },
+        },
+      ],
+    },
+  ];
+
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
 
 let backendProc = null;
 let mainWindow = null;
@@ -278,6 +362,9 @@ app.whenReady().then(async () => {
     }
     // Create the window first (user needs to see something).
     createWindow();
+
+    // Build application menu (File / View / Help with Check for Updates).
+    buildAppMenu();
 
     // Start auto-update checks (no-op in dev mode).
     setupAutoUpdater();
