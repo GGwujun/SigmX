@@ -3275,6 +3275,14 @@ register_market_sync_routes(app)
 from src.api.sigmx_routes import register_sigmx_routes  # noqa: E402
 register_sigmx_routes(app)
 
+# Desktop first-run onboarding (loopback-only)
+from src.api.onboarding_routes import register_onboarding_routes  # noqa: E402
+register_onboarding_routes(app)
+
+# Admin-only Data Hub subscription management
+from src.api.admin_routes import register_admin_routes  # noqa: E402
+register_admin_routes(app, require_admin)
+
 
 # ============================================================================
 # AlphaForge routes (Web UI)
@@ -3367,7 +3375,10 @@ def serve_main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return int(exc.code) if isinstance(exc.code, int) else 2
 
-    frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+    # Prefer SIGMX_FRONTEND_DIST (set by PyInstaller launch_backend.py) so
+    # the frozen bundle finds its shipped frontend. Fall back to the repo layout.
+    _env_dist = os.getenv("SIGMX_FRONTEND_DIST")
+    frontend_dist = Path(_env_dist) if _env_dist else (Path(__file__).resolve().parent.parent / "frontend" / "dist")
     frontend_root = Path(__file__).resolve().parent.parent / "frontend"
 
     # Windows registry commonly maps .js → text/plain. StaticFiles relies on the

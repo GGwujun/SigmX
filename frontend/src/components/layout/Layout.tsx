@@ -7,7 +7,24 @@ import { api, type SessionItem } from "@/lib/api";
 import { isAdmin } from "@/lib/apiAuth";
 import { useAgentStore } from "@/stores/agent";
 import { ConnectionBanner } from "@/components/layout/ConnectionBanner";
+import { getDataMode, getDataHubUrl } from "@/lib/dataMode";
+import { Server } from "lucide-react";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
+
+function DataHubBanner() {
+  const mode = getDataMode();
+  if (mode !== "connected") return null;
+  const hubUrl = getDataHubUrl();
+  const label = hubUrl
+    ? `Data Hub · ${hubUrl.replace(/^https?:\/\//, "").replace(/:\d+/, "")}`
+    : "Data Hub · Connected";
+  return (
+    <div className="flex items-center gap-2 px-4 py-1.5 text-xs bg-primary/10 text-primary border-b border-primary/20">
+      <Server className="h-3 w-3" />
+      <span>{label}</span>
+    </div>
+  );
+}
 import { Watermark } from "@/components/Watermark";
 
 // App version injected at build time from package.json (see vite.config.ts `define`).
@@ -337,6 +354,7 @@ export function Layout() {
       {/* Main */}
       <div className="flex-1 flex flex-col overflow-hidden">
         <ConnectionBanner status={sseStatus} retryAttempt={sseRetryAttempt} />
+        <DataHubBanner />
         <main className="flex-1 overflow-auto">
           <Outlet />
         </main>

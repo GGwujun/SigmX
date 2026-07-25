@@ -3,6 +3,7 @@ import { Bell, Database, KeyRound, Loader2, RotateCcw, Save, Send, Server, Shiel
 import { toast } from "sonner";
 import { api, isAuthRequiredError, type DataSourceSettings, type DataHealthReport, type SourceHealth, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig, type AlertRule } from "@/lib/api";
 import { getApiAuthKey, isAdmin, setApiAuthKey } from "@/lib/apiAuth";
+import { getDataMode, setDataMode, getDataHubUrl, setDataHubUrl, getDataHubKey, setDataHubKey } from "@/lib/dataMode";
 import { cn } from "@/lib/utils";
 
 interface LLMFormState {
@@ -36,6 +37,90 @@ function unknownError(error: unknown): string {
   return error instanceof Error ? error.message : "未知错误";
 }
 
+function DataHubTab() {
+  const [mode, setMode] = useState(getDataMode());
+  const [hubUrl, setHubUrl] = useState(getDataHubUrl());
+  const [hubKey, setHubKey] = useState(getDataHubKey());
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    setSaving(true);
+    setDataMode(mode);
+    setDataHubUrl(hubUrl);
+    setDataHubKey(hubKey);
+    toast.success("数据连接配置已保存");
+    setSaving(false);
+  };
+
+  return (
+    <div className="space-y-6">
+      <Section icon={Database} title="数据连接" desc="选择本地独立模式或连接远程 Data Hub 获取数据。">
+        <div className="grid gap-4">
+          {/* Mode toggle */}
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium">模式</label>
+            <button
+              type="button"
+              onClick={() => setMode(mode === "standalone" ? "connected" : "standalone")}
+              className={cn(
+                "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+                mode === "connected" ? "bg-primary" : "bg-border",
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  mode === "connected" ? "translate-x-6" : "translate-x-1",
+                )}
+              />
+            </button>
+            <span className="text-sm text-muted-foreground">
+              {mode === "standalone" ? "Standalone · 本地数据" : "Connected · 远程 Data Hub"}
+            </span>
+          </div>
+
+          {mode === "connected" && (
+            <>
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">Data Hub 地址</span>
+                <input
+                  type="url"
+                  value={hubUrl}
+                  onChange={e => setHubUrl(e.target.value)}
+                  placeholder="https://data-hub.example.com:8900"
+                  className={fieldClass}
+                />
+                <span className={hintClass}>远程 Data Hub 服务器的地址（包含端口）</span>
+              </label>
+              <label className="grid gap-1.5">
+                <span className="text-sm font-medium">API Key</span>
+                <input
+                  type="password"
+                  value={hubKey}
+                  onChange={e => setHubKey(e.target.value)}
+                  placeholder="sx_..."
+                  className={fieldClass}
+                />
+                <span className={hintClass}>在 Data Hub 管理后台生成的订阅密钥</span>
+              </label>
+            </>
+          )}
+        </div>
+      </Section>
+
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving}
+        className="flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-40"
+      >
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+        保存数据配置
+      </button>
+    </div>
+  );
+}
+
 export function Settings() {
   const [settings, setSettings] = useState<LLMSettings | null>(null);
   const [dataSettings, setDataSettings] = useState<DataSourceSettings | null>(null);
@@ -51,7 +136,7 @@ export function Settings() {
   const [saving, setSaving] = useState(false);
   const [dataSaving, setDataSaving] = useState(false);
   const [settingsLoadError, setSettingsLoadError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"system" | "notify" | "alerts">(isAdmin() ? "system" : "notify");
+  const [tab, setTab] = useState<"system" | "data" | "notify" | "alerts">(isAdmin() ? "system" : "notify");
 
   useEffect(() => {
     let alive = true;
@@ -234,6 +319,7 @@ export function Settings() {
       <div className="flex gap-1 border-b">
         {([
           { id: "system" as const, label: "系统配置", adminOnly: true },
+          { id: "data" as const, label: "数据连接", adminOnly: false },
           { id: "notify" as const, label: "通知配置", adminOnly: false },
           { id: "alerts" as const, label: "🔔 告警规则", adminOnly: false },
         ]).filter(t => !t.adminOnly || isAdmin()).map(t => (
@@ -254,6 +340,8 @@ export function Settings() {
 
       {tab === "alerts" ? (
         <AlertRulesTab />
+      ) : tab === "data" ? (
+        <DataHubTab />
       ) : tab === "notify" || !isAdmin() ? (
         <NotifyTab />
       ) : (

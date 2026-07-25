@@ -9,11 +9,12 @@
 // Dev mode (SIGMX_DEV=1): spawn the backend from source via `python -m api_server`.
 // Production (default): spawn the PyInstaller-bundled executable in resources/python-dist.
 
-const { app, BrowserWindow, shell } = require('electron');
+const { app, BrowserWindow, shell, ipcMain } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
 const net = require('net');
+const { autoUpdater } = require('electron-updater');
 
 const PORT = parseInt(process.env.SIGMX_PORT || '8899', 10);
 const HOST = '127.0.0.1';
@@ -117,6 +118,7 @@ function createWindow() {
     minHeight: 700,
     title: 'SigmX',
     autoHideMenuBar: true,
+    show: false,  // don't flash white before content loads
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -124,13 +126,16 @@ function createWindow() {
     },
   });
 
+  // Show the window once content is ready.
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+  });
+
   // Clear the HTTP cache before loading: Electron aggressively caches responses
   // across launches, so a stale text/plain JS response from an earlier broken
   // backend (pre-MIME-fix) would keep producing a white screen even after the
   // server is fixed. This forces a fresh fetch every launch.
   mainWindow.webContents.session.clearCache().catch(() => {});
-
-  mainWindow.loadURL(`http://${HOST}:${PORT}/`);
 
   // Forward renderer console messages to the main-process stdout so white-screen
   // JS errors are visible in the backend log (not just in DevTools).
@@ -158,6 +163,63 @@ function createWindow() {
 }
 
 // Ensure a single instance — refuse a second window, focus the existing one.
+// ---- Auto-update ----
+
+// Configure auto-updater. In dev mode (no packaged app), skip checks
+// because there's no update channel. The publish config in package.json
+// points at GitHub Releases.
+autoUpdater.logger = console;
+autoUpdater.autoDownload = true;   // download in background, notify when ready
+autoUpdater.autoInstallOnAppQuit = true;
+
+function setupAutoUpdater() {
+  // Don't check for updates in dev mode — only in packaged builds.
+  if (isDev) return;
+
+  autoUpdater.on('update-available', (info) => {
+    console.log('[sigmx] update available:', info.version);
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[sigmx] update downloaded:', info.version);
+    // Notify the renderer so it can show a banner.
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('update-downloaded', {
+        version: info.version,
+        releaseNotes: info.releaseNotes,
+        releaseDate: info.releaseDate,
+      });
+    }
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.error('[sigmx] auto-update error:', err.message);
+  });
+
+  // Check on startup, then every 4 hours.
+  autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  setInterval(() => {
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  }, 4 * 60 * 60 * 1000);
+}
+
+// IPC: renderer requests a manual update check.
+ipcMain.handle('check-for-updates', async () => {
+  try {
+    const result = await autoUpdater.checkForUpdatesAndNotify();
+    return { ok: true, version: result?.updateInfo?.version || null };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});
+
+// IPC: renderer asks to quit and install the downloaded update.
+ipcMain.handle('quit-and-install', () => {
+  autoUpdater.quitAndInstall();
+});
+
+// ---- Single instance ----
+
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -169,23 +231,86 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(async () => {
+  // Check whether the backend reports that first-run setup is needed.
+function checkFirstRun() {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { host: HOST, port: PORT, path: '/onboarding/status', timeout: 3000 },
+      (res) => {
+        let body = '';
+        res.on('data', (d) => { body += d; });
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            resolve(data.needs_setup === true);
+          } catch {
+            resolve(false);
+          }
+        });
+      },
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+function loadSetupWizard() {
+  // The setup wizard is a standalone HTML file bundled in the Electron app.
+  // It communicates with the Python backend via localhost.
+  const setupPath = path.join(__dirname, 'setup.html');
+  mainWindow.loadFile(setupPath).catch(() => {
+    // Fallback: if setup.html isn't found, load the main app.
+    console.log('[sigmx] setup.html not found, loading main app');
+    mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+  });
+}
+
+function loadMainApp() {
+  mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+}
+
+app.whenReady().then(async () => {
     spawnBackend();
     try {
       await waitForBackend();
     } catch (err) {
       console.error(`[sigmx] ${err.message}`);
-      // Still open the window so the user sees something; backend logs stream to console.
     }
+    // Create the window first (user needs to see something).
     createWindow();
+
+    // Start auto-update checks (no-op in dev mode).
+    setupAutoUpdater();
+
+    // Check if this is a fresh install — if so, show the setup wizard.
+    try {
+      const needsSetup = await checkFirstRun();
+      if (needsSetup) {
+        console.log('[sigmx] first run detected, loading setup wizard');
+        loadSetupWizard();
+      } else {
+        loadMainApp();
+      }
+    } catch {
+      loadMainApp();
+    }
   });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  app.on('activate', async () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+      try {
+        const needsSetup = await checkFirstRun();
+        if (needsSetup) loadSetupWizard();
+        else loadMainApp();
+      } catch {
+        loadMainApp();
+      }
+    }
   });
 }
 

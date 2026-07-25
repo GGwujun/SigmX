@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SigmX Setup</title>
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --card: #13131a;
+    --border: #272730;
+    --text: #e4e4ec;
+    --muted: #8888a0;
+    --primary: #6366f1;
+    --primary-hover: #5457e5;
+    --danger: #ef4444;
+    --success: #22c55e;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; padding: 20px;
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px; max-width: 440px; width: 100%;
+    box-shadow: 0 4px 24px rgba(0,0,0,.3);
+  }
+  h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 8px; }
+  .subtitle { color: var(--muted); font-size: .875rem; margin-bottom: 24px; }
+  .step { display: none; }
+  .step.active { display: block; }
+  .step-indicator { display: flex; gap: 8px; margin-bottom: 24px; }
+  .step-dot {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--border); transition: background .2s;
+  }
+  .step-dot.done { background: var(--success); }
+  .step-dot.current { background: var(--primary); }
+  label { display: block; font-size: .8125rem; font-weight: 500; margin-bottom: 6px; color: var(--muted); }
+  input {
+    width: 100%; padding: 10px 14px; border: 1px solid var(--border);
+    border-radius: 10px; background: var(--bg); color: var(--text);
+    font-size: .875rem; outline: none; margin-bottom: 16px;
+    transition: border-color .2s;
+  }
+  input:focus { border-color: var(--primary); }
+  .btn {
+    width: 100%; padding: 12px; border: none; border-radius: 10px;
+    font-size: .875rem; font-weight: 600; cursor: pointer;
+    transition: opacity .2s; margin-bottom: 8px;
+  }
+  .btn-primary { background: var(--primary); color: white; }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+  .btn-secondary:hover { background: var(--border); }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+  .error { color: var(--danger); font-size: .8125rem; margin-bottom: 12px; }
+  .success-msg { color: var(--success); font-size: .875rem; margin-bottom: 16px; text-align: center; }
+  .optional { font-size: .75rem; color: var(--muted); float: right; }
+  .flex-row { display: flex; gap: 8px; }
+  .flex-row .btn { flex: 1; }
+</style>
+</head>
+<body>
+<div class="card" id="app">
+  <h1>SigmX 桌面客户端 · 初次设置</h1>
+  <p class="subtitle">完成几步简单配置，马上开始使用</p>
+
+  <div class="step-indicator">
+    <div class="step-dot" id="dot1"></div>
+    <div class="step-dot" id="dot2"></div>
+    <div class="step-dot" id="dot3"></div>
+    <div class="step-dot" id="dot4"></div>
+  </div>
+
+  <!-- Step 1: Welcome -->
+  <div class="step active" id="step1">
+    <p style="margin-bottom:16px;line-height:1.6;">SigmX 是一个 <strong>AI 投研智能体平台</strong>，面向 A 股市场。</p>
+    <p style="margin-bottom:16px;line-height:1.6;color:var(--muted);font-size:.875rem;">
+      数据将存储在 <code style="background:var(--border);padding:2px 6px;border-radius:4px;" id="dataDir">~/.vibe-trading/</code>
+    </p>
+    <ul style="margin-bottom:24px;font-size:.8125rem;color:var(--muted);line-height:1.8;padding-left:18px;">
+      <li>行情自动拉取（需配置数据源 token）</li>
+      <li>本地优先，数据存在你电脑上</li>
+      <li>AI 投研报告、风控看板、基金套利</li>
+    </ul>
+    <button class="btn btn-primary" onclick="nextStep(2)">开始设置</button>
+  </div>
+
+  <!-- Step 2: Admin account -->
+  <div class="step" id="step2">
+    <label>管理员邮箱</label>
+    <input type="email" id="email" value="admin@local" placeholder="admin@local">
+    <label>密码</label>
+    <input type="password" id="password" value="admin123" placeholder="至少6位">
+    <label>确认密码</label>
+    <input type="password" id="password2" value="admin123" placeholder="再次输入密码">
+    <p class="error" id="step2Error" style="display:none;"></p>
+    <button class="btn btn-primary" onclick="validateAndNext()">下一步</button>
+    <button class="btn btn-secondary" onclick="prevStep(1)">返回</button>
+  </div>
+
+  <!-- Step 3: Data tokens (optional) -->
+  <div class="step" id="step3">
+    <label>Tushare Token <span class="optional">可选，推荐配置</span></label>
+    <input type="text" id="tushareToken" placeholder="注册 tushare.pro 获取">
+    <label>TPDog Token <span class="optional">可选，备用数据源</span></label>
+    <input type="text" id="tpdogToken" placeholder="注册 tpdog.com 获取">
+    <p style="font-size:.8125rem;color:var(--muted);margin-bottom:16px;">
+      可以跳过，后续在设置页配置
+    </p>
+    <button class="btn btn-primary" onclick="nextStep(4)">下一步</button>
+    <button class="btn btn-secondary" onclick="prevStep(2)">返回</button>
+  </div>
+
+  <!-- Step 4: Initialize -->
+  <div class="step" id="step4">
+    <p style="margin-bottom:16px;line-height:1.6;">确认以下信息：</p>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:20px;font-size:.8125rem;">
+      <div style="margin-bottom:8px;">👤 <strong>管理员</strong>：<span id="confirmEmail">admin@local</span></div>
+      <div style="margin-bottom:8px;">📊 <strong>Tushare</strong>：<span id="confirmTushare">未配置</span></div>
+      <div>🔧 <strong>TPDog</strong>：<span id="confirmTpdog">未配置</span></div>
+    </div>
+    <p class="error" id="step4Error" style="display:none;"></p>
+    <p class="success-msg" id="step4Success" style="display:none;"></p>
+    <button class="btn btn-primary" id="initBtn" onclick="doInitialize()">完成设置</button>
+    <button class="btn btn-secondary" id="retryBtn" style="display:none;" onclick="retryInit()">重试</button>
+  </div>
+</div>
+
+<script src="setup.js"></script>
+</body>
+</html>

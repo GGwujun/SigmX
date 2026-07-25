@@ -1,4 +1,5 @@
 import { authHeaders, withAuthQuery, type AuthUser } from "@/lib/apiAuth";
+import { resolveApiUrl, dataHubHeaders, getDataMode } from "@/lib/dataMode";
 
 const BASE = "";
 
@@ -34,12 +35,24 @@ async function errorFromResponse(res: Response): Promise<ApiError> {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, ...rest } = options ?? {};
   const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
+
+  // In connected mode, route /api/v1/* calls to the remote Data Hub.
+  if (path.startsWith("/api/v1/") && getDataMode() === "connected") {
+    Object.assign(mergedHeaders, dataHubHeaders());
+  }
+
   if (headers) {
     new Headers(headers).forEach((value, key) => {
       mergedHeaders[key] = value;
     });
   }
-  const res = await fetch(`${BASE}${path}`, {
+
+  // Resolve the URL: local (BASE + path) or remote Data Hub.
+  const url = path.startsWith("/api/v1/")
+    ? resolveApiUrl(path)
+    : `${BASE}${path}`;
+
+  const res = await fetch(url, {
     ...rest,
     headers: mergedHeaders,
   });
@@ -129,6 +142,8 @@ export const api = {
       body: JSON.stringify({ email, password }),
     }),
   getMe: () => request<AuthUser>("/auth/me"),
+  desktopSession: () =>
+    request<AuthResponse>("/auth/desktop-session", { method: "POST" }),
   acceptDisclaimer: () => request<AuthUser>("/auth/disclaimer/accept", { method: "POST" }),
 
   // Credits + account

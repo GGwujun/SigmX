@@ -91,6 +91,55 @@ def register_auth_routes(app: FastAPI) -> APIRouter:
         token = create_token(user["id"], user["email"])
         return AuthResponse(token=token, user=User(**user))
 
+    @router.post("/desktop-session", response_model=AuthResponse)
+    async def desktop_session(request: Request) -> AuthResponse:
+        """Create or return a desktop session JWT (loopback-only).
+
+        Desktop-mode loopback requests already skip auth in the main guard,
+        but the frontend's RequireAuth component needs a token in localStorage
+        to avoid redirecting to /login. This endpoint bridges that gap: it
+        finds (or creates) the default admin user and returns a valid JWT so
+        the desktop app "just works" without a manual login.
+
+        Only accessible from loopback — remote callers get 403.
+        """
+        # Reuse the same local-client check as the desktop auth guard.
+        host = request.client.host if request.client else ""
+        if host not in ("127.0.0.1", "::1", "localhost", "testclient"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="desktop-session is only available from loopback",
+            )
+
+        store = _get_store()
+        # Find an existing admin, or fall back to the first user, or seed one.
+        admin = store.find_admin()
+        if admin is None:
+            # Try any user (e.g. after onboarding completed but admin flag missing)
+            first = store.get_first_user()
+            if first:
+                admin = first
+            else:
+                # Seed a default admin account so the desktop app always works.
+                import os as _os
+                email = _os.getenv("ADMIN_EMAIL", "admin@local")
+                password = _os.getenv("ADMIN_PASSWORD", "admin123")
+                try:
+                    admin = store.create_user(email, password)
+                    store.set_admin(admin["id"])
+                    admin = store.get_by_id(admin["id"])
+                except ValueError:
+                    # Race: another call already created it. Retry.
+                    admin = store.find_admin() or store.get_first_user()
+                    if admin is None:
+                        raise HTTPException(
+                            status_code=500,
+                            detail="Failed to seed desktop admin account",
+                        )
+
+        token = create_token(admin["id"], admin["email"])
+        return AuthResponse(token=token, user=User(**admin))
+
     @router.get("/me", response_model=User)
     async def me(user: dict = Depends(require_user)) -> User:
         """Return the current user (validates the token)."""

@@ -189,5 +189,34 @@ class UserStore:
             conn.commit()
             return cur.rowcount > 0
 
+    def find_admin(self) -> dict[str, Any] | None:
+        """Return the first admin user, or None."""
+        with self._lock:
+            conn = self._init_conn_locked()
+            row = conn.execute(
+                "SELECT * FROM users WHERE is_admin = 1 ORDER BY created_at ASC LIMIT 1"
+            ).fetchone()
+        return self._row_to_user(row) if row else None
+
+    def get_first_user(self) -> dict[str, Any] | None:
+        """Return the first user by creation time, or None."""
+        with self._lock:
+            conn = self._init_conn_locked()
+            row = conn.execute(
+                "SELECT * FROM users ORDER BY created_at ASC LIMIT 1"
+            ).fetchone()
+        return self._row_to_user(row) if row else None
+
+    def set_admin(self, user_id: str) -> bool:
+        """Promote a user to admin. Returns True if updated."""
+        with self._lock:
+            conn = self._init_conn_locked()
+            cur = conn.execute(
+                "UPDATE users SET is_admin = 1 WHERE id = ?",
+                (user_id,),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     # Backwards-compat alias used by credits_routes.
     _set_password_hash = set_password_hash

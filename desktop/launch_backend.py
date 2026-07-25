@@ -19,11 +19,18 @@ def main() -> int:
     # builds; make the backend look there for dist/.
     here = os.path.dirname(os.path.abspath(sys.argv[0]))
     if getattr(sys, "frozen", False):
-        # PyInstaller sets sys._MEIPASS (onefile) or leaves files next to the exe (onedir).
+        # PyInstaller onedir: datas land in _internal/ next to the exe.
+        # sys._MEIPASS is only set in onefile mode; in onedir, check both
+        # <exe_dir>/_internal/frontend/dist and <exe_dir>/frontend/dist.
         base = getattr(sys, "_MEIPASS", None) or here
-        frontend_dist = os.path.join(base, "frontend", "dist")
-        if os.path.isdir(frontend_dist):
-            os.environ.setdefault("SIGMX_FRONTEND_DIST", frontend_dist)
+        candidates = [
+            os.path.join(base, "_internal", "frontend", "dist"),
+            os.path.join(base, "frontend", "dist"),
+        ]
+        for d in candidates:
+            if os.path.isdir(d):
+                os.environ.setdefault("SIGMX_FRONTEND_DIST", d)
+                break
 
     from api_server import serve_main
 

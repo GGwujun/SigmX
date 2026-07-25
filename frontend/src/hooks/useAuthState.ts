@@ -2,13 +2,25 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import {
   clearAuth, disclaimerAccepted as disclaimerAcceptedFn,
-  isAuthenticated, setUser, type AuthUser,
+  isAuthenticated, setToken, setUser, type AuthUser,
 } from "@/lib/apiAuth";
+
+declare global {
+  interface Window {
+    sigmxDesktop?: { isDesktop: boolean; [key: string]: unknown };
+  }
+}
+
+function isDesktopMode(): boolean {
+  return !!window.sigmxDesktop?.isDesktop;
+}
 
 /**
  * Auth state for the route guard.
  *
  * On mount: if a token is present, validate it via /auth/me.
+ * In desktop mode (Electron): auto-fetch a desktop session token so the
+ * app skips the login page.
  *  - valid → authed=true, refresh local user (source of truth for disclaimer)
  *  - invalid/expired → clear auth, authed=false (guard redirects to /login)
  *
@@ -24,24 +36,44 @@ export function useAuthState() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (!isAuthenticated()) {
-        setAuthed(false);
-        setLoading(false);
+      // 1) Already have a valid token — validate and proceed.
+      if (isAuthenticated()) {
+        try {
+          const user: AuthUser = await api.getMe();
+          if (cancelled) return;
+          setUser(user);
+          setAuthed(true);
+        } catch {
+          if (cancelled) return;
+          clearAuth();
+          setAuthed(false);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
         return;
       }
-      try {
-        const user: AuthUser = await api.getMe();
-        if (cancelled) return;
-        setUser(user);
-        setAuthed(true);
-      } catch {
-        if (cancelled) return;
-        // token invalid/expired → force re-login
-        clearAuth();
-        setAuthed(false);
-      } finally {
-        if (!cancelled) setLoading(false);
+
+      // 2) Desktop mode: auto-fetch a session token so the user skips login.
+      if (isDesktopMode()) {
+        try {
+          const res = await api.desktopSession();
+          if (cancelled) return;
+          setToken(res.token);
+          setUser(res.user);
+          setAuthed(true);
+        } catch {
+          if (cancelled) return;
+          // Desktop session failed — fall through to login page.
+          setAuthed(false);
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+        return;
       }
+
+      // 3) No token, not desktop — show login page.
+      setAuthed(false);
+      setLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);

@@ -68,6 +68,11 @@ agent/tests/e2e_backtest/
 dist/
 build/
 
+# Electron desktop build outputs
+desktop/release/
+desktop/python-dist/
+desktop/node_modules/
+
 # Local demo videos (too large for git; link to external host instead)
 assets/*.mp4
 

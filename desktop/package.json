@@ -9,24 +9,32 @@
     "start": "electron .",
     "dev": "cross-env SIGMX_DEV=1 electron .",
     "build": "electron-builder",
-    "build:win": "electron-builder --win"
+    "build:win": "electron-builder --win",
+    "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "cross-env": "^7.0.3",
     "electron": "^33.0.0",
     "electron-builder": "^25.0.0"
   },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  },
   "build": {
     "appId": "site.dsx-family.sigmx",
     "productName": "SigmX",
+    "copyright": "Copyright © 2026 SigmX",
+    "icon": "assets/icon.png",
     "files": [
       "main.js",
       "preload.js",
-      "renderer/**/*"
+      "setup.html",
+      "setup.js",
+      "assets/**/*"
     ],
     "extraResources": [
       {
-        "from": "../dist/vibe-trading",
+        "from": "python-dist/vibe-trading",
         "to": "python-dist/vibe-trading",
         "filter": [
           "**/*"
@@ -35,11 +43,22 @@
     ],
     "win": {
       "target": "nsis",
+      "icon": "assets/icon.png",
       "artifactName": "SigmX-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SigmX",
+      "installerHeaderIcon": "assets/icon.png",
+      "uninstallDisplayName": "SigmX ${version}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "GGwujun",
+      "repo": "SigmX"
     },
     "directories": {
       "output": "release"
