@@ -145,8 +145,17 @@ def _is_configured(value: str) -> bool:
 
 
 def _find_env_path() -> Path | None:
-    """Locate agent/.env relative to this file's package root."""
-    # api/onboarding_routes.py → src/api/ → src/ → agent/src/ → agent/
+    """Locate the project .env, preferring the permanent home location.
+
+    Priority:
+    1. ~/.vibe-trading/.env — survives app updates (permanent)
+    2. agent/.env — bundled with PyInstaller (wiped on update, fallback only)
+    """
+    # Permanent location: survives electron-updater (user home never wiped).
+    home_env = Path.home() / ".vibe-trading" / ".env"
+    if home_env.exists():
+        return home_env
+    # Legacy location: relative to this file, 3 levels up from src/api/.
     here = Path(__file__).resolve().parent  # api/
     for _ in range(3):  # api → src → agent
         here = here.parent
@@ -172,11 +181,13 @@ def _read_dotenv(path: Path) -> dict[str, str]:
 
 
 def _write_tokens_to_env(tushare: str, tpdog: str) -> None:
-    """Write TUSHARE_TOKEN / TPDOG_TOKEN to agent/.env."""
-    env_path = _find_env_path()
-    if env_path is None:
-        # No .env yet — create a minimal one.
-        env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    """Write TUSHARE_TOKEN / TPDOG_TOKEN to ~/.vibe-trading/.env.
+
+    Always writes to the permanent home location so config survives app updates.
+    """
+    home_dir = Path.home() / ".vibe-trading"
+    home_dir.mkdir(parents=True, exist_ok=True)
+    env_path = home_dir / ".env"
     lines = env_path.read_text(encoding="utf-8").splitlines() if env_path.exists() else []
     updated: dict[str, str] = {}
     if tushare:
