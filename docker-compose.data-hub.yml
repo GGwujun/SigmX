@@ -1,0 +1,59 @@
+# Data Hub deployment — single-server market data API with paid subscriptions.
+#
+# This compose file deploys the SigmX Data Hub on a cloud server:
+#   - API server on port 8900 (/api/v1/* + admin)
+#   - Inline market-sync worker (pulls A-share data, multi-source degradation)
+#   - RSSHub sidecar (financial news aggregation)
+#   - Persistent volumes for market data, user/auth, subscriptions
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.data-hub.yml up -d
+#
+# Or standalone (without the main app):
+#   docker compose -f docker-compose.data-hub.yml up -d
+
+services:
+  sigmx-data-hub:
+    image: crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com/ggwujun/sigmx:latest
+    build: .
+    ports:
+      - "8900:8900"
+    env_file:
+      - agent/.env
+    environment:
+      # Data Hub mode: /api/v1/* requires API key for remote access.
+      - VIBE_TRADING_DATA_HUB_MODE=1
+      # Run market-sync as an inline worker (single-process data hub).
+      - VIBE_TRADING_START_MARKET_SYNC_WORKER=1
+      - MARKET_SYNC_WORKER_INTERVAL=60
+      # Desktop mode disabled — this is a server, not a local client.
+      - VIBE_TRADING_DESKTOP_MODE=0
+      # RSSHub instance for news aggregation.
+      - RSSHUB_URL=http://rsshub:1200
+      # Listen port (different from the main app's 8899).
+      - VIBE_TRADING_PORT=8900
+      - VIBE_TRADING_HOST=0.0.0.0
+    volumes:
+      # Persistent data: market.db, users.db, subscriptions.db, sessions.db.
+      - data-hub-data:/home/vibe/.vibe-trading
+      # Read agent/.env for LLM and data source tokens.
+      - ./agent/.env:/app/agent/.env:ro
+    depends_on:
+      - rsshub
+    command: ["python", "-m", "api_server", "--port", "8900", "--host", "0.0.0.0"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8900/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  rsshub:
+    image: diygod/rsshub:latest
+    restart: unless-stopped
+    expose:
+      - "1200"
+
+volumes:
+  data-hub-data:

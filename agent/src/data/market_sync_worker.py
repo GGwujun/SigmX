@@ -954,6 +954,15 @@ def run_worker(interval_seconds: int = 60) -> None:
     last_integrity = 0.0
     try:
         while True:
+            # Check if the worker has been paused (e.g. desktop Connected mode).
+            try:
+                from src.api.market_sync_routes import is_worker_paused
+                if is_worker_paused():
+                    time.sleep(interval_seconds)
+                    continue
+            except ImportError:
+                pass  # not mounted (e.g. standalone CLI), keep running
+
             try:
                 _maybe_run_premarket_sync(live_store)
                 _maybe_run_intraday_sync(live_store)

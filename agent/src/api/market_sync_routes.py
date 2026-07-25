@@ -268,5 +268,55 @@ async def health() -> HealthResponse:
     )
 
 
+# ---- Worker control (loopback-only, for desktop Connected mode) ----
+
+import ipaddress as _ipaddress  # noqa: E402
+
+_worker_control_lock = __import__("threading").Lock()
+_worker_paused = False
+
+
+def _is_loopback(request) -> bool:
+    host = request.client.host if request.client else ""
+    if host in ("127.0.0.1", "::1", "localhost", "testclient"):
+        return True
+    try:
+        return _ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+@router.post("/worker/pause")
+def pause_worker(request: Request):
+    """Pause the inline market-sync worker thread (loopback-only).
+
+    Used by the desktop client when switching to Connected mode — the local
+    worker stops pulling data because the Data Hub handles it.
+    """
+    if not _is_loopback(request):
+        raise HTTPException(status_code=403, detail="loopback only")
+    global _worker_paused
+    with _worker_control_lock:
+        _worker_paused = True
+    return {"status": "paused", "worker_paused": True}
+
+
+@router.post("/worker/resume")
+def resume_worker(request: Request):
+    """Resume the inline market-sync worker thread (loopback-only)."""
+    if not _is_loopback(request):
+        raise HTTPException(status_code=403, detail="loopback only")
+    global _worker_paused
+    with _worker_control_lock:
+        _worker_paused = False
+    return {"status": "resumed", "worker_paused": False}
+
+
+def is_worker_paused() -> bool:
+    """Check whether the inline worker is currently paused (for the worker loop)."""
+    with _worker_control_lock:
+        return _worker_paused
+
+
 def register_market_sync_routes(app: FastAPI) -> None:
     app.include_router(router)

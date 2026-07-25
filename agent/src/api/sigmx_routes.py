@@ -10,7 +10,9 @@ Base: /api/v1   Timezone: Asia/Shanghai   Unit: 100M CNY (亿元)
 **改这些端点的实现/契约，两边必须同步修改**，否则本地与服务器行为不一致。
 两端代码未做自动同步（端点稳定，手动维护成本可控）。
 """
+import ipaddress
 import json
+import logging
 import math
 import os
 import re
@@ -21,8 +23,10 @@ from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, FastAPI, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = (
     os.environ.get("VIBE_TRADING_MARKET_DB_PATH")
@@ -33,6 +37,70 @@ TZ_SH = timezone(timedelta(hours=8))
 ROWS_HARD_CAP = 2000
 
 router = APIRouter(tags=["sigmx"])
+
+# ---- API key auth (Data Hub) ----
+
+def _is_loopback(request: Request) -> bool:
+    """Check if the request originates from loopback."""
+    host = request.client.host if request.client else ""
+    if host in ("127.0.0.1", "::1", "localhost", "testclient"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+async def _data_hub_auth(
+    request: Request,
+    x_api_key: str | None = Header(None, alias="X-API-Key"),
+    api_key: str | None = Query(None, alias="api_key"),
+) -> dict[str, object] | None:
+    """Optional Data Hub API key authentication for /api/v1/* endpoints.
+
+    - Loopback requests pass through (no key needed).
+    - If a valid API key is provided (header or query), record usage.
+    - If an invalid API key is provided, return 401.
+    - If no key and not loopback, pass through (backward compat — public
+      deployments that haven't enabled Data Hub mode still work).
+
+    Returns the subscription info dict on successful auth, or None for no-key
+    / loopback passthrough.
+    """
+    key = (x_api_key or "").strip() or (api_key or "").strip()
+
+    if not key:
+        # No API key supplied — allow loopback, pass through for remote.
+        return None
+
+    # Key was supplied — must be valid.
+    from src.data.subscription_store import get_subscription_store
+
+    store = get_subscription_store()
+    sub = store.validate_api_key(key)
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired API key",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
+    # Check daily quota.
+    allowed, used, quota = store.check_quota(sub["id"])
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Daily quota exceeded ({used}/{quota}). Resets at midnight UTC.",
+            headers={"X-RateLimit-Limit": str(quota), "X-RateLimit-Remaining": "0"},
+        )
+
+    # Record usage (fire-and-forget – don't fail the request if this errors).
+    try:
+        store.record_usage(sub["id"])
+    except Exception:
+        logger.debug("Failed to record API usage for %s", sub["id"], exc_info=True)
+
+    return {"subscription_id": sub["id"], "tier": sub["tier"]}
 
 # 默认财经 RSS 路由
 DEFAULT_FINANCE_ROUTES = [
@@ -920,13 +988,37 @@ def _sigmx_endpoint_list():
 
 
 @router.get("/api/v1/health")
-def health():
+def health(request: Request):
     with get_db() as conn:
         td = latest_trade_date(conn)
-    return {"status": "healthy", "latest_trade_date": td, "endpoints": _sigmx_endpoint_list()}
+    info: dict = {
+        "status": "healthy",
+        "latest_trade_date": td,
+        "endpoints": _sigmx_endpoint_list(),
+        "data_hub": _is_data_hub_enabled(),
+    }
+    if _is_data_hub_enabled():
+        try:
+            from src.data.subscription_store import get_subscription_store
+            store = get_subscription_store()
+            subs = store.list_all()
+            active = sum(1 for s in subs if s.get("active"))
+            info["subscriptions"] = active
+        except Exception:
+            pass
+    return info
+
+
+def _is_data_hub_enabled() -> bool:
+    """Return whether Data Hub mode is enabled (API key auth required for remote)."""
+    return os.getenv("VIBE_TRADING_DATA_HUB_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def register_sigmx_routes(app: FastAPI) -> None:
-    """Mount all /api/v1/* SigmX market-data routes onto the app (public, no auth)."""
+    """Mount all /api/v1/* SigmX market-data routes onto the app.
+
+    Endpoints are public for local access. Remote access requires an API key
+    when VIBE_TRADING_DATA_HUB_MODE=1 is set.
+    """
     app.include_router(router)
 
