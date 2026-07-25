@@ -12,8 +12,10 @@
 const { app, BrowserWindow, shell, ipcMain, Menu, dialog } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 const net = require('net');
+const os = require('os');
 const { autoUpdater } = require('electron-updater');
 
 const PORT = parseInt(process.env.SIGMX_PORT || '8899', 10);
@@ -137,12 +139,42 @@ function resolveBackendCommand() {
   };
 }
 
+// Load permanent .env from user home (survives app updates).
+// The PyInstaller bundle's _internal/.env is wiped on every update;
+// this is the stable config location that electron-updater never touches.
+function loadPermanentEnv() {
+  const envFile = path.join(os.homedir(), '.vibe-trading', '.env');
+  const vars = {};
+  try {
+    if (fs.existsSync(envFile)) {
+      const content = fs.readFileSync(envFile, 'utf-8');
+      for (const line of content.split(/\r?\n/)) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.substring(0, eqIdx).trim();
+        const val = trimmed.substring(eqIdx + 1).trim();
+        if (key) vars[key] = val;
+      }
+    }
+  } catch (e) {
+    console.log('[sigmx] failed to read permanent .env:', e.message);
+  }
+  return vars;
+}
+
 function spawnBackend() {
   const { cmd, args, cwd, label } = resolveBackendCommand();
   console.log(`[sigmx] starting backend: ${label}`);
 
+  // Merge permanent .env from user home (survives updates) with process env.
+  // Desktop-mode vars take precedence because they're set explicitly below.
+  const permanentEnv = loadPermanentEnv();
+
   const env = {
     ...process.env,
+    ...permanentEnv,      // permanent config from ~/.vibe-trading/.env
     // Desktop mode: loopback skips auth; inline worker pulls data.
     VIBE_TRADING_DESKTOP_MODE: '1',
     VIBE_TRADING_START_MARKET_SYNC_WORKER: '1',

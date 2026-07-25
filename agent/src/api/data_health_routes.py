@@ -148,9 +148,10 @@ def _probe_baostock() -> str:
     if lg.error_code != "0":
         raise RuntimeError(f"baostock login failed: {lg.error_msg}")
     try:
-        # Cheapest call: query a single stock's K-line for a known date.
+        # Query a recent date range (last 5 trading days) to find a valid row.
         rs = bs.query_history_k_data_plus(
-            "sh.000001", "date,close", start_date="2026-01-01", end_date="2026-01-01"
+            "sh.000001", "date,close",
+            start_date="2026-07-01", end_date="2026-07-24",
         )
         if rs.error_code != "0":
             raise RuntimeError(rs.error_msg)
@@ -159,7 +160,8 @@ def _probe_baostock() -> str:
             rows.append(rs.get_row_data())
         if not rows:
             raise RuntimeError("baostock query returned no rows")
-        return f"{len(rows)} rows"
+        latest = rows[-1]
+        return f"{len(rows)} rows, latest={latest[0]} close={latest[1]}"
     finally:
         bs.logout()
 
@@ -252,11 +254,18 @@ def _probe_baidu() -> str:
     """Probe Baidu Stock K-line API (独立K线源，自带MA5/10/20)."""
     import requests as r
 
-    resp = r.post(
+    params = {
+        "all": "1", "isIndex": "false", "isBk": "false", "isBlock": "false",
+        "isFutures": "false", "isStock": "true", "newFormat": "1",
+        "group": "quotation_kline_ab", "finClientType": "pc",
+        "code": "sh000001", "ktype": "1",
+    }
+    resp = r.get(
         "https://finance.pae.baidu.com/selfselect/getstockquotation",
-        json={"code": "sh000001", "market": "ab", "type": "day"},
+        params=params,
         headers={
             "User-Agent": "Mozilla/5.0",
+            "Accept": "application/vnd.finance-web.v1+json",
             "Origin": "https://gushitong.baidu.com",
             "Referer": "https://gushitong.baidu.com/",
         },
@@ -265,8 +274,9 @@ def _probe_baidu() -> str:
     if resp.status_code != 200:
         raise RuntimeError(f"百度 HTTP {resp.status_code}")
     data = resp.json()
-    if data.get("error_no") != 0:
-        raise RuntimeError(f"百度 API error: {data.get('error_info', 'unknown')}")
+    # ResultCode 0 = success; keys/rows are in the Result field
+    if data.get("ResultCode") != 0:
+        raise RuntimeError(f"百度 ResultCode={data.get('ResultCode')}")
     return "finance.pae.baidu.com ok"
 
 
