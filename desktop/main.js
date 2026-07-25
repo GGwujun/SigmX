@@ -42,7 +42,7 @@ function resolveBackendCommand() {
   );
   return {
     cmd: bundled,
-    args: ['serve', '--port', String(PORT), '--host', HOST],
+    args: ['--port', String(PORT), '--host', HOST],
     cwd: path.dirname(bundled),
     label: `${bundled} serve`,
   };
@@ -60,8 +60,11 @@ function spawnBackend() {
     VIBE_TRADING_PORT: String(PORT),
     VIBE_TRADING_HOST: HOST,
   };
-  // In packaged mode, point the DB at the user data dir (default ~/.vibe-trading).
-  // Leave VIBE_TRADING_MARKET_DB_PATH unset so the backend uses its default there.
+  // Packaged/desktop uses the default data home (~/.vibe-trading/market.db).
+  // Dev users can override with SIGMX_DB_PATH if they have a separate data dir.
+  if (isDev && process.env.SIGMX_DB_PATH) {
+    env.VIBE_TRADING_MARKET_DB_PATH = process.env.SIGMX_DB_PATH;
+  }
 
   backendProc = spawn(cmd, args, { cwd, env, windowsHide: true });
   backendProc.stdout.on('data', (d) => process.stdout.write(`[backend] ${d}`));
@@ -121,7 +124,26 @@ function createWindow() {
     },
   });
 
+  // Clear the HTTP cache before loading: Electron aggressively caches responses
+  // across launches, so a stale text/plain JS response from an earlier broken
+  // backend (pre-MIME-fix) would keep producing a white screen even after the
+  // server is fixed. This forces a fresh fetch every launch.
+  mainWindow.webContents.session.clearCache().catch(() => {});
+
   mainWindow.loadURL(`http://${HOST}:${PORT}/`);
+
+  // Forward renderer console messages to the main-process stdout so white-screen
+  // JS errors are visible in the backend log (not just in DevTools).
+  mainWindow.webContents.on('console-message', (event, level, message, line, sourceId) => {
+    const tag = ['LOG', 'WARN', 'ERROR'][level] || `L${level}`;
+    console.log(`[renderer:${tag}] ${message} (${sourceId}:${line})`);
+  });
+
+  // Auto-open DevTools in dev mode so renderer errors are visible (white-screen
+  // debugging). Production builds skip this.
+  if (isDev) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
+  }
 
   // Open external links (http/https) in the system browser, not inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {

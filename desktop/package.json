@@ -28,7 +28,9 @@
       {
         "from": "../dist/vibe-trading",
         "to": "python-dist/vibe-trading",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -42,5 +44,8 @@
     "directories": {
       "output": "release"
     }
+  },
+  "allowScripts": {
+    "electron@33.4.11": true
   }
 }

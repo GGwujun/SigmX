@@ -27,8 +27,9 @@ def main() -> int:
 
     from api_server import serve_main
 
-    # Accept `serve` subcommand shape so the same arg parsing applies.
-    return serve_main(["serve", "--port", port, "--host", "127.0.0.1"])
+    # serve_main reads VIBE_TRADING_PORT/HOST from env as defaults; pass them
+    # explicitly too so the packaged exe is unambiguous.
+    return serve_main(["--port", port, "--host", "127.0.0.1"])
 
 
 if __name__ == "__main__":

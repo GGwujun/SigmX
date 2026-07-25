@@ -3351,8 +3351,16 @@ def serve_main(argv: list[str] | None = None) -> int:
     _maybe_start_inline_worker()
 
     parser = argparse.ArgumentParser(description="Vibe-Trading Server")
-    parser.add_argument("--port", type=int, default=8000, help="Listen port (default 8000)")
-    parser.add_argument("--host", default="0.0.0.0", help="Bind address")
+    parser.add_argument(
+        "--port", type=int,
+        default=int(os.getenv("VIBE_TRADING_PORT", "8000")),
+        help="Listen port (default 8000, env VIBE_TRADING_PORT)",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.getenv("VIBE_TRADING_HOST", "0.0.0.0"),
+        help="Bind address (env VIBE_TRADING_HOST)",
+    )
     parser.add_argument("--dev", action="store_true", help="Dev mode: spawn Vite on :5173")
     try:
         args = parser.parse_args(argv)
@@ -3361,6 +3369,15 @@ def serve_main(argv: list[str] | None = None) -> int:
 
     frontend_dist = Path(__file__).resolve().parent.parent / "frontend" / "dist"
     frontend_root = Path(__file__).resolve().parent.parent / "frontend"
+
+    # Windows registry commonly maps .js → text/plain. StaticFiles relies on the
+    # mimetypes module, so module scripts would be served as text/plain and
+    # Chromium/Electron (strict MIME mode) refuses to execute them — white screen.
+    # Force the correct JS MIME so the bundled SPA loads under Electron.
+    import mimetypes
+    mimetypes.add_type("application/javascript", ".js")
+    mimetypes.add_type("application/javascript", ".mjs")
+    mimetypes.add_type("text/css", ".css")
 
     vite_proc = None
     if args.dev and frontend_root.exists():
