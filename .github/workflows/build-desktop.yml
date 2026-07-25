@@ -3,19 +3,21 @@ name: Build Desktop Installer
 on:
   push:
     tags:
-      - "v*"          # v0.1.0, v0.2.0 ...
-  workflow_dispatch:   # manual trigger from GitHub UI
+      - "v*"
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash   # use bash for all steps (mkdir -p, cd, etc.)
 
     steps:
       - uses: actions/checkout@v4
 
-      # ---- Python backend (PyInstaller) ----
-      - name: Setup Python
-        uses: actions/setup-python@v5
+      # ---- Python ----
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
@@ -25,52 +27,51 @@ jobs:
           pip install pyinstaller
 
       # ---- Frontend ----
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: "20"
 
       - name: Build frontend
+        working-directory: frontend
         run: |
-          cd frontend
           npm install
           npm run build
 
-      # ---- PyInstaller bundle ----
-      - name: Run PyInstaller
+      # ---- PyInstaller ----
+      - name: Build Python bundle
         run: pyinstaller vibe-trading.spec
 
-      - name: Copy bundle to desktop
+      - name: Copy bundle to desktop/
         run: |
-          mkdir -p desktop\python-dist
-          xcopy /E /I dist\vibe-trading desktop\python-dist\vibe-trading
+          rm -rf desktop/python-dist
+          mkdir -p desktop/python-dist
+          cp -R dist/vibe-trading desktop/python-dist/vibe-trading
+          ls desktop/python-dist/vibe-trading/vibe-trading.exe
 
-      # ---- Electron builder ----
+      # ---- Electron ----
       - name: Install Electron deps
-        run: |
-          cd desktop
-          npm install
+        working-directory: desktop
+        run: npm install
         env:
           ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
       - name: Build NSIS installer
-        run: |
-          cd desktop
-          npx electron-builder --win
+        working-directory: desktop
+        run: npx electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ELECTRON_MIRROR: https://npmmirror.com/mirrors/electron/
 
-      # ---- Upload artifact ----
-      - name: Upload installer
+      # ---- Upload ----
+      - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: SigmX-Setup
-          path: desktop\release\SigmX-Setup-*.exe
+          path: desktop/release/SigmX-Setup-*.exe
 
-      # ---- GitHub Release (tag push only) ----
-      - name: Create Release
+      - name: Attach to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          files: desktop\release\SigmX-Setup-*.exe
+          files: desktop/release/SigmX-Setup-*.exe
           generate_release_notes: true
