@@ -201,7 +201,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 700,
     title: 'SigmX',
-    autoHideMenuBar: true,
+    autoHideMenuBar: false,  // keep menu bar always visible (Check for Updates entry point)
     show: false,  // don't flash white before content loads
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
