@@ -126,121 +126,82 @@ python agent/scripts/gen_codes.py --credits 100 --count 50 --days 90
 
 ---
 
-## 🗄️ 本地数据同步
+## 🗄️ 桌面客户端（本地优先架构）
 
-行情拉取与业务查询严格分进程运行。`market-sync` 是唯一允许访问外部行情源并写入规范市场库的服务；`vibe-trading` 只读取已经发布的数据。
+SigmX 已迁移到**本地优先桌面客户端**架构。行情拉取、数据质量校验、Web UI 在同一个 Electron 进程里跑，无需远程服务器。数据存在 `~/.vibe-trading/market.db`（跨平台标准位置）。
 
 ### 架构
 
 ```
-外部数据源
-└── market-sync（唯一写入者）
-    ├── 写 shadow DB
-    ├── 校验交易日、覆盖率、OHLC、停牌、来源与跨源样本
-    └── 仅 verified 后发布到 market.db
-
-market.db（规范库）
-└── vibe-trading（只读查询与推荐）
+┌───────────────────────────────────────────────────────────────┐
+│  SigmX.exe (Electron 桌面客户端)                                │
+│                                                                 │
+│  Electron 主进程 (Node)                                         │
+│    ├─ spawn Python 后端 (单进程，含 serve + worker 线程)         │
+│    │   ├─ FastAPI serve (UI + 查询 API /api/v1/*)              │
+│    │   └─ market-sync worker (后台拉数据 + 质量门)              │
+│    ├─ 打开原生 BrowserWindow → http://localhost:8899            │
+│    └─ 退出时 taskkill 后端进程树                                 │
+│                                                                 │
+│  ~/.vibe-trading/                                               │
+│    ├─ market.db                 ← 唯一数据源 (行情 + 指数 + 涨跌) │
+│    ├─ users.db / sessions.db    ← 账户 / 会话                    │
+│    └─ daily_recommendations.db  ← 推荐历史                       │
+└───────────────────────────────────────────────────────────────┘
+            ↑ 多源降级链
+  tushare (1次/分钟) → tpdog (8万积分/天) → akshare → 腾讯 → 新浪
 ```
 
-严格模式遵循以下规则：
+核心原则：
+- **本地优先**：行情、UI、策略引擎都在本地。无远程依赖。
+- **单进程**：serve 和 worker 在同一个 Python 进程，`VIBE_TRADING_START_MARKET_SYNC_WORKER=1` 开启。
+- **数据自包含**：`market.db` 一个文件搞定，复制到哪都能用。
+- **质量门 lenient 模式**：数据缺失（`received=0`）不阻断发布（区别于数据损坏 `valid=0`），避免源临时挂掉冻住整天数据。
 
-- 缺数据优于错数据；实时快照永远不能转换成规范日线。
-- 每次同步都有 `run_id`、来源、质量状态和阻断原因。
-- `partial`、`failed`、`quarantined` 不发布，也不写每日成功标记，Worker 会继续重试。
-- 每日推荐只接受目标交易日状态为 `verified` 或 `published` 的数据。
-- `/market-sync/daily`、`/market-sync/code`、`/market-sync/backfill`、`/market-sync/push` 均为只读服务禁用接口，返回 `SYNC_WORKER_REQUIRED`。
-
-### 启动本地环境
+### 启动
 
 ```bash
-# 配置环境变量（首次部署）
-cp agent/.env.example agent/.env
-# 编辑 agent/.env，配置 LLM、管理员账号、JWT_SECRET 等
+cd desktop
+# 开发模式
+$env:SIGMX_DEV='1'; $env:SIGMX_PYTHON='python'; node node_modules/electron/cli.js .
 
-# 启动本地服务栈
-docker-compose -f docker-compose.yml -f docker-compose.local.yml up -d
-
-# 查看状态
-docker-compose ps
+# 打包模式（PyInstaller bundle 就绪后）
+npm start
 ```
+
+登录后默认管理员 `admin@local / admin123`（首次启动自动注册）。
+
+### 数据同步运维
+
+```bash
+# Electron 运行时 worker 自动拉数据。如需手动恢复某交易日：
+cd agent
+vibe-trading-sync once --date 2026-07-24
+
+# 查看容器/进程日志
+docker compose logs --tail 100  # 旧 docker 部署 (已淘汰)
+```
+
+`--no-shadow` 已移除。质量校验失败时，旧的 `market.db` 保持不变；通过 `GET /market-sync/status` 查看 `daily_readiness`、`run_id` 和阻断原因。
+
+### 数据同步与 Data Hub（变现方向）
+
+当前为纯本地模式。未来计划：
+- **Data Hub**：服务器变成付费数据服务，运行完整降级链拉数据 + 对外只读 API
+- **Connected 模式**：桌面客户端可选连接 Data Hub 拿更可靠的数据（订阅计费）
+- 本地模式（Standalone）仍可用，免费分发，用户自带 tushare/tpdog token
+
+### 停止客户端
+
+关闭 Electron 窗口即停止所有服务（后端进程 + worker）。无后台残留。
 
 ### 端口与访问
 
 | 端口 | 服务 | 说明 |
 |------|------|------|
-| 8900 | vibe-trading | 本地网站（含查询 API `/api/v1/*`）|
-| 11200 | rsshub | RSS 数据源（内部使用）|
+| 8899 | vibe-trading | Electron 内置 (含查询 API `/api/v1/*` + UI) |
 
-访问 `http://localhost:8900`，默认管理员 `admin@sigmx.local / admin123`。
-
-### 查询 API（无鉴权）
-
-本地和服务器都提供 `/api/v1/*` 查询接口（公开访问，无需 token）：
-
-```bash
-# 最新交易日
-curl http://localhost:8900/api/v1/market/latest-trade-date
-
-# 指数行情
-curl http://localhost:8900/api/v1/indices/daily
-
-# 盘前三图
-curl http://localhost:8900/api/v1/content/morning-briefing-triptych
-
-# Swagger 文档
-open http://localhost:8900/docs
-```
-
-完整接口列表见 [agent/src/api/sigmx_routes.py](agent/src/api/sigmx_routes.py)。
-
-### 同步运维
-
-生产环境只运行独立 Worker：
-
-```bash
-# 持续同步
-vibe-trading-sync worker --interval 60
-
-# 手工恢复指定交易日（强制 shadow 校验与发布）
-vibe-trading-sync once --date 2026-07-14
-
-# 查看容器日志
-docker compose logs market-sync --tail 100
-```
-
-`--no-shadow` 已移除。质量校验失败时，旧的 `market.db` 保持不变；通过 `GET /market-sync/status` 查看 `daily_readiness`、`run_id` 和阻断原因。
-
-### 数据同步与线上查询的部署边界
-
-推荐部署为两个主机角色：
-
-- 同步主机运行 `market-sync` 和 `data-sync`，二者挂载同一个 `market.db`。前者只负责拉取、影子库校验和发布，后者只发送已发布快照。
-- 线上查询主机运行 `vibe-trading` 和 `data-ingest`。查询 API 不访问外部行情源；`data-ingest` 是独立控制面，只接收并校验快照，再导入共享数据库卷。
-
-生产查询主机默认不会启动 `market-sync`。只有同步主机才显式启用：
-
-```bash
-docker compose --profile sync up -d market-sync
-```
-
-在两端设置相同的高强度 `MARKET_INGEST_TOKEN`。发送端的 `MARKET_INGEST_URL` 指向接收 sidecar；如果通过 Nginx 暴露 `/market-ingest/`，需将此前缀剥离后代理到 `127.0.0.1:8898`。也可以通过受限专网直接连接 8898。不要把该端口公开到互联网明文访问。
-
-`data-sync` 不再等待某个分钟点：它轮询最新 `sync_runs`，一旦新的运行进入 `published` 就立即发送，失败时按同一 `run_id` 重试，成功后不重复发送。`SNAPSHOT_PUSH_SLOTS` 保留为 `09:26`、`14:29`、`15:20` 的交付期限配置和运维提示，分别服务于 `09:27`、`14:30` 今日推荐和收盘后正式数据，不再作为发送触发器。传输支持断点续传和幂等重试；接收端只有在 SHA-256、SQLite 完整性及对应 `sync_runs.status=published` 全部通过后才提交。
-
-```bash
-# 查询主机（业务查询 + 接收控制面，不拉行情）
-docker compose up -d vibe-trading data-ingest
-
-# 查看交付状态
-docker compose logs data-ingest --tail 100
-```
-
-### 停止本地服务
-
-```bash
-docker-compose -f docker-compose.yml -f docker-compose.local.yml down
-```
+桌面模式下 loopback 免 JWT 鉴权。远程访问需 Cloudflare Tunnel / Tailscale。
 
 ---
 
