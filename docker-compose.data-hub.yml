@@ -1,53 +1,48 @@
-# Data Hub deployment — single-server market data API with paid subscriptions.
+# Data Hub deployment — slim server-only image selling the market-data API.
 #
-# This compose file deploys the SigmX Data Hub on a cloud server:
-#   - API server on port 8900 (/api/v1/* + admin)
-#   - Inline market-sync worker (pulls A-share data, multi-source degradation)
-#   - RSSHub sidecar (financial news aggregation)
-#   - Persistent volumes for market data, user/auth, subscriptions
+# Production shape on the CN server (47.115.144.24): two containers only.
+#   - vibe-trading : the /api/v1/* API + inline market-sync worker (server
+#                   pulls A-share data itself via tushare, no local-push feed)
+#                   behind nginx at https://sigmx.dsx-family.site
+#   - rsshub       : financial news aggregation (RSS)
+#
+# No data-ingest container: the server self-pulls (START_MARKET_SYNC_WORKER=1),
+# so the local→server data-sync push receiver is not needed. No frontend: nginx
+# serves only /api/v1/* (the 26-page trading UI lives in the desktop client).
+#
+# Image: sigmx:data-hub (slim, ~466MB) built by Dockerfile.data-hub +
+#        requirements-server.txt. The full sigmx:latest (1.69GB) is still
+#        published by CI for other uses.
 #
 # Usage:
-#   docker compose -f docker-compose.yml -f docker-compose.data-hub.yml up -d
-#
-# Or standalone (without the main app):
 #   docker compose -f docker-compose.data-hub.yml up -d
+# First API key: see docs — create via SubscriptionStore().create(...) in the
+# container, or the admin API once a JWT admin user exists.
 
 services:
-  sigmx-data-hub:
-    image: crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com/ggwujun/sigmx:latest
-    build: .
+  vibe-trading:
+    image: crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com/ggwujun/sigmx:data-hub
     ports:
-      - "8900:8900"
+      - "127.0.0.1:8899:8899"
     env_file:
       - agent/.env
     environment:
-      # Data Hub mode: /api/v1/* requires API key for remote access.
-      - VIBE_TRADING_DATA_HUB_MODE=1
-      # Run market-sync as an inline worker (single-process data hub).
+      - TZ=Asia/Shanghai
+      - VIBE_TRADING_TRUST_DOCKER_LOOPBACK=1
+      # Server self-pulls market data (tushare daily is reachable from CN cloud;
+      # akshare/eastmoney push2 are blocked, those tables stay empty by design).
       - VIBE_TRADING_START_MARKET_SYNC_WORKER=1
-      - MARKET_SYNC_WORKER_INTERVAL=60
-      # Desktop mode disabled — this is a server, not a local client.
-      - VIBE_TRADING_DESKTOP_MODE=0
-      # RSSHub instance for news aggregation.
+      # Public API requires an API key for non-loopback requests.
+      - VIBE_TRADING_DATA_HUB_MODE=1
       - RSSHUB_URL=http://rsshub:1200
-      # Listen port (different from the main app's 8899).
-      - VIBE_TRADING_PORT=8900
-      - VIBE_TRADING_HOST=0.0.0.0
-    volumes:
-      # Persistent data: market.db, users.db, subscriptions.db, sessions.db.
-      - data-hub-data:/home/vibe/.vibe-trading
-      # Read agent/.env for LLM and data source tokens.
-      - ./agent/.env:/app/agent/.env:ro
     depends_on:
       - rsshub
-    command: ["python", "-m", "api_server", "--port", "8900", "--host", "0.0.0.0"]
+    volumes:
+      - data-hub-data:/home/vibe/.vibe-trading
+      - ./agent/.env:/app/agent/.env:ro
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8900/health')"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+    mem_limit: 1200m
+    mem_reservation: 600m
 
   rsshub:
     image: diygod/rsshub:latest
