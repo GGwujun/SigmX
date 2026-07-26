@@ -135,8 +135,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: |
-            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}-data-hub:latest
-            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}-data-hub:${{ github.sha }}
-            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}-data-hub:latest
-            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}-data-hub:${{ github.sha }}
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}:data-hub
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}:data-hub-${{ github.sha }}
+            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:data-hub
+            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:data-hub-${{ github.sha }}
           cache-from: type=gha
