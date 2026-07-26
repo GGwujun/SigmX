@@ -1,0 +1,58 @@
+# SigmX Data Hub — slim server-only image.
+#
+# Differs from the root Dockerfile in three ways:
+#   1. Multi-stage build: build-essential lives only in the builder stage, so
+#      the runtime image drops ~300MB of gcc/g++ that the single-stage image
+#      carries forever.
+#   2. requirements-server.txt instead of requirements.txt: no LLM / ML /
+#      PDF-report / document-reader / web-search / crypto deps. The Data Hub
+#      process (api_server + market-sync worker) never imports them.
+#   3. No frontend dist and no `pip install -e .`. The server is started via
+#      `python -m api_server` (PYTHONPATH=/app/agent), so the project doesn't
+#      need to be installed as a package — and installing it would pull the
+#      full pyproject.toml dependency list back in.
+#
+# The desktop client is unaffected (it builds via PyInstaller from
+# pyproject.toml, not this image). Expected size: ~600MB vs 1.69GB.
+
+# ── Stage 1: build Python deps (compiler discarded after) ──────────────────
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+COPY requirements-server.txt .
+# Install into a clean prefix we can COPY wholesale into the runtime stage.
+RUN pip install --no-cache-dir --prefix=/install -r requirements-server.txt
+
+# ── Stage 2: runtime (no compiler, no frontend) ────────────────────────────
+FROM python:3.11-slim AS runtime
+
+LABEL org.opencontainers.image.title="SigmX Data Hub" \
+    org.opencontainers.image.description="Slim server-only SigmX market-data API image" \
+    org.opencontainers.image.source="https://github.com/GGwujun/SigmX"
+
+WORKDIR /app
+
+# Python deps (site-packages + console scripts from the builder prefix).
+COPY --from=builder /install /usr/local
+
+# Project source only — no frontend dist, no install-as-package.
+COPY agent/ agent/
+COPY docker/start-server.sh docker/start-server.sh
+
+RUN useradd --create-home --shell /usr/sbin/nologin vibe \
+    && mkdir -p agent/runs agent/sessions agent/uploads agent/.swarm/runs \
+    && mkdir -p /home/vibe/.vibe-trading \
+    && chmod +x docker/start-server.sh \
+    && chown -R vibe:vibe /app /home/vibe
+
+USER vibe
+
+EXPOSE 8899
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8899/health')" || exit 1
+
+CMD ["docker/start-server.sh"]

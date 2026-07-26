@@ -1,0 +1,44 @@
+# SigmX Data Hub — server-only dependencies.
+#
+# Minimal set for the production Data Hub image: the /api/v1/* market-data API
+# + the market-sync worker (multi-source A-share ingest). Everything the server
+# does not run — LLM agents, ML signals, PDF/report rendering, document readers,
+# web search, crypto connectors — is omitted, shrinking the image from ~1.7GB
+# (full requirements.txt) to ~600MB.
+#
+# The desktop client is unaffected: it builds via PyInstaller from
+# pyproject.toml's [project.dependencies], not this file.
+#
+# Kept in sync with the "server whitelist" in docker/Dockerfile.data-hub.
+
+# API framework
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+python-multipart>=0.0.18
+sse-starlette>=1.6.0
+
+# Data sources — worker multi-source degradation chain
+tushare>=1.2.89
+akshare>=1.12.0
+mootdx>=0.9.11          # strong dep: astock_client.py module-level `from mootdx.quotes import Quotes`
+baostock>=0.9.0         # A-share K-line fallback (was missing from requirements.txt)
+efinance>=0.5.0         # capital flow
+requests>=2.31.0
+httpx>=0.28.0
+
+# Computation
+pandas>=2.0.0
+numpy>=1.24.0
+
+# Auth + config (API-key gate, JWT, .env loading)
+pyjwt>=2.8.0
+bcrypt>=4.0.0
+email-validator>=2.0.0
+python-dotenv>=1.0.0
+pyyaml>=6.0.0
+rich>=13.0.0
+jinja2>=3.1.0
+
+# Optional but referenced by docker-compose (SSE pub/sub)
+redis>=5.0.0

@@ -96,3 +96,47 @@ jobs:
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:latest
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:${{ github.sha }}
           cache-from: type=gha
+
+  # ---------- Slim Data Hub image (server-only, ~600MB vs 1.69GB) ----------
+  # Runs in parallel with build-and-push. Pushes sigmx-data-hub to both
+  # registries. amd64 only — this image targets the CN deployment server.
+  build-data-hub:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ALIYUN_REGISTRY }}
+          username: ${{ secrets.ALIYUN_REGISTRY_USERNAME }}
+          password: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}
+
+      - name: Build & push Data Hub image (amd64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.data-hub
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}-data-hub:latest
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}-data-hub:${{ github.sha }}
+            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}-data-hub:latest
+            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}-data-hub:${{ github.sha }}
+          cache-from: type=gha
