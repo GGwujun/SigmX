@@ -95,10 +95,18 @@ def _probe_rsshub() -> str:
             "在 Settings → 数据连接 填写 RSSHub 地址即可启用"
         )
 
+    # Some RSSHub deployments don't expose /healthz or /health — fall back to
+    # the root path which returns "Welcome to RSSHub!" HTML.
     resp = requests.get(f"{base}/healthz", timeout=_PROBE_TIMEOUT)
-    # Some RSSHub versions expose /healthz, others only /health; accept either.
     if resp.status_code == 404:
         resp = requests.get(f"{base}/health", timeout=_PROBE_TIMEOUT)
+    if resp.status_code == 404:
+        resp = requests.get(f"{base}/", timeout=_PROBE_TIMEOUT)
+        if resp.status_code != 200:
+            raise RuntimeError(f"RSSHub HTTP {resp.status_code}")
+        if "RSSHub" not in resp.text:
+            raise RuntimeError("RSSHub 根路径未返回预期内容")
+        return base  # Root path HTML 200 + 含 "RSSHub" → 健康
     if resp.status_code != 200:
         raise RuntimeError(f"RSSHub HTTP {resp.status_code}")
     return base

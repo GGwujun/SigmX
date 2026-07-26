@@ -1421,8 +1421,13 @@ from src.api.auth_routes import require_admin  # noqa: E402
     dependencies=[Depends(require_admin)],
 )
 async def get_llm_settings():
-    """Return project-local LLM settings for the Web UI."""
-    return _build_llm_settings_response()
+    """Return LLM settings from the active process env.
+
+    Desktop client merges ``~/.vibe-trading/.env`` into process.env at startup,
+    so os.environ reflects the persisted config. Reading agent/.env returns
+    empty (reset on updates) — the authoritative source is the permanent env.
+    """
+    return _build_llm_settings_response(dict(os.environ))
 
 
 @app.put("/settings/llm", response_model=LLMSettingsResponse, dependencies=[Depends(require_admin)])
@@ -1478,9 +1483,19 @@ async def update_llm_settings(payload: UpdateLLMSettingsRequest):
     elif payload.clear_api_key:
         os.environ.pop("OPENAI_API_KEY", None)
 
-    _write_env_values(ENV_PATH, updates)
+    # Write to permanent env (~/.vibe-trading/.env) — survives app updates.
+    # agent/.env is reset on updates and would lose the config.
+    permanent = _permanent_env_path()
+    permanent.parent.mkdir(parents=True, exist_ok=True)
+    _write_env_values(permanent, updates)
+    # Update running process env so changes take effect immediately.
     _sync_runtime_env(provider, updates)
-    return _build_llm_settings_response(_read_env_values(ENV_PATH))
+    for k, v in updates.items():
+        if v:
+            os.environ[k] = v
+        else:
+            os.environ.pop(k, None)
+    return _build_llm_settings_response(dict(os.environ))
 
 
 # ---- Data Hub settings (connected mode + RSSHub URL) ----------------------
@@ -1582,8 +1597,13 @@ async def update_data_hub_settings(payload: DataHubSettingsResponse) -> DataHubS
     dependencies=[Depends(require_admin)],
 )
 async def get_data_source_settings():
-    """Return project-local data source credentials for the Web UI."""
-    return _build_data_source_settings_response()
+    """Return data source credentials from the active process env.
+
+    Desktop client merges ``~/.vibe-trading/.env`` into process.env at startup,
+    so os.environ reflects the persisted config. Reading agent/.env returns
+    empty (reset on updates) — the authoritative source is the permanent env.
+    """
+    return _build_data_source_settings_response(dict(os.environ))
 
 
 @app.put(
@@ -1592,8 +1612,8 @@ async def get_data_source_settings():
     dependencies=[Depends(require_admin)],
 )
 async def update_data_source_settings(payload: UpdateDataSourceSettingsRequest):
-    """Persist project-local data source credentials and update the running process."""
-    current_values = _read_settings_env_values()
+    """Persist data source credentials to the permanent env and activate."""
+    current_values = dict(os.environ)
     updates: Dict[str, str] = {}
 
     if payload.clear_tushare_token:
@@ -1611,7 +1631,10 @@ async def update_data_source_settings(payload: UpdateDataSourceSettingsRequest):
         updates["TPDOG_TOKEN"] = current_values["TPDOG_TOKEN"]
 
     if updates:
-        _write_env_values(ENV_PATH, updates)
+        # Write to permanent env (~/.vibe-trading/.env) — survives app updates.
+        permanent = _permanent_env_path()
+        permanent.parent.mkdir(parents=True, exist_ok=True)
+        _write_env_values(permanent, updates)
         for env_key, placeholders in (
             ("TUSHARE_TOKEN", TUSHARE_TOKEN_PLACEHOLDERS),
             ("TPDOG_TOKEN", TPDOG_TOKEN_PLACEHOLDERS),
@@ -1622,7 +1645,7 @@ async def update_data_source_settings(payload: UpdateDataSourceSettingsRequest):
             else:
                 os.environ.pop(env_key, None)
 
-    return _build_data_source_settings_response(_read_env_values(ENV_PATH))
+    return _build_data_source_settings_response(dict(os.environ))
 
 
 @app.get("/health", response_model=HealthResponse)
