@@ -84,6 +84,17 @@ def _probe_akshare() -> str:
 
 def _probe_rsshub() -> str:
     base = os.getenv("RSSHUB_URL", "http://localhost:1200").rstrip("/")
+
+    # Graceful when RSSHub is not configured. The desktop client ships without
+    # a local RSSHub container, and most desktop users won't set RSSHUB_URL —
+    # probing localhost:1200 would then always fail and paint the health panel
+    # red for an *optional* feature. Make that explicit so users don't panic.
+    if not base or base in {"http://localhost:1200", "http://127.0.0.1:1200"}:
+        raise RuntimeError(
+            "RSSHub 未配置 — 新闻聚合功能关闭(可选)。"
+            "在 Settings → 数据连接 填写 RSSHub 地址即可启用"
+        )
+
     resp = requests.get(f"{base}/healthz", timeout=_PROBE_TIMEOUT)
     # Some RSSHub versions expose /healthz, others only /health; accept either.
     if resp.status_code == 404:
@@ -274,8 +285,8 @@ def _probe_baidu() -> str:
     if resp.status_code != 200:
         raise RuntimeError(f"百度 HTTP {resp.status_code}")
     data = resp.json()
-    # ResultCode 0 = success; keys/rows are in the Result field
-    if data.get("ResultCode") != 0:
+    # ResultCode 0 = success; 百度返回字符串 "0"，必须字符串比较，否则 "0" != 0 永远误判。
+    if str(data.get("ResultCode")) != "0":
         raise RuntimeError(f"百度 ResultCode={data.get('ResultCode')}")
     return "finance.pae.baidu.com ok"
 

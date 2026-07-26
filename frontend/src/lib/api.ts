@@ -248,6 +248,14 @@ export const api = {
       body: JSON.stringify(settings),
     }),
 
+  // Data Hub / connected-mode / RSSHub config (persisted to ~/.vibe-trading/.env)
+  getDataHubSettings: () => request<DataHubSettings>("/settings/data-hub"),
+  updateDataHubSettings: (settings: DataHubSettings) =>
+    request<DataHubSettings>("/settings/data-hub", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+
   // Data-source health (admin) — probe mootdx / akshare / RSSHub / overseas proxy
   getDataHealth: () => request<DataHealthReport>("/data-health"),
 
@@ -676,6 +684,13 @@ export interface UpdateDataSourceSettingsRequest {
   clear_tushare_token?: boolean;
   tpdog_token?: string;
   clear_tpdog_token?: boolean;
+}
+
+export interface DataHubSettings {
+  data_hub_url: string;
+  data_hub_key: string;
+  data_mode: "standalone" | "connected" | string;
+  rsshub_url: string;
 }
 
 // --- Types matching backend API contracts ---

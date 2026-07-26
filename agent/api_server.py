@@ -1483,6 +1483,99 @@ async def update_llm_settings(payload: UpdateLLMSettingsRequest):
     return _build_llm_settings_response(_read_env_values(ENV_PATH))
 
 
+# ---- Data Hub settings (connected mode + RSSHub URL) ----------------------
+#
+# Persisted to ``~/.vibe-trading/.env`` — the permanent env that survives app
+# updates (main.js ``loadPermanentEnv`` merges it into process.env on spawn).
+# Project-local ``agent/.env`` is reset on updates and would lose the config.
+
+class DataHubSettingsResponse(BaseModel):
+    data_hub_url: str = ""
+    data_hub_key: str = ""
+    data_mode: str = "standalone"   # "standalone" | "connected"
+    rsshub_url: str = ""
+
+
+_DATA_HUB_ENV_KEYS = {
+    "data_hub_url": "VIBE_TRADING_DATA_HUB_URL",
+    "data_hub_key": "VIBE_TRADING_DATA_HUB_KEY",
+    "data_mode": "VIBE_TRADING_DATA_MODE",
+    "rsshub_url": "RSSHUB_URL",
+}
+
+
+def _permanent_env_path() -> Path:
+    """``~/.vibe-trading/.env`` — survives app updates (desktop client only)."""
+    return Path.home() / ".vibe-trading" / ".env"
+
+
+def _remove_env_key(path: Path, key: str) -> None:
+    """Delete a single KEY=value line from a dotenv file, preserving other lines."""
+    if not path.exists():
+        return
+    lines = path.read_text(encoding="utf-8").splitlines()
+    kept = []
+    for raw in lines:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            kept.append(raw)
+            continue
+        if stripped.split("=", 1)[0].strip() == key:
+            continue  # drop matching line
+        kept.append(raw)
+    path.write_text("\n".join(kept) + ("\n" if kept else ""), encoding="utf-8")
+
+
+@app.get(
+    "/settings/data-hub",
+    response_model=DataHubSettingsResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def get_data_hub_settings() -> DataHubSettingsResponse:
+    """Return Data Hub / RSSHub config from the active process env.
+
+    The desktop client merges ``~/.vibe-trading/.env`` into process.env at
+    startup, so ``os.getenv`` already reflects the persisted values.
+    """
+    return DataHubSettingsResponse(
+        data_hub_url=os.getenv("VIBE_TRADING_DATA_HUB_URL", "").strip(),
+        data_hub_key=os.getenv("VIBE_TRADING_DATA_HUB_KEY", "").strip(),
+        data_mode=os.getenv("VIBE_TRADING_DATA_MODE", "standalone").strip() or "standalone",
+        rsshub_url=os.getenv("RSSHUB_URL", "").strip(),
+    )
+
+
+@app.put(
+    "/settings/data-hub",
+    response_model=DataHubSettingsResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def update_data_hub_settings(payload: DataHubSettingsResponse) -> DataHubSettingsResponse:
+    """Persist Data Hub / RSSHub config to the permanent env and activate it.
+
+    Writes to ``~/.vibe-trading/.env`` (survives app updates) and updates the
+    running process's env so the new values take effect without a restart.
+    Empty strings delete the corresponding key.
+    """
+    updates: Dict[str, str] = {
+        env_key: (getattr(payload, attr) or "").strip()
+        for attr, env_key in _DATA_HUB_ENV_KEYS.items()
+    }
+    permanent = _permanent_env_path()
+    permanent.parent.mkdir(parents=True, exist_ok=True)
+    # Upsert non-empty keys, remove empty ones.
+    to_write = {k: v for k, v in updates.items() if v}
+    if to_write:
+        _write_env_values(permanent, to_write)
+    for key, value in updates.items():
+        if not value:
+            _remove_env_key(permanent, key)
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    return await get_data_hub_settings()
+
+
 @app.get(
     "/settings/data-sources",
     response_model=DataSourceSettingsResponse,

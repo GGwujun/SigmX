@@ -8,7 +8,9 @@ Mounted by ``agent/api_server.py`` via ``register_auth_routes(app)``.
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import os
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, status
@@ -34,6 +36,45 @@ def _get_store() -> UserStore:
 
 _security = HTTPBearer(auto_error=False)
 
+_DESKTOP_MODE_ENV = "VIBE_TRADING_DESKTOP_MODE"
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _is_loopback_request(request: Request) -> bool:
+    """Whether the request originates from loopback (127.0.0.1 / ::1)."""
+    host = request.client.host if request.client else ""
+    if host in {"localhost", "testclient"}:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _desktop_loopback_user(request: Request) -> dict[str, Any] | None:
+    """Return the local admin user for a desktop-mode loopback request, else None.
+
+    The desktop client (Electron shell) talks to a locally-spawned backend over
+    loopback. Mirroring ``require_auth`` in api_server.py, we skip JWT for these
+    requests so the UI keeps working after an app update clears the localStorage
+    JWT — otherwise every ``Depends(require_user)``/``require_admin`` endpoint
+    (/settings/llm, credits, /auth/me, …) returns 401 and the Settings page
+    shows empty config even though ``~/.vibe-trading/.env`` is intact.
+
+    Only loopback + DESKTOP_MODE is exempt; server / remote requests still
+    require a JWT. Returns the first admin user (the desktop is single-user).
+    """
+    if not (_env_flag_enabled(_DESKTOP_MODE_ENV) and _is_loopback_request(request)):
+        return None
+    try:
+        admin = _get_store().first_admin()
+    except Exception:  # noqa: BLE001
+        return None
+    return admin
+
 
 async def require_user(
     request: Request,
@@ -43,6 +84,10 @@ async def require_user(
 
     Used by user-gated endpoints (/auth/me, /auth/disclaimer/accept).
     """
+    # Desktop client loopback: skip JWT (see _desktop_loopback_user).
+    desktop_user = _desktop_loopback_user(request)
+    if desktop_user is not None:
+        return desktop_user
     token = cred.credentials if cred and cred.credentials else ""
     user_id = user_id_from_token(token)
     if not user_id:

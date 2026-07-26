@@ -41,15 +41,48 @@ function DataHubTab() {
   const [mode, setMode] = useState(getDataMode());
   const [hubUrl, setHubUrl] = useState(getDataHubUrl());
   const [hubKey, setHubKey] = useState(getDataHubKey());
+  const [rsshubUrl, setRsshubUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Hydrate from persistent backend (.env) on mount — survives app updates,
+  // whereas localStorage is wiped on every update. localStorage is still
+  // written below so the synchronous dataMode.ts helpers pick up the value
+  // for the current session immediately.
+  useEffect(() => {
+    api.getDataHubSettings().then(s => {
+      setRsshubUrl(s.rsshub_url || "");
+      if (s.data_mode) setMode(s.data_mode as "standalone" | "connected");
+      if (s.data_hub_url) setHubUrl(s.data_hub_url);
+      if (s.data_hub_key) setHubKey(s.data_hub_key);
+      // Sync to localStorage so api.ts routing reflects the persisted config
+      // without requiring a second round-trip on every request.
+      setDataMode(s.data_mode as "standalone" | "connected");
+      setDataHubUrl(s.data_hub_url || "");
+      setDataHubKey(s.data_hub_key || "");
+    }).catch(() => { /* backend unreachable — keep localStorage values */ }).finally(() => setLoading(false));
+  }, []);
 
   const save = async () => {
     setSaving(true);
-    setDataMode(mode);
-    setDataHubUrl(hubUrl);
-    setDataHubKey(hubKey);
-    toast.success("数据连接配置已保存");
-    setSaving(false);
+    try {
+      await api.updateDataHubSettings({
+        data_mode: mode,
+        data_hub_url: hubUrl,
+        data_hub_key: hubKey,
+        rsshub_url: rsshubUrl,
+      });
+      // Keep localStorage in sync so the in-session routing keeps working
+      // without another fetch. The authoritative source is now ~/.vibe-trading/.env.
+      setDataMode(mode);
+      setDataHubUrl(hubUrl);
+      setDataHubKey(hubKey);
+      toast.success("数据连接配置已保存（永久生效，更新后不丢失）");
+    } catch (e) {
+      toast.error("保存失败：" + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -105,6 +138,22 @@ function DataHubTab() {
               </label>
             </>
           )}
+
+          {/* RSSHub is independent of the connected-mode toggle: even in
+              standalone mode the local backend probes RSSHub for news. */}
+          <label className="grid gap-1.5">
+            <span className="text-sm font-medium">RSSHub 地址（新闻聚合）</span>
+            <input
+              type="url"
+              value={rsshubUrl}
+              onChange={e => setRsshubUrl(e.target.value)}
+              placeholder="http://47.115.144.24:1200 或留空"
+              className={fieldClass}
+            />
+            <span className={hintClass}>
+              留空时本地不抓取新闻；填写后桌面客户端从该地址获取财联社、华尔街见闻等聚合快讯
+            </span>
+          </label>
         </div>
       </Section>
 

@@ -167,6 +167,16 @@ class UserStore:
             row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         return self._row_to_user(row) if row else None
 
+    def first_admin(self) -> dict[str, Any] | None:
+        """Return the first admin user (by created_at). Used for desktop-mode
+        loopback bypass — the local single-user client is treated as admin."""
+        with self._lock:
+            conn = self._init_conn_locked()
+            row = conn.execute(
+                "SELECT * FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1"
+            ).fetchone()
+        return self._row_to_user(row) if row else None
+
     def set_disclaimer_accepted(self, user_id: str) -> bool:
         """Mark the disclaimer as accepted. Returns True if a row was updated."""
         with self._lock:
