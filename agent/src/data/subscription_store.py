@@ -139,21 +139,14 @@ class SubscriptionStore:
 
         sub_id = uuid.uuid4().hex
         created_at = _now_iso()
-        expires_at = (
-            datetime.now(timezone.utc).isoformat()
-            if days <= 0 else  # never expires
-            None
-        ) if days == 0 else (
-            datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-            .isoformat()
-            if days <= 0 else None  # will fix below
-        )
-
-        # Compute expiry properly
+        # days <= 0 means never expires (expires_at NULL). Otherwise expire
+        # `days` days from now. (The prior nested-ternary here set expires_at
+        # to the creation timestamp for days=0, making keys expire instantly.)
         if days > 0:
             from datetime import timedelta
-            exp = datetime.now(timezone.utc) + timedelta(days=days)
-            expires_at = exp.isoformat()
+            expires_at = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+        else:
+            expires_at = None
 
         with self._lock:
             conn = self._get_conn()
