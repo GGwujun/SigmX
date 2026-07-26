@@ -43,7 +43,6 @@ function DataHubTab() {
   const [hubKey, setHubKey] = useState(getDataHubKey());
   const [rsshubUrl, setRsshubUrl] = useState("");
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
 
   // Hydrate from persistent backend (.env) on mount — survives app updates,
   // whereas localStorage is wiped on every update. localStorage is still
@@ -60,7 +59,7 @@ function DataHubTab() {
       setDataMode(s.data_mode as "standalone" | "connected");
       setDataHubUrl(s.data_hub_url || "");
       setDataHubKey(s.data_hub_key || "");
-    }).catch(() => { /* backend unreachable — keep localStorage values */ }).finally(() => setLoading(false));
+    }).catch(() => { /* backend unreachable — keep localStorage values */ });
   }, []);
 
   const save = async () => {
