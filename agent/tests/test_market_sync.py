@@ -646,8 +646,8 @@ def test_security_master_tpdog_fallback_marks_default_universe(store: MarketStor
 
     assert written == 4
     assert store.security_master_count() == 4
-    # Daily backfill can still use ST non-BJ names, but strategy default excludes ST and BJ.
-    assert ms._all_a_share_codes(store) == ["000001.SZ", "600000.SH", "600001.SH"]
+    # Full universe includes BJ; strategy default still excludes ST and BJ.
+    assert ms._all_a_share_codes(store) == ["000001.SZ", "430001.BJ", "600000.SH", "600001.SH"]
     assert store.default_strategy_codes() == ["000001.SZ", "600000.SH"]
 
 

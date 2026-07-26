@@ -372,3 +372,61 @@ def test_swallowed_dataset_failure_blocks_publication(tmp_path: Path, monkeypatc
 def test_run_once_rejects_unsafe_no_shadow_mode() -> None:
     with pytest.raises(ValueError, match="shadow publication is mandatory"):
         worker.run_once(shadow=False)
+
+
+def test_merge_shadow_to_live_creates_missing_tables(tmp_path: Path) -> None:
+    """Live DBs predating the current schema lack tables like bars_daily.
+
+    _merge_shadow_to_live must CREATE missing tables before INSERT OR REPLACE,
+    otherwise the merge raises inside the transaction and rolls back — so
+    shadow data never reaches the live DB (the `no such table: bars_daily`
+    regression on the production server).
+    """
+    import sqlite3
+
+    live = tmp_path / "live.db"
+    shadow = tmp_path / "shadow.db"
+
+    # Seed a full shadow DB (bars_daily + schema) via MarketStore.
+    shadow_store = MarketStore(shadow)
+    shadow_store.upsert_security_master(
+        [{"code": "600000.SH", "name": "PF Bank", "list_status": "L"}]
+    )
+    shadow_store.upsert_daily_bars(
+        "600000.SH",
+        [{"date": "2026-07-22", "open": 10, "high": 11, "low": 9.5,
+          "close": 10.5, "volume": 1000, "total_amt": 10500, "rise_rate": 1.0}],
+        source="tushare.daily",
+        sync_run_id="run-x",
+    )
+    shadow_store._conn.close()
+
+    # Live DB with a *legacy* schema: only security_master, NO bars_daily.
+    live_store = MarketStore(live)
+    live_store.upsert_security_master(
+        [{"code": "600000.SH", "name": "PF Bank", "list_status": "L"}]
+    )
+    live_store._conn.close()
+    # Drop bars_daily to simulate a live DB from before it existed.
+    conn = sqlite3.connect(str(live))
+    conn.execute("DROP TABLE IF EXISTS bars_daily")
+    conn.commit()
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bars_daily'"
+    ).fetchone()[0] == 0
+    conn.close()
+
+    # The merge must not raise and must create + populate bars_daily.
+    worker._merge_shadow_to_live(shadow, live, "2026-07-22")
+
+    conn = sqlite3.connect(str(live))
+    assert conn.execute(
+        "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='bars_daily'"
+    ).fetchone()[0] == 1
+    row = conn.execute(
+        "SELECT code, close FROM bars_daily WHERE trade_date = '2026-07-22'"
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == "600000.SH"
+    assert row[1] == 10.5

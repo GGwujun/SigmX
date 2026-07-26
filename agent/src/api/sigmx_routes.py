@@ -56,24 +56,33 @@ async def _data_hub_auth(
     x_api_key: str | None = Header(None, alias="X-API-Key"),
     api_key: str | None = Query(None, alias="api_key"),
 ) -> dict[str, object] | None:
-    """Optional Data Hub API key authentication for /api/v1/* endpoints.
+    """API key authentication for /api/v1/* endpoints (Data Hub mode).
 
-    - Loopback requests pass through (no key needed).
-    - If a valid API key is provided (header or query), record usage.
-    - If an invalid API key is provided, return 401.
-    - If no key and not loopback, pass through (backward compat — public
-      deployments that haven't enabled Data Hub mode still work).
+    - Non-Data-Hub deployments: always pass through (mode guard).
+    - Loopback requests: pass through (no key needed).
+    - Data Hub mode + non-loopback + no key: 401 (the public API requires a key).
+    - Invalid key: 401.
+    - Quota exhausted: 429.
+    - Valid key with quota remaining: reserve one slot atomically, return sub.
 
-    Returns the subscription info dict on successful auth, or None for no-key
-    / loopback passthrough.
+    ``request.client.host`` reflects the real remote IP only when uvicorn runs
+    with ``--proxy-headers`` and nginx forwards ``X-Forwarded-For``; otherwise a
+    reverse proxy makes every request look loopback and this gate is bypassable.
     """
-    key = (x_api_key or "").strip() or (api_key or "").strip()
-
-    if not key:
-        # No API key supplied — allow loopback, pass through for remote.
+    if not _is_data_hub_enabled():
         return None
 
-    # Key was supplied — must be valid.
+    if _is_loopback(request):
+        return None
+
+    key = (x_api_key or "").strip() or (api_key or "").strip()
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="API key required (X-API-Key header or api_key query)",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
+
     from src.data.subscription_store import get_subscription_store
 
     store = get_subscription_store()
@@ -85,20 +94,16 @@ async def _data_hub_auth(
             headers={"WWW-Authenticate": "ApiKey"},
         )
 
-    # Check daily quota.
-    allowed, used, quota = store.check_quota(sub["id"])
-    if not allowed:
+    # Atomically reserve one request against the daily quota (no TOCTOU).
+    if not store.acquire_quota(sub["id"]):
+        quota = sub.get("quota_daily", 0)
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Daily quota exceeded ({used}/{quota}). Resets at midnight UTC.",
+            detail=f"Daily quota exceeded ({quota}/{quota}). Resets at midnight UTC.",
             headers={"X-RateLimit-Limit": str(quota), "X-RateLimit-Remaining": "0"},
         )
 
-    # Record usage (fire-and-forget – don't fail the request if this errors).
-    try:
-        store.record_usage(sub["id"])
-    except Exception:
-        logger.debug("Failed to record API usage for %s", sub["id"], exc_info=True)
+    return {"subscription_id": sub["id"], "tier": sub["tier"]}
 
     return {"subscription_id": sub["id"], "tier": sub["tier"]}
 
@@ -1017,8 +1022,9 @@ def _is_data_hub_enabled() -> bool:
 def register_sigmx_routes(app: FastAPI) -> None:
     """Mount all /api/v1/* SigmX market-data routes onto the app.
 
-    Endpoints are public for local access. Remote access requires an API key
-    when VIBE_TRADING_DATA_HUB_MODE=1 is set.
+    All /api/v1/* endpoints go through ``_data_hub_auth``: in Data Hub mode,
+    remote (non-loopback) requests require a valid API key; loopback and
+    non-Data-Hub deployments pass through. See ``_data_hub_auth`` for details.
     """
-    app.include_router(router)
+    app.include_router(router, dependencies=[Depends(_data_hub_auth)])
 

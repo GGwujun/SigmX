@@ -3421,7 +3421,19 @@ def serve_main(argv: list[str] | None = None) -> int:
     print("=" * 50)
 
     try:
-        uvicorn.run(app, host=args.host, port=args.port, log_level="info")
+        # Trust X-Forwarded-For from any upstream so that, behind a reverse
+        # proxy (nginx), request.client.host reflects the real remote IP. This
+        # is required for the Data Hub loopback/auth gate in sigmx_routes to
+        # work correctly — without it every proxied request looks like
+        # 127.0.0.1 and auth is bypassable. Safe for direct/local deployments:
+        # no proxy means no X-Forwarded-For header, so client.host is unchanged.
+        uvicorn.run(
+            app,
+            host=args.host,
+            port=args.port,
+            log_level="info",
+            forwarded_allow_ips="*",
+        )
     finally:
         if vite_proc:
             vite_proc.terminate()

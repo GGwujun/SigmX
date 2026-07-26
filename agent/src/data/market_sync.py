@@ -384,19 +384,20 @@ def _sync_board_members_tpdog(store: MarketStore, *, limit: int | None = None) -
 
 
 def _all_a_share_codes(store: MarketStore | None = None, *, default_only: bool = False) -> list[str]:
-    """Return the full A-share code universe (sh + sz) from tpdog stocks/list.
+    """Return the full A-share code universe (sh + sz + bj) from security_master.
 
     Codes are normalized to project form (``600206`` → ``600206.SH``). Returns
     [] on any failure (caller treats empty as "skip daily-K this tick").
+
+    The full universe (``default_only=False``) includes Beijing Stock Exchange
+    (.BJ) so daily-K bulk covers the whole A-share market. The strategy-default
+    view (``default_only=True``) still excludes BJ/ST/delisting — that filter
+    lives in ``list_security_master``'s SQL, not here.
     """
     if store is not None:
         try:
             rows = store.list_security_master(default_only=default_only)
-            codes = [
-                r["code"]
-                for r in rows
-                if r.get("is_active") and not r.get("is_bj")
-            ]
+            codes = [r["code"] for r in rows if r.get("is_active")]
             if codes:
                 return codes
         except Exception:  # noqa: BLE001
@@ -405,7 +406,7 @@ def _all_a_share_codes(store: MarketStore | None = None, *, default_only: bool =
     from src.data.tpdog_client import call
 
     out: list[str] = []
-    for market, prefix in (("sh", ".SH"), ("sz", ".SZ")):
+    for market, prefix in (("sh", ".SH"), ("sz", ".SZ"), ("bj", ".BJ")):
         try:
             rows = call("stocks/list", type=market)
         except Exception as exc:  # noqa: BLE001

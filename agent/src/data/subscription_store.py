@@ -241,6 +241,34 @@ class SubscriptionStore:
 
         return used < quota, used, quota
 
+    def acquire_quota(self, subscription_id: str) -> bool:
+        """Atomically reserve one request against today's daily quota.
+
+        Replaces the check-then-record (check_quota + record_usage) pair, which
+        was a TOCTOU race — concurrent requests could all pass the check before
+        any incremented. This single statement only increments when the current
+        count is still below the subscription's quota; rowcount==0 means the
+        quota is exhausted.
+
+        Returns True if a slot was reserved, False if the quota is exhausted.
+        """
+        today = _today_str()
+        with self._lock:
+            conn = self._get_conn()
+            cur = conn.execute(
+                """
+                INSERT INTO api_usage (subscription_id, date, count)
+                VALUES (?, ?, 1)
+                ON CONFLICT(subscription_id, date)
+                DO UPDATE SET count = count + 1
+                WHERE (SELECT quota_daily FROM subscriptions
+                       WHERE id = excluded.subscription_id) > api_usage.count
+                """,
+                (subscription_id, today),
+            )
+            conn.commit()
+            return cur.rowcount > 0
+
     def record_usage(self, subscription_id: str) -> None:
         """Increment today's usage counter for a subscription."""
         today = _today_str()

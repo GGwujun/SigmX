@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Iterable
 
 from src.data.dataset_contracts import validate_dataset
-from src.data.market_store import MarketStore
+from src.data.market_store import MarketStore, _SCHEMA
 from src.data.dataset_registry import contract_for
 from src.data.market_quality import (
     DatasetQualityReport,
@@ -326,6 +326,14 @@ def _merge_shadow_to_live(shadow_db: Path, live_db: Path, trade_date: str) -> No
     src.row_factory = sqlite3.Row
     tgt = sqlite3.connect(str(live_db), timeout=30)
     tgt.execute("PRAGMA busy_timeout=30000")
+    # Ensure the live DB has every table the shadow may merge. The live DB is a
+    # long-lived file that may predate the current schema (early builds created
+    # only a subset of tables); CREATE TABLE IF NOT EXISTS is idempotent and
+    # additive, so tables missing from live get created before the INSERT OR
+    # REPLACE below — otherwise a missing-table INSERT raises inside the
+    # transaction and rolls back the whole merge, so bars_daily/index_daily/etc.
+    # never reach the live DB (root cause of `no such table: bars_daily`).
+    tgt.executescript(_SCHEMA)
     tgt.execute("BEGIN IMMEDIATE")
     try:
         # Date-keyed tables: copy only this run's trade_date rows.
