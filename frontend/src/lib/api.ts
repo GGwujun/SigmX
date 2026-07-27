@@ -1,5 +1,5 @@
 import { authHeaders, withAuthQuery, type AuthUser } from "@/lib/apiAuth";
-import { resolveApiUrl, dataHubHeaders, getDataMode } from "@/lib/dataMode";
+import { resolveApiUrl, resolveDataHubApiPath, dataHubHeaders, getDataMode } from "@/lib/dataMode";
 
 const BASE = "";
 
@@ -36,8 +36,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, ...rest } = options ?? {};
   const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
 
-  // In connected mode, route /api/v1/* and /market-dashboard/* calls to the remote Data Hub.
-  if ((path.startsWith("/api/v1/") || path.startsWith("/market-dashboard/")) && getDataMode() === "connected") {
+  // In connected mode, route /api/v1/* calls to the remote Data Hub.
+  // /market-dashboard/* and /daily-recommendations/* are rewritten to /api/v1/*
+  // aliases by resolveDataHubApiPath at the call site, so we only need to
+  // check for /api/v1/ here.
+  if (path.startsWith("/api/v1/") && getDataMode() === "connected") {
     Object.assign(mergedHeaders, dataHubHeaders());
   }
 
@@ -48,7 +51,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   // Resolve the URL: local (BASE + path) or remote Data Hub.
-  const url = (path.startsWith("/api/v1/") || path.startsWith("/market-dashboard/"))
+  const url = path.startsWith("/api/v1/")
     ? resolveApiUrl(path)
     : `${BASE}${path}`;
 
@@ -459,11 +462,16 @@ export const api = {
   listOpportunities: () => request<OpportunityResponse>("/opportunity"),
 
   // AI market dashboard aggregate
-  getMarketDashboard: () => request<MarketDashboardResponse>("/market-dashboard"),
+  getMarketDashboard: () => request<MarketDashboardResponse>(resolveDataHubApiPath("/market-dashboard")),
   getMarketDashboardStage: (stage: MarketDashboardStage) =>
-    request<MarketDashboardStageResponse>(`/market-dashboard/stages/${stage}?_=${Date.now()}`, { cache: "no-store" }),
+    request<MarketDashboardStageResponse>(
+      resolveDataHubApiPath(`/market-dashboard/stages/${stage}?_=${Date.now()}`),
+      { cache: "no-store" },
+    ),
   getMarketBars: (code: string, days = 60) =>
-    request<MarketBarsResponse>(`/market-dashboard/bars/${encodeURIComponent(code)}?days=${days}`),
+    request<MarketBarsResponse>(
+      resolveDataHubApiPath(`/market-dashboard/bars/${encodeURIComponent(code)}?days=${days}`),
+    ),
 
   // Daily recommendations
   listDailyRecommendations: (params: { date?: string; slot?: string; target_date?: string; phase?: string; status?: string; limit?: number } = {}) => {
@@ -475,7 +483,9 @@ export const api = {
     if (params.status) q.set("status", params.status);
     if (params.limit) q.set("limit", String(params.limit));
     const qs = q.toString();
-    return request<DailyRecommendationListResponse>(`/daily-recommendations${qs ? `?${qs}` : ""}`);
+    return request<DailyRecommendationListResponse>(
+      resolveDataHubApiPath(`/daily-recommendations${qs ? `?${qs}` : ""}`),
+    );
   },
   generateDailyRecommendations: (
     slot: "morning" | "afternoon" | "manual" | "post_close_base" | "evening_review" | "premarket_review" | "morning_final" | "afternoon_final",
@@ -486,9 +496,13 @@ export const api = {
       body: JSON.stringify({ slot, limit }),
     }),
   getDailyRecommendationBacktest: (days = 30) =>
-    request<DailyRecommendationBacktestResponse>(`/daily-recommendations/backtest?days=${days}`),
+    request<DailyRecommendationBacktestResponse>(
+      resolveDataHubApiPath(`/daily-recommendations/backtest?days=${days}`),
+    ),
   getDailyRecommendationAttribution: (days = 30, horizon: "t0" | "t1" | "t3" | "t5" = "t1") =>
-    request<DailyRecommendationAttributionResponse>(`/daily-recommendations/attribution?days=${days}&horizon=${horizon}`),
+    request<DailyRecommendationAttributionResponse>(
+      resolveDataHubApiPath(`/daily-recommendations/attribution?days=${days}&horizon=${horizon}`),
+    ),
 
   // Logic Chain
   getLogicChain: (code: string) => request<LogicChainResponse>(`/logic-chain/${encodeURIComponent(code)}`),
