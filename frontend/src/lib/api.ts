@@ -36,8 +36,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers, ...rest } = options ?? {};
   const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
 
-  // In connected mode, route /api/v1/* calls to the remote Data Hub.
-  if (path.startsWith("/api/v1/") && getDataMode() === "connected") {
+  // In connected mode, route /api/v1/* and /market-dashboard/* calls to the remote Data Hub.
+  if ((path.startsWith("/api/v1/") || path.startsWith("/market-dashboard/")) && getDataMode() === "connected") {
     Object.assign(mergedHeaders, dataHubHeaders());
   }
 
@@ -48,7 +48,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   }
 
   // Resolve the URL: local (BASE + path) or remote Data Hub.
-  const url = path.startsWith("/api/v1/")
+  const url = (path.startsWith("/api/v1/") || path.startsWith("/market-dashboard/"))
     ? resolveApiUrl(path)
     : `${BASE}${path}`;
 
