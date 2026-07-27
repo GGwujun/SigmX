@@ -2199,9 +2199,17 @@ class MarketStore:
     @_synchronized
     def get_global_market_indices(self, trade_date: str | None = None, limit: int = 40) -> list[dict]:
         if trade_date:
+            # Per-symbol fallback: get each symbol's latest available date <= requested date
+            # This fixes the issue where some indices (e.g., HSTECH) have data for 07-27
+            # but US indices only have data for 07-25
             rows = self._conn.execute(
                 "SELECT trade_date, symbol, name, open, high, low, close, prev_close, change_pct, currency, source, history_json "
-                "FROM global_market_index_daily WHERE trade_date = ? ORDER BY symbol LIMIT ?",
+                "FROM global_market_index_daily g1 "
+                "WHERE trade_date = ("
+                "  SELECT MAX(trade_date) FROM global_market_index_daily g2 "
+                "  WHERE g2.symbol = g1.symbol AND g2.trade_date <= ?"
+                ") "
+                "ORDER BY symbol LIMIT ?",
                 (trade_date, int(limit)),
             ).fetchall()
         else:
