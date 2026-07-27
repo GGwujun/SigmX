@@ -730,21 +730,15 @@ def ep_morning_briefing(trade_date: str = None,
 
         # Fallback to latest available date if requested date has no data
         # (e.g., requesting 2026-07-27 but US market hasn't opened yet)
+        # Use correlated subquery to get each symbol's latest available date
         overnight_rows = conn.execute("""
-            SELECT name, close, change_pct FROM global_market_index_daily
-            WHERE trade_date=? ORDER BY change_pct DESC
+            SELECT name, close, change_pct FROM global_market_index_daily g1
+            WHERE trade_date = (
+                SELECT MAX(trade_date) FROM global_market_index_daily g2
+                WHERE g2.symbol = g1.symbol AND g2.trade_date <= ?
+            )
+            ORDER BY change_pct DESC
         """, (td,)).fetchall()
-
-        if not overnight_rows:
-            # Fallback to latest available date <= requested date
-            overnight_rows = conn.execute("""
-                SELECT name, close, change_pct FROM global_market_index_daily
-                WHERE trade_date = (
-                    SELECT MAX(trade_date) FROM global_market_index_daily
-                    WHERE trade_date <= ?
-                )
-                ORDER BY change_pct DESC
-            """, (td,)).fetchall()
 
         trans_rows = conn.execute("""
             SELECT us_theme, a_share_themes_json, signal_strength, direction, reason
