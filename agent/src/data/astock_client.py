@@ -81,17 +81,27 @@ def tdx_client(market: str = "std"):
     统一走 mootdx_helper.pick_server（TTL 缓存 + 8 IP 健康探测列表），
     避免与 astock_client 维护两套 IP 清单/探测逻辑。market 默认 std；
     全部 server 不可达时回退 mootdx 自带 bestip 测速。
+
+    mootdx 0.9.x BaseQuotes.__init__ 期望 server=(ip, port) tuple，
+    而非分开的 server=ip, port=port kwargs（旧代码这么写导致 self.server=None 崩溃）。
     """
     from mootdx.quotes import Quotes
     from src.data.mootdx_helper import pick_server
 
     server = pick_server(timeout=6)
     if server is not None:
-        ip, port = server
         try:
-            return Quotes.factory(market=market, server=ip, port=port)
+            return Quotes.factory(market=market, server=server)
         except Exception:
             pass  # 缓存的好 server 失效，回退 bestip
+    # bestip 回退：让 mootdx 自己测速选 server。
+    # config.get("SERVER") 在容器精简环境里可能为空，手动注入一个默认列表。
+    try:
+        from mootdx.common.config import config
+        if not config.get("BESTIP", {}).get("HQ"):
+            config.set("BESTIP", {"HQ": server or ("180.153.18.170", 7709)})
+    except Exception:
+        pass
     return Quotes.factory(market=market)
 
 
