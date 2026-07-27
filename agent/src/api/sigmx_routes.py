@@ -728,10 +728,24 @@ def ep_morning_briefing(trade_date: str = None,
                 "ok": False, "error": {"code": "NO_DATA",
                 "message": "No morning briefing data"}})
 
+        # Fallback to latest available date if requested date has no data
+        # (e.g., requesting 2026-07-27 but US market hasn't opened yet)
         overnight_rows = conn.execute("""
             SELECT name, close, change_pct FROM global_market_index_daily
             WHERE trade_date=? ORDER BY change_pct DESC
         """, (td,)).fetchall()
+
+        if not overnight_rows:
+            # Fallback to latest available date <= requested date
+            overnight_rows = conn.execute("""
+                SELECT name, close, change_pct FROM global_market_index_daily
+                WHERE trade_date = (
+                    SELECT MAX(trade_date) FROM global_market_index_daily
+                    WHERE trade_date <= ?
+                )
+                ORDER BY change_pct DESC
+            """, (td,)).fetchall()
+
         trans_rows = conn.execute("""
             SELECT us_theme, a_share_themes_json, signal_strength, direction, reason
             FROM us_a_share_transmission WHERE trade_date=?
