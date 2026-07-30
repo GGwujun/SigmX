@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type DailyRecommendationBacktestResponse, type DailyRecommendationItem } from "@/lib/api";
+import { canGenerateRecommendationsLocally } from "@/lib/dataMode";
 import { cn } from "@/lib/utils";
 
 type SlotFilter = "all" | "morning" | "afternoon";
@@ -107,6 +108,7 @@ export function DailyRecommendations() {
   const [date] = useState(today());
   const [slotFilter, setSlotFilter] = useState<SlotFilter>("all");
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const localGenerationEnabled = canGenerateRecommendationsLocally();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -186,18 +188,30 @@ export function DailyRecommendations() {
               icon={Clock3}
               label={hasMorningToday ? "已生成 9:27" : "生成 9:27"}
               busy={generating === "morning"}
-              disabled={generating !== null || hasMorningToday}
+              disabled={!localGenerationEnabled || generating !== null || hasMorningToday}
               onClick={() => generate("morning")}
               primary
-              disabledReason={hasMorningToday ? "今日早盘推荐已生成" : undefined}
+              disabledReason={
+                !localGenerationEnabled
+                  ? "Connected 模式由 Data Hub 统一生成"
+                  : hasMorningToday
+                    ? "今日早盘推荐已生成"
+                    : undefined
+              }
             />
             <ActionButton
               icon={Sparkles}
               label={hasAfternoonToday ? "已生成 14:30" : "生成 14:30"}
               busy={generating === "afternoon"}
-              disabled={generating !== null || hasAfternoonToday}
+              disabled={!localGenerationEnabled || generating !== null || hasAfternoonToday}
               onClick={() => generate("afternoon")}
-              disabledReason={hasAfternoonToday ? "今日尾盘推荐已生成" : undefined}
+              disabledReason={
+                !localGenerationEnabled
+                  ? "Connected 模式由 Data Hub 统一生成"
+                  : hasAfternoonToday
+                    ? "今日尾盘推荐已生成"
+                    : undefined
+              }
             />
             <button
               type="button"
@@ -237,7 +251,7 @@ export function DailyRecommendations() {
               正在加载推荐
             </div>
           ) : sorted.length === 0 ? (
-            <EmptyState date={date} />
+            <EmptyState date={date} localGenerationEnabled={localGenerationEnabled} />
           ) : (
             <RecommendationTable
               items={sorted}
@@ -444,14 +458,22 @@ function EvidenceLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function EmptyState({ date }: { date: string }) {
+function EmptyState({
+  date,
+  localGenerationEnabled,
+}: {
+  date: string;
+  localGenerationEnabled: boolean;
+}) {
   return (
     <div className="flex items-center justify-center p-6">
       <div className="flex min-h-[360px] w-full max-w-2xl flex-col items-center justify-center rounded-md border border-dashed bg-background px-6 text-center">
         <CalendarDays className="h-10 w-10 text-muted-foreground/40" />
         <p className="mt-3 text-sm font-medium">{date} 还没有推荐</p>
         <p className="mt-1 max-w-md text-xs leading-relaxed text-muted-foreground">
-          交易日会在 9:27 和 14:30 自动生成，也可以用右上角按钮手动生成。
+          {localGenerationEnabled
+            ? "交易日会在 9:27 和 14:30 自动生成，也可以用右上角按钮手动生成。"
+            : "Connected 模式由 Data Hub 在交易日 9:27 和 14:30 统一生成，本地只读取结果。"}
         </p>
       </div>
     </div>

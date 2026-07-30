@@ -70,6 +70,29 @@ export function resolveApiUrl(path: string): string {
   return path; // relative to same origin
 }
 
+/** Map public market-data reads to their subscription-authenticated Hub aliases. */
+export function resolveDataHubApiPath(path: string): string {
+  if (getDataMode() !== "connected") return path;
+  if (path === "/market-dashboard" || path.startsWith("/market-dashboard/")) {
+    return `/api/v1${path}`;
+  }
+
+  const recommendationPrefix = "/daily-recommendations";
+  if (path === recommendationPrefix || path.startsWith(`${recommendationPrefix}?`)) {
+    return `/api/v1/recommendations${path.slice(recommendationPrefix.length)}`;
+  }
+  for (const readPath of ["/backtest", "/attribution"]) {
+    if (path.startsWith(`${recommendationPrefix}${readPath}`)) {
+      return `/api/v1/recommendations${path.slice(recommendationPrefix.length)}`;
+    }
+  }
+  return path;
+}
+
+export function canGenerateRecommendationsLocally(): boolean {
+  return getDataMode() === "standalone";
+}
+
 /** Headers to add when calling Data Hub endpoints. */
 export function dataHubHeaders(): Record<string, string> {
   if (getDataMode() === "connected") {
