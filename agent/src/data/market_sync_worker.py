@@ -929,7 +929,7 @@ def run_once(
     trade_date: str | None = None,
     datasets: Iterable[str] | None = None,
     shadow: bool = True,
-    deadline_seconds: int = 3600,
+    deadline_seconds: int = 7200,
     lookback_days: int = 365,
 ) -> dict[str, int]:
     """Run one operator-triggered sync outside the API process."""
@@ -988,7 +988,7 @@ def run_worker(interval_seconds: int = 60) -> None:
                         live_db=live_db,
                         shadow_db=_shadow_db_path(live_db),
                         datasets=datasets,
-                        deadline_seconds=int(os.getenv("MARKET_SYNC_POSTCLOSE_DEADLINE", "3600")),
+                        deadline_seconds=int(os.getenv("MARKET_SYNC_POSTCLOSE_DEADLINE", "7200")),
                         lookback_days=int(os.getenv("MARKET_SYNC_POSTCLOSE_LOOKBACK_DAYS", "365")),
                     )
                     # Long-term index history backfill (akshare) — runs AFTER the core

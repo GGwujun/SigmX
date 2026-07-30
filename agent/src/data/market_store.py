@@ -3598,7 +3598,7 @@ class MarketStore:
             self._conn.execute("DELETE FROM cls_telegraph WHERE trade_date = ?", (trade_date,))
             for r in rows:
                 self._conn.execute(
-                    "INSERT INTO cls_telegraph "
+                    "INSERT OR IGNORE INTO cls_telegraph "
                     "(trade_date, title, content, time, updated_at) VALUES (?, ?, ?, ?, ?)",
                     (trade_date, r.get("title", ""), r.get("content", ""),
                      r.get("time", ""), _now_iso()),

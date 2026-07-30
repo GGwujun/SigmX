@@ -53,7 +53,9 @@ _TICK_DEADLINE_SECONDS = 600  # one sync tick must not run longer than 10 min
 # 记 sync_error、继续下一个兄弟 dataset，避免一个挂死的尾部任务拖住整轮。
 # 与 _net_timeout 的 per-request timeout 配合：请求级 30s 让阻塞 socket 解除，
 # 这里再兜一个 dataset 总时长上限。env 可调，设 0 关闭（退回无硬超时）。
-_DATASET_TIMEOUT = float(os.getenv("MARKET_SYNC_DATASET_TIMEOUT", "120"))
+# 120s 对逐股分页拉取 5500+ 只远远不够（tushare 限流 ~1/min 时 daily_basic
+# 需 90+ min），提升到 600s 让大多数 dataset 能完成；整体 deadline 仍然兜底。
+_DATASET_TIMEOUT = float(os.getenv("MARKET_SYNC_DATASET_TIMEOUT", "600"))
 _POOL_TYPES = ("limitup", "limitdown", "strong", "fire", "secnew", "previous")
 _SLEEP_BETWEEN_CALLS = 0.05  # tpdog caps at 30 calls/sec
 _DAILY_COMPENSATION_LIMIT = 200
@@ -6057,19 +6059,67 @@ def _data_integrity_check(store: MarketStore, trade_date: str) -> None:
     except Exception:
         pass
 
-    # 1. Daily bars coverage
+    # 1. Daily bars coverage — only check after market close.
+    #    tushare daily API doesn't have intraday data; checking coverage during
+    #    trading hours always returns 0% and triggers futile re-syncs.
     try:
-        today_codes = store.count_codes_with_date(trade_date)
-        active = store.count_active_codes()
-        if active > 0 and today_codes < active * _BARS_DAILY_COVERAGE:
-            pct = today_codes / active * 100
-            findings.append(f"daily coverage {today_codes}/{active} ({pct:.0f}%)")
-            if _can_remediate("daily_coverage", cooldown=1800):
-                logger.warning("integrity: daily coverage low (%.0f%%), triggering re-sync", pct)
-                try:
-                    _sync_daily_tushare_by_date(store, trade_date, sync_run_id="integrity_fix")
-                except Exception:
-                    logger.exception("integrity: daily re-sync failed")
+        from src.data.trade_calendar import cn_market_phase
+
+        phase = cn_market_phase(_now_cst())
+        if phase == "post_close" and _is_trading_day(trade_date):
+            today_codes = store.count_codes_with_date(trade_date)
+            active = store.count_active_codes()
+            if active > 0 and today_codes < active * _BARS_DAILY_COVERAGE:
+                pct = today_codes / active * 100
+                findings.append(f"daily coverage {today_codes}/{active} ({pct:.0f}%)")
+                if _can_remediate("daily_coverage", cooldown=1800):
+                    logger.warning("integrity: daily coverage low (%.0f%%), triggering re-sync", pct)
+                    try:
+                        _sync_daily_tushare_by_date(store, trade_date, sync_run_id="integrity_fix")
+                    except Exception:
+                        logger.exception("integrity: daily re-sync failed")
+    except Exception:
+        pass
+
+    # 1b. Realtime data freshness — during trading hours, verify that the live
+    #     quote pipeline is flowing.  Different metric from daily coverage: we
+    #     check staleness (time since last snapshot) not completeness.
+    try:
+        from src.data.trade_calendar import cn_market_phase as _phase_fn
+
+        phase = _phase_fn(_now_cst())
+        if phase in ("in_session", "lunch_break") and _is_trading_day(trade_date):
+            row = store._conn.execute(
+                "SELECT MAX(snapshot_at) FROM realtime_quote_snapshot WHERE trade_date = ?",
+                (trade_date,),
+            ).fetchone()
+            latest_str = row[0] if row and row[0] else None
+            if not latest_str:
+                findings.append("realtime: no snapshots today")
+                if _can_remediate("realtime_freshness", cooldown=1800):
+                    logger.warning("integrity: no realtime snapshots for %s, triggering intraday sync", trade_date)
+                    try:
+                        _maybe_run_intraday_sync(store)
+                    except Exception:
+                        logger.exception("integrity: intraday trigger failed")
+            else:
+                from datetime import datetime as _dt
+
+                latest_dt = _dt.fromisoformat(latest_str)
+                if latest_dt.tzinfo is None:
+                    latest_dt = latest_dt.replace(tzinfo=_CST)
+                age_min = (_now_cst() - latest_dt).total_seconds() / 60
+                # During lunch the market is closed so snapshots naturally age;
+                # use a looser threshold to avoid false alarms.
+                threshold = 20 if phase == "lunch_break" else 10
+                if age_min > threshold:
+                    findings.append(f"realtime stale: {age_min:.0f}min old (>{threshold}min)")
+                    if _can_remediate("realtime_freshness", cooldown=1800):
+                        logger.warning("integrity: realtime data stale (%.0f min), triggering intraday sync", age_min)
+                        try:
+                            _maybe_run_intraday_sync(store)
+                        except Exception:
+                            logger.exception("integrity: intraday trigger failed")
     except Exception:
         pass
 
@@ -6095,7 +6145,9 @@ def _data_integrity_check(store: MarketStore, trade_date: str) -> None:
         last_daemon = store.get_meta(f"daemon:{trade_date}")
         if not last_daemon:
             # Check if it's a trading day and past post-close
-            phase = cn_market_phase(_now_cst())
+            from src.data.trade_calendar import cn_market_phase as _phase_fn
+
+            phase = _phase_fn(_now_cst())
             if phase == "post_close" and _is_trading_day(trade_date):
                 findings.append(f"no post-close sync for {trade_date}")
                 if _can_remediate("sync_freshness", cooldown=3600):
