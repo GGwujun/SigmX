@@ -1571,17 +1571,32 @@ def _sync_index_daily_tushare(
     api = ts.pro_api(token)
     total = 0
     date_key = trade_date.replace("-", "")
+    rate_limited = False
     for idx, code in enumerate(codes):
         # Tushare rate-limits index_daily to 1 req/min — sleep between calls
         # (skip sleep before the first call).
-        if idx > 0:
+        if idx > 0 and not rate_limited:
             time.sleep(62)
+        if rate_limited:
+            # Once rate-limited, skip remaining codes — fallback chain (tpdog,
+            # akshare, tencent, sina) will pick up the missing data.
+            break
         try:
             df = api.index_daily(ts_code=code, start_date=date_key, end_date=date_key)
         except Exception as exc:  # noqa: BLE001
+            err_msg = str(exc)
+            if "频率超限" in err_msg:
+                # Rate limit hit — stop the tushare loop immediately so the
+                # fallback chain can fill the rest without wasting 62s×N codes.
+                logger.warning(
+                    "tushare index_daily rate-limited at %s/%s, falling back to tpdog",
+                    code, trade_date,
+                )
+                rate_limited = True
+                continue
             # index is CRITICAL — surface failures at warning level so a stuck
             # index source isn't silently masked by the degraded fallback chain.
-            logger.warning("tushare index_daily failed for %s/%s: %s", code, trade_date, exc)
+            logger.warning("tushare index_daily failed for %s/%s: %s", code, trade_date, err_msg)
             continue
         if df is None or df.empty:
             continue
