@@ -5596,6 +5596,19 @@ def run_daily_sync(
                     resolved_etf_codes = None
             except Exception:  # noqa: BLE001
                 resolved_etf_codes = None
+        # If fund_snapshot_codes failed, fall back to etf_master table so tpdog
+        # fallback can still run (previously skipped when resolved_etf_codes=None).
+        if resolved_etf_codes is None:
+            try:
+                resolved_etf_codes = [
+                    r[0] for r in store._conn.execute(  # noqa: SLF001
+                        "SELECT code FROM etf_master WHERE list_status='L'"
+                    ).fetchall()
+                ]
+                if resolved_etf_codes:
+                    logger.info("etf: using %d codes from etf_master for tpdog fallback", len(resolved_etf_codes))
+            except Exception:  # noqa: BLE001
+                resolved_etf_codes = None
         written = _sync_etf_daily_tushare_by_date(store, trade_date, etf_codes=resolved_etf_codes)
         if written or not resolved_etf_codes:
             return written
