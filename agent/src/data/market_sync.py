@@ -1110,7 +1110,16 @@ def _sync_stock_daily_basic_tushare_by_date(
         api = ts.pro_api(token)
         df = api.daily_basic(trade_date=trade_date.replace("-", ""), fields=fields)
     except Exception as exc:  # noqa: BLE001
-        logger.debug("tushare daily_basic failed for %s: %s", trade_date, exc)
+        err_msg = str(exc)
+        if "频率超限" in err_msg or "freq" in err_msg.lower():
+            # Tushare rate-limited (1/hour for daily_basic). Return -1 sentinel
+            # so the fallback chain skips the expensive tpdog per-code fallback.
+            logger.warning(
+                "tushare daily_basic rate-limited for %s, skipping tpdog fallback: %s",
+                trade_date, err_msg[:120],
+            )
+            return -1
+        logger.debug("tushare daily_basic failed for %s: %s", trade_date, err_msg)
         return 0
     if df is None or df.empty:
         return 0
@@ -1273,8 +1282,15 @@ def _sync_stock_daily_basic_with_fallback(
     *,
     codes: Optional[list[str]] = None,
 ) -> int:
-    """daily_basic 全链路: tushare → tpdog 降级。"""
+    """daily_basic 全链路: tushare → tpdog 降级。
+
+    tushare 返回 -1 表示频率超限（1次/小时），此时跳过 tpdog 兜底（逐只 1 积分
+    × 5535 太贵），直接返回 0 让上层记录 partial 状态。
+    """
     written = _sync_stock_daily_basic_tushare_by_date(store, trade_date, codes=codes)
+    if written == -1:
+        # Tushare rate-limited — don't burn tpdog credits
+        return 0
     if written:
         return written
     return _sync_stock_daily_basic_tpdog_by_date(store, trade_date, codes=codes)
