@@ -1555,7 +1555,11 @@ def _sync_index_daily_tushare(
     api = ts.pro_api(token)
     total = 0
     date_key = trade_date.replace("-", "")
-    for code in codes:
+    for idx, code in enumerate(codes):
+        # Tushare rate-limits index_daily to 1 req/min — sleep between calls
+        # (skip sleep before the first call).
+        if idx > 0:
+            time.sleep(62)
         try:
             df = api.index_daily(ts_code=code, start_date=date_key, end_date=date_key)
         except Exception as exc:  # noqa: BLE001
@@ -5021,8 +5025,8 @@ def _sync_margin_trading(store: MarketStore, trade_date: str) -> int:
 
 
 def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
-    """大宗交易 — 东财，失败后延时重试。"""
-    from src.data.astock_client import block_trade
+    """大宗交易 — 东财 → tpdog → tushare 三级兜底。"""
+    from src.data.astock_client import block_trade, tpdog_block_trade, tushare_block_trade
     total = 0
     try:
         codes = _rotating_query_codes(
@@ -5034,6 +5038,7 @@ def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
     for stored_code in codes:
         code = stored_code.split(".")[0]
         data = None
+        # Layer 1: 东财 datacenter (may be blocked from cloud servers)
         for attempt in range(2):
             try:
                 data = block_trade(code, page_size=5)
@@ -5042,7 +5047,21 @@ def _sync_block_trade(store: MarketStore, trade_date: str) -> int:
             except Exception:
                 pass
             if attempt == 0:
-                time.sleep(5)  # retry after brief pause
+                time.sleep(5)
+        # Layer 2: tpdog fallback
+        if not data:
+            try:
+                data = tpdog_block_trade(code, num=5) or None
+            except Exception:
+                pass
+            time.sleep(_SLEEP_BETWEEN_CALLS)
+        # Layer 3: tushare fallback
+        if not data:
+            try:
+                data = tushare_block_trade(stored_code, trade_date=trade_date, num=5) or None
+            except Exception:
+                pass
+            time.sleep(_SLEEP_BETWEEN_CALLS)
         if data:
             total += store.upsert_block_trade(stored_code, data)
     return total

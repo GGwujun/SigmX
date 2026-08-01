@@ -983,6 +983,74 @@ def block_trade(code: str, page_size: int = 20) -> list[dict]:
     return rows
 
 
+def tpdog_block_trade(code: str, num: int = 5) -> list[dict]:
+    """tpdog 大宗交易 → block_trade 契约的兜底。
+    东财 datacenter 失败时用。tpdog 接口 ``stock_his/dzjy`` 返回最近 num 日。
+    """
+    from src.data.tpdog_client import call, TpdogError
+
+    rows: list[dict] = []
+    try:
+        rows = call("stock_his/dzjy", code=code) or []
+    except (TpdogError, Exception):
+        return []
+    rows = sorted(rows, key=lambda r: str(r.get("date") or ""), reverse=True)[:num]
+    result: list[dict] = []
+    for r in rows:
+        deal_price = r.get("price") or r.get("deal_price") or 0
+        close = r.get("close") or 0
+        premium = ((deal_price / close - 1) * 100) if close else 0
+        result.append({
+            "date": str(r.get("date", ""))[:10],
+            "price": deal_price, "close": close,
+            "premium_pct": round(premium, 2),
+            "vol": r.get("vol") or r.get("volume") or 0,
+            "amount": r.get("amount") or r.get("total_amt") or 0,
+            "buyer": r.get("buyer") or r.get("buyer_name") or "",
+            "seller": r.get("seller") or r.get("seller_name") or "",
+        })
+    return result
+
+
+def tushare_block_trade(code: str, trade_date: str = "", num: int = 5) -> list[dict]:
+    """tushare 大宗交易 → block_trade 契约的二级兜底。
+    东财和 tpdog 都失败时用。通过 tushare ``block_trade`` 接口拉取。
+    """
+    import os as _os
+    token = _os.getenv("TUSHARE_TOKEN", "").strip()
+    if not token or token.lower() == "your-tushare-token":
+        return []
+    try:
+        import tushare as ts
+        api = ts.pro_api(token)
+    except Exception:
+        return []
+
+    ts_code = code if "." in code else code  # expect "000001.SZ" format
+    try:
+        df = api.block_trade(ts_code=ts_code, start_date=trade_date.replace("-", ""),
+                             end_date=trade_date.replace("-", ""))
+    except Exception:
+        return []
+    if df is None or df.empty:
+        return []
+    rows: list[dict] = []
+    for _, r in df.iterrows():
+        deal_price = r.get("price") or 0
+        close = r.get("close") or 0
+        premium = ((deal_price / close - 1) * 100) if close else 0
+        rows.append({
+            "date": str(r.get("trade_date", ""))[:10],
+            "price": deal_price, "close": close,
+            "premium_pct": round(premium, 2),
+            "vol": r.get("vol") or 0,
+            "amount": r.get("amount") or 0,
+            "buyer": str(r.get("buyer") or ""),
+            "seller": str(r.get("seller") or ""),
+        })
+    return rows[:num]
+
+
 def holder_num_change(code: str, page_size: int = 10) -> list[dict]:
     """股东户数变化（季度级）。"""
     data = eastmoney_datacenter(
