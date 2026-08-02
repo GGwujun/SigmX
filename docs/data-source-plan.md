@@ -1,15 +1,16 @@
-# SigmX 数据源计划（v4 完整版）
+# SigmX 数据源计划（v5 完整版）
 
-> 生成于 2026-07-19。基于：tpdog 90 接口文档（`agent/src/data/tpdog_doc.json`）+ a-stock-data SKILL.md（V3.4.0，43 端点）+ 服务器（阿里云 47.115.144.24）数据源实测 + 代码盘点（`market_sync.py`/`astock_client.py`）。
+> 生成于 2026-07-19，更新于 2026-08-02。基于：tpdog 90 接口文档 + 黑狼数据 17 接口文档（`docs/wolf-api-official.md`）+ a-stock-data SKILL.md（V3.4.0，43 端点）+ 服务器（阿里云 47.115.144.24）数据源实测 + 代码盘点（`market_sync.py`/`astock_client.py`）。
 >
-> 目的：为每张数据集表设计完整降级链，让链终止于**服务器可用的源**；tpdog 作为行情/基本面类的终极兜底（当前免费、后期可切付费，无需改代码）。
+> 目的：为每张数据集表设计完整降级链，让链终止于**服务器可用的源**；tpdog 作为行情/基本面类的终极兜底；黑狼数据(wolf) 作为涨停/行情/资金流的补充源。
 
 ## 设计原则
 
 1. **服务器可用源优先**：tushare(部分)✅、腾讯✅、新浪✅、mootdx/tdx协议✅、东财datacenter✅、HKEX✅、金十✅、同花顺F10/K线端点✅
 2. **tpdog 作终极兜底**（标 🐕）：覆盖 30 张行情/基本面表，切付费即用
-3. **每张表 ≥2 个独立风控面的源**：避免单源/单风控面被封即空
-4. **避开已知坏点**：mootdx 库已停更（2024）→ 用 `tdx_client()` 协议直连；同花顺 `zx/basic` 子域服务器 403 → 但 `d.10jqka`/`basic.10jqka/api` 可用；东财 `push2`(实时行情)被封 → 用 `datacenter`(数据中心，可用)
+3. **黑狼数据(wolf) 作补充源**（标 🐺）：涨停/跌停/炸板/强势/次新/实时行情/K线/资金流/五档，API 文档见 `docs/wolf-api-official.md`
+4. **每张表 ≥2 个独立风控面的源**：避免单源/单风控面被封即空
+5. **避开已知坏点**：mootdx 库已停更（2024）→ 用 `tdx_client()` 协议直连；同花顺 `zx/basic` 子域服务器 403 → 但 `d.10jqka`/`basic.10jqka/api` 可用；东财 `push2`(实时行情)被封 → 用 `datacenter`(数据中心，可用)
 
 ## 图例
 
@@ -21,8 +22,8 @@
 
 | # | 表 | 含义 | 现状降级链 | 主力源服务器 | 目标计划降级链(全源) | 目标链可用? | 改动 |
 |---|---|---|---|---|---|---|---|
-| 1 | bars_daily | 个股日线OHLCV | tushare→tpdog | tushare✅ | tushare→腾讯→百度K线→新浪→同花顺K线🆕→🐕tpdog(02203) | ✅✅✅✅✅✅ | 补腾讯/百度/新浪/同花顺K线 |
-| 2 | index_daily | 指数日线 | tushare→tpdog→akshare→新浪 | tushare✅ | tushare→腾讯指数→新浪→🐕tpdog(02202) | ✅✅✅✅ | 接 tencent_index_quote |
+| 1 | bars_daily | 个股日线OHLCV | tushare→tpdog | tushare✅ | tushare→腾讯→百度K线→新浪→同花顺K线→🐺wolf(kline)→🐕tpdog(02203) | ✅✅✅✅✅✅✅ | 补腾讯/百度/新浪/同花顺K线 |
+| 2 | index_daily | 指数日线 | tushare→tpdog→akshare→新浪 | tushare✅ | tushare→腾讯指数→🐺wolf(kline/index)→新浪→🐕tpdog(02202) | ✅✅✅✅✅ | 接 tencent_index_quote |
 | 3 | stock_daily_basic | 每日估值PE/PB/换手 | 🔴tushare△单源 | tushare△ | tushare→腾讯→东财个股基本面🆕→🐕tpdog(00105) | △✅✅✅ | 接腾讯+eastmoney_stock_info |
 | 4 | security_master | 股票基础信息 | tushare→tpdog | tushare✅ | tushare→🐕tpdog(00101)→东财个股基本面🆕 | ✅✅✅ | 补 eastmoney_stock_info |
 | 5 | trade_calendar | 交易日历 | akshare→tpdog | akshare❌ | akshare→🐕tpdog(00109)→周末规则 | ❌✅✅ | OK |
@@ -31,8 +32,8 @@
 | 8 | board_master | 板块列表 | 🔴tpdog❌单源 | tpdog❌ | 东财datacenter→🐕tpdog(00107) | ✅✅ | 补东财 |
 | 9 | board_members | 板块成分股 | 🔴tpdog❌单源 | tpdog❌ | 东财datacenter→🐕tpdog(00108) | ✅✅ | 补东财 |
 | 10 | board_daily | 板块日线 | 🔴tpdog❌单源 | tpdog❌ | 东财datacenter→🐕tpdog(02204) | ✅✅ | 补东财 |
-| 11 | stock_pool | 涨跌停/强势/炸板池 | tpdog+akshare并联 | tpdog❌akshare❌ | 东财四池→akshare→🐕tpdog(00501-5) | ✅❌✅ | 东财提到主力 |
-| 12 | realtime_quote | 实时盘口 | tpdog→腾讯→akshare | tpdog❌ | 腾讯→交易所官方五档🆕→tdx协议→新浪→🐕tpdog(02201) | ✅✅✅✅✅ | 接交易所官方+tdx |
+| 11 | stock_pool | 涨跌停/强势/炸板池 | tpdog+akshare并联 | tpdog❌akshare❌ | 东财四池→🐺wolf(zt/dt/zb/qs/cx)→akshare→🐕tpdog(00501-5) | ✅✅✅❌✅ | wolf涨停五接口全覆盖 |
+| 12 | realtime_quote | 实时盘口 | tpdog→腾讯→akshare | tpdog❌ | 腾讯→🐺wolf(time/five)→交易所官方五档→tdx协议→新浪→🐕tpdog(02201) | ✅✅✅✅✅✅ | wolf五档毫秒级 |
 | 13 | stock_capital_flow | 个股资金流 | tushare→tpdog→akshare→tpdog | tushare✅ | tushare→腾讯→新浪→🐕tpdog(01201) | ✅✅✅✅ | 补腾讯/新浪 |
 | 14 | stock_capital_rank | 资金流排名 | akshare→东财→同花顺→tpdog→tushare | akshare❌ | 东财datacenter→东财分钟资金流🆕→tushare→🐕tpdog(01602) | ✅✅✅✅ | 补 eastmoney_fund_flow_minute |
 | 15 | sector_capital_flow | 板块资金流 | akshare→东财→同花顺→tpdog→tushare | akshare❌ | 东财datacenter→tushare→🐕tpdog(01603) | ✅✅✅ | push2换datacenter |
@@ -136,6 +137,7 @@
 |---|---|---|
 | tushare | daily✅ daily_basic△(5次/天) dividend✅ holder_num✅ margin/block/top_list❌(无权限) | 积分受限 |
 | tpdog | ❌ `api.tpdog.com` DNS 挂 | 子域名问题，`www.tpdog.com` 可解析 |
+| 🐺 wolf (黑狼数据) | ⚪ 待接入 | `api.fxyz.site` 17 API，token 认证，详见 `docs/wolf-api-official.md` |
 | akshare/东财push2 | ❌ Connection aborted | 阿里云被封 |
 | 东财 datacenter | ✅ HTTP 200 | datacenter-web.eastmoney.com 可用 |
 | 东财 reportapi(研报) | △ 域名通(400需调参) | reportapi.eastmoney.com |
@@ -167,6 +169,61 @@
 根因：2024 后北向**净买额**披露全网收紧（hgt/sgt），同花顺 hexin 是少数还能给 hgt 分钟净额的源；HKEX/东财/新浪在 hgt **净额**上均缺。强接只会写空 `hgt_yi` 的无意义行。
 
 → `hsgt_realtime` 维持单源（已是协议层最稳的取数点）。若要补**成交额/额度/深股通净额/十大活跃股**（东财有），需给 `northbound_flow` 表加列（schema 变更）——列为后续待办，不在本次降级范围内。
+
+---
+
+## 附：黑狼数据 (wolf) 接口 → 数据集映射
+
+> API 文档：`docs/wolf-api-official.md` | Base URL: `http://api.fxyz.site` | 认证: `token` 参数
+>
+> 接入状态：⚪ 待接入（需申请 token）
+
+| wolf 端点 | 映射 Dataset | 替代能力 | 备注 |
+|---|---|---|---|
+| `/wolf/time/kline?period=1d` | bars_daily | 个股日K线 OHLCV | 支持前/后复权，包年版支持 `code=all` 全市场 |
+| `/wolf/time/kline?symbol=index` | index_daily | 指数日K线 | symbol=index |
+| `/wolf/time/kline?symbol=etf` | etf_daily | ETF 日K线 | symbol=etf |
+| `/wolf/time?code=all` | realtime_quote | 全市场实时行情快照 | 包年版，含 PE/PB/市值/ROE/换手率 |
+| `/wolf/time?code=000001` | realtime_quote | 单股实时行情 | 含五档/涨跌停价/5-60日涨幅 |
+| `/wolf/time/five` | realtime_quote | 买卖五档 | 毫秒级更新 |
+| `/wolf/time/day?code=all` | realtime_quote | 日线快照 | 盘后 OHLCV |
+| `/wolf/zt` | zt_pool | 涨停板 | 含封板资金/连板数/炸板次数 |
+| `/wolf/dt` | dt_pool | 跌停板 | 含连续跌停/开板次数 |
+| `/wolf/zb` | stock_pool(炸板) | 炸板股 | 含振幅/涨速/涨停价 |
+| `/wolf/qs` | stock_pool(强势) | 强势股 | 含入选理由(60日新高/多次涨停) |
+| `/wolf/cx` | stock_pool(次新) | 次新股 | 含开板日期/开板几日 |
+| `/wolf/money` | fund_flow_daily | 资金流向 | 主买/主卖/特大/大/中/小单 |
+| `/wolf/deal` | — | 逐笔交易 | 历史盘后6:00更新 |
+| `/wolf/price` | — | 分价数据 | 历史盘后6:00更新 |
+| `/wolf/sector` | board_members | 板块成分股 | hy/gn/ts 行业/概念/特色 |
+| `/wolf/financemetric` | financial_snapshot | 财务核心指标 | ROE/EPS/BPS/毛利率等 22 项 |
+| `/wolf/list` | security_master | 股票列表 | 按类型筛选(ETF/ST/指数等) |
+| `/wolf/fq` | adj_factor | 复权变更 | 除权除息历史 |
+
+### wolf vs tpdog 覆盖对比
+
+| 能力 | wolf 🐺 | tpdog 🐕 |
+|---|---|---|
+| 涨停/跌停/炸板/强势/次新 | ✅ 5 接口全覆盖 | ✅ 5 接口 (00501-5) |
+| 日K线 (个股/ETF/指数) | ✅ kline 多周期 | ✅ 24 K线接口 |
+| 实时行情 + 五档 | ✅ time + five | ✅ 02201 盘口 |
+| 资金流向 | ✅ money 大/中/小单 | ✅ 01201 个股 |
+| 财务指标 | ✅ financemetric 22 项 | ✅ 01401 按期财报 |
+| PE/PB/市值 批量 | ✅ `time?code=all` 全推 | ✅ 00105 逐只 |
+| 板块成分 | ✅ sector | ✅ 00107/00108 |
+| **daily_basic 替代** | **⚠️ 仅单股 `time`，无批量估值接口** | ⚠️ 同，逐只 00105 |
+| 龙虎榜 | ❌ 无 | ✅ 00401/00402 |
+| 融资融券 | ❌ 无 | ✅ 02101-02104 |
+| 股东户数 | ❌ 无 | ✅ 01802 |
+| ETF 规模/份额 | ❌ 无 | ✅ 01501 |
+
+### wolf 接入优先级
+
+1. **期 1（立即可做）**：`/wolf/zt` `/wolf/dt` `/wolf/zb` `/wolf/qs` `/wolf/cx` → 涨停池 5 接口替代 tpdog，解决 tpdog 单源问题
+2. **期 2（中等价值）**：`/wolf/time/kline` → bars_daily / etf_daily / index_daily 补充源
+3. **期 3（锦上添花）**：`/wolf/money` → fund_flow_daily；`/wolf/financemetric` → financial_snapshot
+
+**关键短板**：wolf 无批量 daily_basic 接口（PE/PB/市值全市场），`/wolf/time?code=all` 仅包年版用户可用。对于非包年用户，daily_basic 仍需依赖 tushare 或 tpdog 逐只调用。
 
 
 
