@@ -1112,15 +1112,29 @@ def _sync_stock_daily_basic_tushare_by_date(
     except Exception as exc:  # noqa: BLE001
         err_msg = str(exc)
         if "频率超限" in err_msg or "freq" in err_msg.lower():
-            # Tushare rate-limited (1/hour for daily_basic). Return -1 sentinel
-            # so the fallback chain skips the expensive tpdog per-code fallback.
+            # Tushare rate-limited (1/hour for daily_basic).
+            # Wait 62 minutes and retry once to get today's data.
             logger.warning(
-                "tushare daily_basic rate-limited for %s, skipping tpdog fallback: %s",
+                "tushare daily_basic rate-limited for %s, retrying in 62min: %s",
                 trade_date, err_msg[:120],
             )
-            return -1
-        logger.debug("tushare daily_basic failed for %s: %s", trade_date, err_msg)
-        return 0
+            time.sleep(62 * 60)
+            try:
+                df = api.daily_basic(trade_date=trade_date.replace("-", ""), fields=fields)
+            except Exception as exc2:  # noqa: BLE001
+                err2 = str(exc2)
+                if "频率超限" in err2 or "freq" in err2.lower():
+                    # Still rate-limited after 62min — skip tpdog to save credits
+                    logger.warning(
+                        "tushare daily_basic still rate-limited for %s after retry, skipping tpdog",
+                        trade_date,
+                    )
+                    return -1
+                logger.debug("tushare daily_basic retry failed for %s: %s", trade_date, err2)
+                return 0
+        else:
+            logger.debug("tushare daily_basic failed for %s: %s", trade_date, err_msg)
+            return 0
     if df is None or df.empty:
         return 0
 
@@ -1994,23 +2008,34 @@ def _sync_board_daily_tpdog(store: MarketStore, trade_date: str, *, limit: int |
 def _sync_etf_daily(store: MarketStore, etf_codes: list[str], trade_date: str, today_str: str) -> int:
     from src.data.tpdog_client import call
 
-    total = 0
-    for code in etf_codes:
-        if store.has_etf_daily(code, trade_date):
-            continue
-        try:
-            rows = call("etf_his/daily", code=f"etf.{code}", start=trade_date, end=trade_date)
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("etf %s sync failed: %s", code, exc)
-            continue
-        time.sleep(_SLEEP_BETWEEN_CALLS)
-        latest_settled = _latest_settled_date_for_sync(trade_date, today_str)
-        rows = [r for r in rows if latest_settled and r.get("date") and r["date"] <= latest_settled]
-        if rows:
-            total += store.upsert_etf_daily(code, rows)
-            store.upsert_fund_daily(code, rows)
-        if total and total % 50 == 0:
-            logger.info("ETF daily sync %s: wrote %d rows", trade_date, total)
+    latest_settled = _latest_settled_date_for_sync(trade_date, today_str)
+    # tpdog ETF data has a delay after market close. If we get 0 rows,
+    # wait 30 minutes and retry once to catch late-updating data.
+    for _attempt in range(2):
+        total = 0
+        for code in etf_codes:
+            if store.has_etf_daily(code, trade_date):
+                continue
+            try:
+                rows = call("etf_his/daily", code=f"etf.{code}", start=trade_date, end=trade_date)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("etf %s sync failed: %s", code, exc)
+                continue
+            time.sleep(_SLEEP_BETWEEN_CALLS)
+            rows = [r for r in rows if latest_settled and r.get("date") and r["date"] <= latest_settled]
+            if rows:
+                total += store.upsert_etf_daily(code, rows)
+                store.upsert_fund_daily(code, rows)
+            if total and total % 50 == 0:
+                logger.info("ETF daily sync %s: wrote %d rows", trade_date, total)
+        if total > 0 or _attempt > 0:
+            break
+        # First pass got 0 rows — tpdog data may not be available yet
+        logger.warning(
+            "ETF daily sync %s: got 0 rows, waiting 30min for tpdog data delay...",
+            trade_date,
+        )
+        time.sleep(30 * 60)
     return total
 
 
