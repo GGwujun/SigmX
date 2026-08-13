@@ -247,13 +247,15 @@ Commit: `git commit -m "feat(product): activate plans through idempotent orders"
 - Produces: `DeviceService.start(device_name, fingerprint_hash)`, `approve(user_id, user_code)`, `poll(device_code)`, `refresh(refresh_token)`, and `revoke(user_id, device_id)`.
 - Produces: access-token claims `sub`, `aud`, `device_id`, `plan`, `entitlements`, `exp`, and `jti`.
 
-- [ ] **Step 1: Run required impact analysis**
+- [x] **Step 1: Run required impact analysis**
 
 Run: `node .gitnexus/run.cjs impact create_token --direction upstream`
 
+> **Done note (2026-08-13):** `.gitnexus` absent — impact skipped. Decision: do **not** modify `agent/src/auth/jwt_utils.py`. The new product tokens reuse the process secret (`_SECRET`) but are issued/verified by a separate module (`src.product.tokens`) that pins `audience=sigmx-product` on verify — web JWTs (audience-less) fail product verification and vice-versa, so existing web auth is unaffected.
+
 If the exact JWT creation symbol has another name, run `node .gitnexus/run.cjs context jwt_utils.py`, select the exact symbol, then run impact before editing.
 
-- [ ] **Step 2: Write failing device-flow tests**
+- [x] **Step 2: Write failing device-flow tests**
 
 ```python
 def test_device_limit_and_revocation(product):
@@ -265,23 +267,25 @@ def test_device_limit_and_revocation(product):
     assert product.devices.refresh(first.refresh_token).status == "revoked"
 ```
 
-- [ ] **Step 3: Implement RFC-style device authorization semantics**
+- [x] **Step 3: Implement RFC-style device authorization semantics**
 
 Generate a high-entropy `device_code`, a short human `user_code`, ten-minute expiry, five-second poll interval, and one-time approval. Hash refresh tokens at rest and rotate them on every successful refresh.
 
-- [ ] **Step 4: Sign short-lived product access tokens**
+- [x] **Step 4: Sign short-lived product access tokens**
 
 Use a distinct audience `sigmx-product`, fifteen-minute expiry, current entitlements snapshot, and device identifier. Keep existing web JWT validation compatible.
 
-- [ ] **Step 5: Run security tests**
+- [x] **Step 5: Run security tests**
 
 Run: `python -m pytest agent/tests/test_product_devices.py agent/tests/test_security_auth_api.py -v`
 
 Expected: PASS for pending, expired, approved, limit reached, rotation, revocation, wrong audience, and tampered tokens.
 
-- [ ] **Step 6: Stage, detect, and commit**
+- [x] **Step 6: Stage, detect, and commit**
 
 Run: `git add agent/src/product/tokens.py agent/src/product/devices.py agent/src/auth/jwt_utils.py agent/tests/test_product_devices.py && node .gitnexus/run.cjs detect-changes --scope staged`
+
+> **Done note (2026-08-13):** `.gitnexus` absent — skipped. Deviation: `agent/src/auth/jwt_utils.py` not modified (see Step 1 note — secret reused read-only via `_SECRET`). Staged only new files: `agent/src/product/{tokens,devices}.py`, `__init__.py`, `test_product_devices.py`. Security tests cover: pending/expired/approved/limit-reached/rotation/revocation/wrong-audience/tampered — 9/9 green. 38/38 product tests green across Tasks 1-4.
 
 Commit: `git commit -m "feat(product): add desktop device authorization"`
 

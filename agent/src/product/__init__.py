@@ -21,6 +21,16 @@ from src.product.credits import (
     Reservation,
     migrate_legacy_balances,
 )
+from src.product.devices import (
+    DeviceLimitReached,
+    DeviceService,
+    PollStatus,
+)
+from src.product.tokens import (
+    PRODUCT_AUDIENCE,
+    create_product_token,
+    verify_product_token,
+)
 from src.product.models import (
     ENTITLEMENT_KEYS,
     OrderStatus,
@@ -48,6 +58,12 @@ __all__ = [
     "InsufficientCredits",
     "Reservation",
     "migrate_legacy_balances",
+    "DeviceService",
+    "DeviceLimitReached",
+    "PollStatus",
+    "PRODUCT_AUDIENCE",
+    "create_product_token",
+    "verify_product_token",
     "ActivationCodeProvider",
     "PaymentProvider",
     "PaymentEvent",
