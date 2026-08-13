@@ -41,7 +41,7 @@ export function RegisterPage() {
       setUser(res.user);
       toast.success("注册成功");
       // New user has disclaimer_accepted_at = null → RequireAuth shows the modal.
-      navigate("/");
+      navigate("/app");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "注册失败");
     } finally {

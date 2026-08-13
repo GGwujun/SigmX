@@ -32,7 +32,7 @@ const NAV_GROUPS = [
   {
     title: "工作台",
     items: [
-      { to: "/", icon: BarChart3, label: "我的工作台" },
+      { to: "/app", icon: BarChart3, label: "我的工作台" },
       { to: "/market-dashboard", icon: Radar, label: "总览大屏" },
     ],
   },
@@ -143,7 +143,7 @@ export function Layout() {
       )}>
         {/* Brand */}
         <div className={cn("border-b dark:border-white/10", collapsed ? "p-2 flex justify-center" : "p-4")}>
-          <Link to="/" className={cn("flex items-center font-bold text-base tracking-tight", collapsed ? "justify-center" : "gap-2")}>
+          <Link to="/app" className={cn("flex items-center font-bold text-base tracking-tight", collapsed ? "justify-center" : "gap-2")}>
             <SigmXLogo className="h-7 w-7" />
             {!collapsed && <span className="text-foreground dark:text-white">SigmX</span>}
           </Link>

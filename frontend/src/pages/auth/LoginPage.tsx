@@ -28,7 +28,7 @@ export function LoginPage() {
       toast.success("登录成功");
       // RequireAuth will route to disclaimer modal if not yet accepted,
       // otherwise to the home page.
-      navigate("/");
+      navigate("/app");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "登录失败");
     } finally {
@@ -43,7 +43,7 @@ export function LoginPage() {
       setToken(res.token);
       setUser(res.user);
       toast.success("已进入桌面模式");
-      navigate("/");
+      navigate("/app");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "桌面会话创建失败，请手动登录");
     } finally {

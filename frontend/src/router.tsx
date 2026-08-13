@@ -88,6 +88,12 @@ const RegisterPage = lazy(() =>
 const PricingPage = lazy(() =>
   import("@/pages/public/PricingPage").then((m) => ({ default: m.PricingPage })),
 );
+const LandingPage = lazy(() =>
+  import("@/pages/public/LandingPage").then((m) => ({ default: m.LandingPage })),
+);
+const PublicLayout = lazy(() =>
+  import("@/components/public/PublicLayout").then((m) => ({ default: m.PublicLayout })),
+);
 const SubscriptionPage = lazy(() =>
   import("@/pages/account/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
 );
@@ -161,10 +167,17 @@ function RequireAdmin() {
 }
 
 export const router = createBrowserRouter([
-  // Public routes — no auth guard
+  // Public acquisition site — no auth guard, shared PublicLayout shell.
+  {
+    element: wrap(PublicLayout),
+    children: [
+      { path: "/", element: wrap(LandingPage) },
+      { path: "/pricing", element: wrap(PricingPage) },
+    ],
+  },
+  // Public auth routes — own minimal layout (no PublicLayout chrome).
   { path: "/login", element: wrap(LoginPage) },
   { path: "/register", element: wrap(RegisterPage) },
-  { path: "/pricing", element: wrap(PricingPage) },
   // Protected app
   {
     element: <RequireAuth />,
@@ -172,7 +185,7 @@ export const router = createBrowserRouter([
       {
         element: <Layout />,
         children: [
-          { path: "/", element: wrap(Home) },
+          { path: "/app", element: wrap(Home) },
           { path: "/market-dashboard", element: wrap(MarketDashboard) },
           { path: "/big-screen", element: wrap(BigScreen) },
           { path: "/morning-brief", element: wrap(MorningBrief) },
