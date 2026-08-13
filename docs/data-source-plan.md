@@ -254,6 +254,7 @@
 
 **已接线（已用）**：tencent_quote, ths_hot_reason, hsgt_realtime, lockup_expiry, margin_trading, block_trade, holder_num_change, dividend_history, stock_fund_flow_120d, eastmoney_stock_news, cls_telegraph, mootdx_finance, sina_financial_report, cninfo_announcements, em_zt/zb/dt/yzt_pool, ths_limit_up_pool, sina_option_*, cninfo_irm, ths_hot_list, eastmoney_popularity, fund_flow_backup
 
-**已实现未接线（死代码，期1接线）**：dragon_tiger_backup, tencent_index_quote, baidu_kline_with_ma, eastmoney_concept_blocks, eastmoney_fund_flow_minute, eastmoney_global_news, mootdx_f10, limit_up_sentiment
+**已实现未接线（死代码，期1接线）**：baidu_kline_with_ma, eastmoney_concept_blocks, eastmoney_fund_flow_minute, eastmoney_global_news, mootdx_f10, limit_up_sentiment
+> 复核（2026-08-14）：原 8 个里 `dragon_tiger_backup`、`tencent_index_quote` 实际**已接线**（market_sync.py 已调用，移出此列）。剩余 6 个仍为死代码——接线需要真实数据源联网验证返回值正确，避免脏数据污染降级链。这 6 个现已补解析单测覆盖（`agent/tests/test_astock_dead_code.py`，mock 网络验证解析 + 失败优雅降级），将来接线风险已降低。
 
 **未实现（期2补）**：eastmoney_reports, eastmoney_industry_reports, download_pdf, iwencai_search/query, industry_comparison, daily_dragon_tiger, dragon_tiger_board, em_hot_concept, eastmoney_stock_info, announcements_backup
