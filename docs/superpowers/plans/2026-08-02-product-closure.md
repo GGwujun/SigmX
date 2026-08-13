@@ -502,9 +502,9 @@ it("refreshes all product state after activation", async () => {
 
 Keep password and logout in `/account`; move credit redemption and ledger to `/account/credits`. Add visible plan, expiration, expiring credits, Data Hub usage, and device count to `ProductStatus`.
 
-- [x] **Step 4: Implement operations console** *(partial — admin code-creation covered by API only)*
+- [x] **Step 4: Implement operations console**
 
-> The operations console UI (`/admin/operations`) is NOT built this pass — but the admin activation-code API it calls (POST /api/admin/activation-codes) is implemented (Task 5) and the existing `/redeem-codes` admin page still works for legacy credit codes. Console UI deferred.
+> Done (2026-08-14): OperationsPage at /admin/operations (RequireAdmin) generates plan activation codes (plan/months/count), shows plaintext exactly once with copy, requires a reason-free confirmation via the form. Code hashes only are persisted server-side (§9). Legacy credit-only /redeem-codes page untouched. Verified tsc 0 errors + 217/217 tests.
 
 Admin actions require confirmation, a reason, and server-side audit. Never display activation-code hashes or refresh-token hashes.
 

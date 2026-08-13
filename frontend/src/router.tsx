@@ -106,6 +106,12 @@ const DownloadPage = lazy(() =>
 const SampleReportPage = lazy(() =>
   import("@/pages/public/SampleReportPage").then((m) => ({ default: m.SampleReportPage })),
 );
+const OperationsPage = lazy(() =>
+  import("@/pages/admin/OperationsPage").then((m) => ({ default: m.OperationsPage })),
+);
+const OrdersPage = lazy(() =>
+  import("@/pages/account/OrdersPage").then((m) => ({ default: m.OrdersPage })),
+);
 const SubscriptionPage = lazy(() =>
   import("@/pages/account/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
 );
@@ -232,6 +238,7 @@ export const router = createBrowserRouter([
           { path: "/account/subscription", element: wrap(SubscriptionPage) },
           { path: "/account/credits", element: wrap(CreditsPage) },
           { path: "/account/devices", element: wrap(DevicesPage) },
+          { path: "/account/orders", element: wrap(OrdersPage) },
         ],
       },
       // Admin-only routes (Factor Zoo) — wrapped in RequireAdmin.
@@ -246,6 +253,7 @@ export const router = createBrowserRouter([
               { path: "/alpha-zoo/compare", element: wrap(AlphaZoo) },
               { path: "/alpha-zoo/:alphaId", element: wrap(AlphaZoo) },
               { path: "/redeem-codes", element: wrap(RedeemCodes) },
+              { path: "/admin/operations", element: wrap(OperationsPage) },
             ],
           },
         ],

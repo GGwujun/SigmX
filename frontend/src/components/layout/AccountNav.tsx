@@ -10,6 +10,7 @@ const ITEMS = [
   { to: "/account", label: "个人中心", end: true },
   { to: "/account/subscription", label: "套餐与激活", end: false },
   { to: "/account/credits", label: "积分", end: false },
+  { to: "/account/orders", label: "订单", end: false },
   { to: "/account/devices", label: "设备", end: false },
 ];
 
