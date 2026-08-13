@@ -10,11 +10,12 @@
  * not here — the renderer never touches the filesystem.
  */
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Loader2, ShieldCheck, Laptop, RefreshCw } from "lucide-react";
+import { Loader2, ShieldCheck, Laptop, RefreshCw, Monitor } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccountNav } from "@/components/layout/AccountNav";
 import { ProductStatus } from "@/components/layout/ProductStatus";
+import { useDesktopDeviceFlow } from "@/hooks/useDesktopDeviceFlow";
 import { ApiError } from "@/lib/api";
 import {
   approveDeviceAuthorize,
@@ -33,6 +34,13 @@ export function CloudAccountPage() {
   const [userCode, setUserCode] = useState("");
   const [approving, setApproving] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Desktop-only: the client-side device-code flow (start → poll → persist).
+  const isDesktop = typeof window !== "undefined" && !!window.sigmxDesktop?.isDesktop;
+  const flow = useDesktopDeviceFlow(() => {
+    toast.success("云账户已链接");
+    setRefreshKey((k) => k + 1);
+  });
 
   const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [deviceLimit, setDeviceLimit] = useState(1);
@@ -103,6 +111,45 @@ export function CloudAccountPage() {
       </header>
 
       <ProductStatus refreshKey={refreshKey} />
+
+      {isDesktop && (
+        <section className="rounded-xl border bg-card p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Monitor className="h-4 w-4 text-primary" /> 链接这台设备（桌面端）
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            发起授权后，会打开浏览器让你确认。确认后这台桌面端会自动获得云账户访问凭证。
+          </p>
+
+          {flow.phase === "idle" || flow.phase === "error" ? (
+            <button
+              onClick={() => flow.start("SigmX Desktop", "desktop-fp")}
+              className="mt-4 inline-flex h-10 items-center gap-1 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              发起授权
+            </button>
+          ) : flow.phase === "pending" && flow.started ? (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center gap-2 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                等待浏览器确认… 用户码：
+                <code className="rounded bg-muted px-2 py-0.5 font-mono tracking-widest">
+                  {flow.started.user_code}
+                </code>
+              </div>
+              <button onClick={flow.cancel} className="text-xs text-muted-foreground underline">
+                取消
+              </button>
+            </div>
+          ) : flow.phase === "approved" ? (
+            <p className="mt-4 text-sm text-emerald-600">✓ 已链接</p>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">授权已过期，请重新发起。</p>
+          )}
+
+          {flow.error && <p className="mt-2 text-xs text-destructive">{flow.error}</p>}
+        </section>
+      )}
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="flex items-center gap-2 text-sm font-semibold">

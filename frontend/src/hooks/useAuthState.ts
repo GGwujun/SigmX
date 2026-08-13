@@ -16,6 +16,21 @@ declare global {
       onUpdateProgress?: (cb: (p: { percent: number; transferred: number; total: number; bytesPerSecond: number }) => void) => () => void;
       onUpdateDownloaded?: (cb: (info: { version: string; releaseNotes?: string; releaseDate?: string }) => void) => () => void;
       onUpdateError?: (cb: (err: { message: string }) => void) => () => void;
+      // Cloud account (Task 9) — encrypted-at-rest bridge.
+      cloudAccountLoad?: () => Promise<{
+        refresh_token?: string;
+        device_id?: string;
+        account_email?: string;
+        expires_at?: string;
+      } | null>;
+      cloudAccountSave?: (data: {
+        refresh_token: string;
+        device_id?: string;
+        account_email?: string;
+        expires_at?: string;
+      }) => Promise<boolean>;
+      cloudAccountClear?: () => Promise<boolean>;
+      cloudAccountOpenAuthorization?: (url: string) => Promise<boolean>;
     };
   }
 }
