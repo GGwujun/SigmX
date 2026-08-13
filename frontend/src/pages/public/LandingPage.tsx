@@ -11,14 +11,14 @@ const PRODUCTS = [
     icon: Database,
     name: "Data Hub",
     desc: "公共金融数据的采集、标准化、去重与质量校验。只读 API 供网站与客户端使用，按套餐配额计量。",
-    href: "/pricing",
-    cta: "查看套餐",
+    href: "/product/data-hub",
+    cta: "了解 Data Hub",
   },
   {
     icon: Monitor,
     name: "桌面客户端",
     desc: "本地持仓、自选、回测与定时任务。Standalone 模式本地运行，Connected 模式连接 Data Hub。",
-    href: "/pricing",
+    href: "/product/desktop",
     cta: "了解桌面端",
   },
   {

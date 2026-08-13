@@ -9,8 +9,10 @@ import { Link, Outlet } from "react-router-dom";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 
 const NAV = [
+  { to: "/product/data-hub", label: "Data Hub" },
+  { to: "/product/desktop", label: "桌面端" },
   { to: "/pricing", label: "套餐" },
-  // Product pages land in later Task 7 slices; keep the slots so the nav is stable.
+  { to: "/download", label: "下载" },
 ];
 
 export interface PublicLayoutProps {

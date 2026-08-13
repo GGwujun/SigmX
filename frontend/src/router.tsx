@@ -94,6 +94,18 @@ const LandingPage = lazy(() =>
 const PublicLayout = lazy(() =>
   import("@/components/public/PublicLayout").then((m) => ({ default: m.PublicLayout })),
 );
+const DataHubProductPage = lazy(() =>
+  import("@/pages/public/DataHubProductPage").then((m) => ({ default: m.DataHubProductPage })),
+);
+const DesktopProductPage = lazy(() =>
+  import("@/pages/public/DesktopProductPage").then((m) => ({ default: m.DesktopProductPage })),
+);
+const DownloadPage = lazy(() =>
+  import("@/pages/public/DownloadPage").then((m) => ({ default: m.DownloadPage })),
+);
+const SampleReportPage = lazy(() =>
+  import("@/pages/public/SampleReportPage").then((m) => ({ default: m.SampleReportPage })),
+);
 const SubscriptionPage = lazy(() =>
   import("@/pages/account/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
 );
@@ -173,6 +185,10 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: wrap(LandingPage) },
       { path: "/pricing", element: wrap(PricingPage) },
+      { path: "/product/data-hub", element: wrap(DataHubProductPage) },
+      { path: "/product/desktop", element: wrap(DesktopProductPage) },
+      { path: "/download", element: wrap(DownloadPage) },
+      { path: "/reports/sample/:slug", element: wrap(SampleReportPage) },
     ],
   },
   // Public auth routes — own minimal layout (no PublicLayout chrome).

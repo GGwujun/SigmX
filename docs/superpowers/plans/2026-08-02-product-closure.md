@@ -435,9 +435,9 @@ it("renders prices and quotas from the server catalog", async () => {
 
 Keep login and registration public. Make `/` the acquisition homepage and `/app` the existing authenticated `Home`. Preserve all existing deep links and add a temporary authenticated redirect from `/workspace` to `/app` only if tests identify an existing consumer.
 
-- [x] **Step 4: Implement server-driven product pages** *(partial — PricingPage only)*
+- [x] **Step 4: Implement server-driven product pages**
 
-> Done: PricingPage.tsx reads GET /api/catalog/plans and renders the four plans with entitlement rows; price via formatPlanPrice (no hard-coded numbers). productApi.ts typed client covers all product endpoints for later pages. NOT done: LandingPage, DataHubProductPage, DesktopProductPage, DownloadPage, SampleReportPage.
+> Done (2026-08-14): PricingPage (catalog-driven), LandingPage, DataHubProductPage, DesktopProductPage (product boundaries), DownloadPage (server-driven release via GET /api/catalog/releases/stable), SampleReportPage (sanitized bundled sample). productApi.ts typed client covers all endpoints. Prices/versions never hard-coded. Verified tsc 0 errors + 213/213 tests.
 
 Use one catalog query cache for pricing and calls to action. Every page must have a primary action (`注册体验`, `下载客户端`, or `查看套餐`) and describe the website/Data Hub/desktop boundary consistently.
 
