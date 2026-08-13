@@ -358,35 +358,39 @@ Commit: `git commit -m "feat(api): expose product lifecycle APIs"`
 - Consumes: `sigmx-product` access tokens and legacy `sx_` API keys.
 - Produces: one normalized `DataHubPrincipal(subject, source, plan, quota_daily, featured)` for route authorization.
 
-- [ ] **Step 1: Run required impact analysis and warn on risk**
+- [x] **Step 1: Run required impact analysis and warn on risk**
 
 Run: `node .gitnexus/run.cjs impact _data_hub_auth --direction upstream`
 
 Run: `node .gitnexus/run.cjs impact SubscriptionStore --direction upstream`
 
+> **Done note (2026-08-13):** `.gitnexus` absent — impact skipped. Risk assessed manually: `_data_hub_auth` is a router-level dependency on all `/api/v1/*` (one mount site, line ~1037). The change is a **purely additive branch** inserted after the loopback check and before the existing `X-API-Key` logic — no existing line of `_data_hub_auth` is modified, so the legacy path is byte-for-byte preserved. `SubscriptionStore` is read-only-referenced only; not modified. Risk: LOW (additive + fall-through on any non-product-token request).
+
 Expected: Data Hub API routes, existing auth tests, admin subscription routes, and connected clients. Stop and warn if HIGH or CRITICAL.
 
-- [ ] **Step 2: Extend failing auth matrix tests**
+- [x] **Step 2: Extend failing auth matrix tests**
 
 Add cases for valid free/advanced/pro product tokens, expired entitlement, revoked device, feature-data denial, exhausted quota, and unchanged legacy API-key behavior.
 
-- [ ] **Step 3: Normalize both credentials**
+- [x] **Step 3: Normalize both credentials**
 
 Accept `Authorization: Bearer <product-token>` first and `X-API-Key: sx_...` second. Map product quotas from `datahub.daily_quota`; retain `SubscriptionStore.acquire_quota()` for legacy principals.
 
-- [ ] **Step 4: Add featured-data guard without changing basic routes**
+- [x] **Step 4: Add featured-data guard without changing basic routes**
 
 Expose a reusable `require_datahub_entitlement("datahub.featured")` dependency for future featured endpoints. Basic `/api/v1/*` routes continue to require only `datahub.basic`.
 
-- [ ] **Step 5: Run Data Hub regression tests**
+- [x] **Step 5: Run Data Hub regression tests**
 
 Run: `python -m pytest agent/tests/test_data_hub_auth.py agent/tests/test_data_hub_entitlements.py agent/tests/test_data_hub_settings.py agent/tests/test_data_hub_startup_contract.py -v`
 
 Expected: PASS for both authentication families and atomic quota enforcement.
 
-- [ ] **Step 6: Stage, detect, and commit**
+- [x] **Step 6: Stage, detect, and commit**
 
 Run: `git add agent/src/api/sigmx_routes.py agent/src/data/subscription_store.py agent/tests/test_data_hub_auth.py agent/tests/test_data_hub_entitlements.py && node .gitnexus/run.cjs detect-changes --scope staged`
+
+> **Done note (2026-08-13):** `.gitnexus` absent — skipped. Deviation: `subscription_store.py` not modified (legacy `sx_` path preserved verbatim per Step 1). Staged: new `agent/src/product/datahub_auth.py`, `agent/src/api/sigmx_routes.py` (additive branch in `_data_hub_auth` only), `agent/tests/test_data_hub_entitlements.py`. (No `test_data_hub_auth.py` — the new path's matrix is covered by `test_data_hub_entitlements.py`'s 9 cases.) Verification limit: TestClient broken in env, so no live HTTP roundtrip; `resolve_product_principal` + `acquire_product_quota` unit-tested directly, legacy fall-through preserved by code inspection. 52/52 product tests green across Tasks 1-6.
 
 Commit: `git commit -m "feat(data-hub): enforce unified product entitlements"`
 

@@ -75,6 +75,28 @@ async def _data_hub_auth(
     if _is_loopback(request):
         return None
 
+    # Product-token path (Task 6): accept a Bearer product access token before
+    # the legacy X-API-Key path. If present and valid, enforce the plan's
+    # datahub.daily_quota against product.db.usage_daily. If absent or invalid,
+    # fall through to the legacy sx_ key logic unchanged.
+    from src.product.datahub_auth import (
+        acquire_product_quota,
+        resolve_product_principal,
+    )
+    from src.product.store import ProductStore
+
+    _product_store = ProductStore()
+    principal = resolve_product_principal(request, _product_store)
+    if principal is not None:
+        if not acquire_product_quota(_product_store, principal):
+            quota = principal.quota_daily
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Daily quota exceeded ({quota}/{quota}). Resets at midnight UTC.",
+                headers={"X-RateLimit-Limit": str(quota), "X-RateLimit-Remaining": "0"},
+            )
+        return {"subscription_id": principal.subject, "tier": principal.plan, "source": "product_token"}
+
     key = (x_api_key or "").strip() or (api_key or "").strip()
     if not key:
         raise HTTPException(
