@@ -204,6 +204,20 @@ class ProductStore:
                 created_at TEXT NOT NULL
             );
 
+            -- Credit reservations: a metered task pre-deducts credits, then
+            -- either settles (consume) or refunds. Stores the per-lot allocation
+            -- so refund restores exactly those credits once (design §4.2, §9).
+            CREATE TABLE IF NOT EXISTS credit_reservations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                operation TEXT NOT NULL,
+                amount INTEGER NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'reserved',
+                created_at TEXT NOT NULL,
+                UNIQUE(user_id, idempotency_key)
+            );
+
             -- Activation codes (hashed). Plaintext shown once at creation.
             CREATE TABLE IF NOT EXISTS activation_codes (
                 code_hash TEXT PRIMARY KEY,

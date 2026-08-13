@@ -6,6 +6,14 @@ its own ``product.db`` and transaction boundary so it never disturbs the
 existing local databases.
 """
 
+from src.product.credits import (
+    Balance,
+    CreditLedger,
+    GrantResult,
+    InsufficientCredits,
+    Reservation,
+    migrate_legacy_balances,
+)
 from src.product.models import (
     ENTITLEMENT_KEYS,
     OrderStatus,
@@ -16,6 +24,12 @@ from src.product.store import ProductStore
 
 __all__ = [
     "ProductStore",
+    "CreditLedger",
+    "Balance",
+    "GrantResult",
+    "InsufficientCredits",
+    "Reservation",
+    "migrate_legacy_balances",
     "PlanCode",
     "OrderStatus",
     "PaymentChannel",
