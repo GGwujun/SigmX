@@ -1,0 +1,141 @@
+"""Default plan catalog and entitlement seeding.
+
+The catalog is server-driven: prices and quotas live here and in ``product.db``,
+never hard-coded in the frontend (design §4.1, plan Global Constraints). Values
+mirror the 2026-08-02 product-closure design §4.1/§4.2.
+
+Amounts and quotas are initial operating values — operators can change them in
+the store; orders snapshot the price+entitlements at purchase time (design §4.1).
+"""
+
+from __future__ import annotations
+
+from typing import TypedDict
+
+
+class PlanSeed(TypedDict):
+    """Row shape for the canonical plan seed, as stored in ``product.db``.
+
+    ``entitlements`` is canonical JSON — stable keys only (see ``models.ENTITLEMENT_KEYS``).
+    """
+
+    code: str
+    name_zh: str
+    price_cny_fen: int  # 1 fen = 1/100 CNY. 0 for free / contract-priced.
+    billing_period: str  # "one_time" | "quarter" | "contract"
+    monthly_credits: int  # plan credits granted per natural month; 0 if none
+    welcome_credits: int  # one-time grant at registration; 0 if none
+    description: str
+    entitlements: dict[str, int | bool]
+    sort_order: int
+
+
+# Free plan: 100 requests/day, 50 one-time welcome credits, single device.
+FREE: PlanSeed = {
+    "code": "free",
+    "name_zh": "免费版",
+    "price_cny_fen": 0,
+    "billing_period": "one_time",
+    "monthly_credits": 0,
+    "welcome_credits": 50,
+    "description": "体验与本地基础功能",
+    "entitlements": {
+        "datahub.basic": True,
+        "datahub.daily_quota": 100,
+        "desktop.connected_mode": True,
+        "desktop.device_limit": 1,
+        "cloud_ai.enabled": True,
+        "cloud_ai.concurrent_jobs": 1,
+        "reports.cloud_history": False,
+    },
+    "sort_order": 1,
+}
+
+# Advanced: 268 CNY/quarter, 1000 req/day, 300 monthly credits, 1 device.
+ADVANCED: PlanSeed = {
+    "code": "advanced",
+    "name_zh": "进阶版",
+    "price_cny_fen": 26800,
+    "billing_period": "quarter",
+    "monthly_credits": 300,
+    "welcome_credits": 0,
+    "description": "普通个人投资者",
+    "entitlements": {
+        "datahub.basic": True,
+        "datahub.featured": False,
+        "datahub.daily_quota": 1000,
+        "desktop.connected_mode": True,
+        "desktop.device_limit": 1,
+        "cloud_ai.enabled": True,
+        "cloud_ai.concurrent_jobs": 2,
+        "cloud_ai.credit_per_alphaforge": 50,
+        "cloud_ai.credit_per_fund_arb": 20,
+        "reports.cloud_history": True,
+    },
+    "sort_order": 2,
+}
+
+# Pro: 518 CNY/quarter, 10000 req/day, 1200 monthly credits, 3 devices, featured data.
+PRO: PlanSeed = {
+    "code": "pro",
+    "name_zh": "专业版",
+    "price_cny_fen": 51800,
+    "billing_period": "quarter",
+    "monthly_credits": 1200,
+    "welcome_credits": 0,
+    "description": "重度研究和批量任务",
+    "entitlements": {
+        "datahub.basic": True,
+        "datahub.featured": True,
+        "datahub.daily_quota": 10000,
+        "desktop.connected_mode": True,
+        "desktop.device_limit": 3,
+        "cloud_ai.enabled": True,
+        "cloud_ai.concurrent_jobs": 4,
+        "cloud_ai.credit_per_alphaforge": 50,
+        "cloud_ai.credit_per_fund_arb": 20,
+        "reports.cloud_history": True,
+    },
+    "sort_order": 3,
+}
+
+# Enterprise: contract-priced, independent quota/SLA. Numeric quotas are set per
+# contract; the catalog just advertises the entitlement surface so the external
+# API key path is visible.
+ENTERPRISE: PlanSeed = {
+    "code": "enterprise",
+    "name_zh": "企业版",
+    "price_cny_fen": 0,
+    "billing_period": "contract",
+    "monthly_credits": 0,
+    "welcome_credits": 0,
+    "description": "API、团队和私有化",
+    "entitlements": {
+        "datahub.basic": True,
+        "datahub.featured": True,
+        "datahub.external_api": True,
+        "desktop.connected_mode": True,
+        "cloud_ai.enabled": True,
+        "reports.cloud_history": True,
+    },
+    "sort_order": 4,
+}
+
+DEFAULT_CATALOG: list[PlanSeed] = [FREE, ADVANCED, PRO, ENTERPRISE]
+
+
+def to_seed_row(seed: PlanSeed) -> tuple:
+    """Flatten a ``PlanSeed`` into the positional tuple stored in ``plans``."""
+    import json
+
+    return (
+        seed["code"],
+        seed["name_zh"],
+        seed["price_cny_fen"],
+        seed["billing_period"],
+        seed["monthly_credits"],
+        seed["welcome_credits"],
+        seed["description"],
+        json.dumps(seed["entitlements"], sort_keys=True, ensure_ascii=False),
+        seed["sort_order"],
+    )

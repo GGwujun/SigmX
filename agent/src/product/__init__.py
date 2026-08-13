@@ -1,0 +1,23 @@
+"""SigmX product domain — catalog, credits, commerce, devices, tokens.
+
+Bounded domain for the public-website / Data-Hub / desktop product closure
+(design ``docs/superpowers/specs/2026-08-02-product-closure-design.md``). Keeps
+its own ``product.db`` and transaction boundary so it never disturbs the
+existing local databases.
+"""
+
+from src.product.models import (
+    ENTITLEMENT_KEYS,
+    OrderStatus,
+    PaymentChannel,
+    PlanCode,
+)
+from src.product.store import ProductStore
+
+__all__ = [
+    "ProductStore",
+    "PlanCode",
+    "OrderStatus",
+    "PaymentChannel",
+    "ENTITLEMENT_KEYS",
+]

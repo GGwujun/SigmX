@@ -75,13 +75,15 @@
 - Produces: `ProductStore(db_path: Path)`, `ProductStore.transaction()`, `ProductStore.list_plans()`, `ProductStore.get_plan(code: str)`.
 - Produces: `PlanCode`, `OrderStatus`, `EntitlementGrant`, and `PlanView` models used by all later tasks.
 
-- [ ] **Step 1: Run impact checks for reused store patterns**
+- [x] **Step 1: Run impact checks for reused store patterns**
 
 Run: `node .gitnexus/run.cjs context UserStore`
 
+> **Done note (2026-08-13):** `.gitnexus/` is not present in this repo, so impact analysis was skipped (non-blocking — Task 1 creates new files only and edits no existing symbol). The WAL store pattern was read directly from `src/auth/store.py`.
+
 Expected: exact context for the existing SQLite/WAL store; no source file is edited in this task.
 
-- [ ] **Step 2: Write failing catalog and schema tests**
+- [x] **Step 2: Write failing catalog and schema tests**
 
 ```python
 def test_catalog_is_seeded_and_server_driven(tmp_path):
@@ -94,25 +96,27 @@ def test_catalog_is_seeded_and_server_driven(tmp_path):
     assert plans["pro"]["entitlements"]["desktop.device_limit"] == 3
 ```
 
-- [ ] **Step 3: Run the tests and verify the missing module failure**
+- [x] **Step 3: Run the tests and verify the missing module failure**
 
 Run: `python -m pytest agent/tests/test_product_store.py -v`
 
 Expected: FAIL because `src.product.store` does not exist.
 
-- [ ] **Step 4: Implement the schema and idempotent catalog seed**
+- [x] **Step 4: Implement the schema and idempotent catalog seed**
 
 Create tables `plans`, `orders`, `entitlement_grants`, `credit_lots`, `credit_ledger`, `activation_codes`, `devices`, `device_codes`, `refresh_tokens`, `usage_daily`, `audit_log`, and `product_migrations`. Store plan entitlements as canonical JSON and seed `free`, `advanced`, `pro`, and `enterprise` in one transaction.
 
-- [ ] **Step 5: Verify catalog and migration idempotency**
+- [x] **Step 5: Verify catalog and migration idempotency**
 
 Run: `python -m pytest agent/tests/test_product_store.py -v`
 
 Expected: PASS when the store is opened twice against the same database.
 
-- [ ] **Step 6: Stage, inspect, and commit**
+- [x] **Step 6: Stage, inspect, and commit**
 
 Run: `git add agent/src/product agent/tests/test_product_store.py && node .gitnexus/run.cjs detect-changes --scope staged`
+
+> **Done note (2026-08-13):** `.gitnexus` not present — `detect-changes` skipped. Scope verified manually via `git status`: only new files under `agent/src/product/` plus `agent/tests/test_product_store.py` and this plan doc; no existing production symbol edited.
 
 Expected: only new product-domain symbols.
 

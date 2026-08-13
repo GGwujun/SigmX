@@ -1,0 +1,53 @@
+"""Product-domain DTOs and stable enums.
+
+These types are the contract every later product-closure task consumes. They are
+defined once here so credits, activation, devices, tokens and routes never branch
+on Chinese plan labels (design §6 — stable entitlement keys only).
+"""
+
+from __future__ import annotations
+
+from enum import StrEnum
+
+
+class PlanCode(StrEnum):
+    """Canonical plan codes — the only plan identifier business code may use."""
+
+    FREE = "free"
+    ADVANCED = "advanced"
+    PRO = "pro"
+    ENTERPRISE = "enterprise"
+
+
+class OrderStatus(StrEnum):
+    """Lifecycle of an activation/payment order (design §5)."""
+
+    PENDING = "pending"
+    PAID = "paid"
+    FAILED = "failed"
+    REFUNDED = "refunded"
+
+
+class PaymentChannel(StrEnum):
+    """Adapter-protocol channel identifiers. ``activation_code`` ships first."""
+
+    ACTIVATION_CODE = "activation_code"
+    ALIPAY = "alipay"
+    WECHAT = "wechat"
+
+
+# Stable entitlement keys — never compare against a translated plan name.
+ENTITLEMENT_KEYS = {
+    "datahub.basic",
+    "datahub.featured",
+    "datahub.daily_quota",
+    "datahub.external_api",
+    "cloud_ai.enabled",
+    "cloud_ai.concurrent_jobs",
+    "cloud_ai.credit_per_alphaforge",
+    "cloud_ai.credit_per_fund_arb",
+    "desktop.connected_mode",
+    "desktop.device_limit",
+    "reports.cloud_history",
+    "admin.operations",
+}
