@@ -88,6 +88,15 @@ const RegisterPage = lazy(() =>
 const PricingPage = lazy(() =>
   import("@/pages/public/PricingPage").then((m) => ({ default: m.PricingPage })),
 );
+const SubscriptionPage = lazy(() =>
+  import("@/pages/account/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
+);
+const CreditsPage = lazy(() =>
+  import("@/pages/account/CreditsPage").then((m) => ({ default: m.CreditsPage })),
+);
+const DevicesPage = lazy(() =>
+  import("@/pages/account/DevicesPage").then((m) => ({ default: m.DevicesPage })),
+);
 const Account = lazy(() =>
   import("@/pages/Account").then((m) => ({ default: m.Account })),
 );
@@ -191,6 +200,9 @@ export const router = createBrowserRouter([
           { path: "/signals", element: wrap(Signals) },
           { path: "/risk-dashboard", element: wrap(RiskDashboard) },
           { path: "/account", element: wrap(Account) },
+          { path: "/account/subscription", element: wrap(SubscriptionPage) },
+          { path: "/account/credits", element: wrap(CreditsPage) },
+          { path: "/account/devices", element: wrap(DevicesPage) },
         ],
       },
       // Admin-only routes (Factor Zoo) — wrapped in RequireAdmin.
