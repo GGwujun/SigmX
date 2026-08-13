@@ -88,6 +88,20 @@ python agent/scripts/gen_codes.py --credits 100 --count 50 --days 90
 # → 写入 credits.db + 导出 ~/credits_codes_<时间戳>.csv
 ```
 
+### 产品收口（套餐 / 积分 / 设备授权）
+
+独立于旧兑换码体系，产品收口建立了可运营的套餐闭环（详见 `docs/superpowers/plans/2026-08-02-product-closure.md`）：
+
+- **套餐目录**（服务端驱动，前端不硬编码价格）：免费版 / 进阶版 268 元/季 / 专业版 518 元/季 / 企业版。权益用稳定键（`datahub.daily_quota`、`desktop.device_limit` 等），不按中文名判断。
+- **激活码开通**：运营在 `/admin/operations` 生成套餐激活码（SHA-256 哈希存储，明文仅显示一次）；用户在 `/account/subscription` 兑换，原子地创建零金额订单 + 发放权益 + 当月积分 + 审计。同一激活码全局单用，重复提交幂等不重复发放。
+- **积分批次账本**（`product.db`）：月度套餐积分月底到期，购买/补偿积分永久；扣减顺序为过期优先；AlphaForge 失败自动退还且仅退一次。`/account/credits` 可看批次与流水。
+- **设备授权**：桌面客户端通过 RFC-8628 风格 device-code flow 链接云账户，不复制密码。refresh token 经 Electron `safeStorage` 加密落盘，轮换 + 可撤销。`/account/devices/authorize` 浏览器侧批准。
+- **Data Hub 双鉴权**：`/api/v1/*` 同时接受产品令牌（`aud=sigmx-product`）与旧 `sx_` API Key，按套餐 `datahub.daily_quota` 原子计量配额。旧 key 路径零感知。
+- **欢迎积分**：新用户首次进入账户区自动获得 50 永久积分（懒发放，不改注册流程）。
+- **迁移**：旧 `credits.db` 余额一次性迁移为永久批次（`legacy-credit-balance:<user_id>`），旧库保留可回滚。
+
+后端领域层在 `agent/src/product/`（catalog / credits / commerce / devices / tokens / payment / datahub_auth），API 在 `agent/src/api/product_routes.py`，全部带 pytest 覆盖。
+
 ---
 
 ## 🔔 消息推送
