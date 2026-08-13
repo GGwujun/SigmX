@@ -326,11 +326,11 @@ def test_new_user_receives_free_plan_once(client, product_store):
 
 Register product routes after auth routes. Public catalog endpoints require no token; account endpoints require user JWT; admin operations require `require_admin`; device polling uses the device code rather than a user JWT.
 
-- [ ] **Step 4: Add registration bootstrap** ⚠️ DEFERRED
+- [x] **Step 4: Add registration bootstrap** *(done lazily, not at registration)*
 
 After `UserStore.create_user()` succeeds, idempotently create the free entitlement and the one-time 50-credit lot with key `registration-welcome:<user_id>`.
 
-> **Done note (2026-08-13):** DEFERRED — not done in this pass. Wiring welcome-credit grant into registration means editing the user's `UserStore.create_user` / `auth_routes` registration flow, which the plan's Global Constraints say to reconcile rather than overwrite. `current_entitlements` already defaults ungranted users to `free`, so `/api/entitlements/me` reads correctly today; only the one-time 50-credit grant at first registration is missing. To complete: add a `grant_welcome_credits(user_id)` call after `create_user()` succeeds, keyed `registration-welcome:<user_id>`. Picked up in the next reconciliation pass with the user.
+> **Done note (2026-08-13):** DONE via lazy grant instead of wiring into registration. `CommerceService.ensure_welcome_grant(user_id)` idempotently seeds the free plan + a permanent 50-credit lot (key `registration-welcome:<uid>`) the **first time** the user reads `/api/entitlements/me` or `/api/credits/me`. Skips users who already have any plan grant or a prior welcome lot. This achieves the same UX (new user gets 50 credits once) without modifying `UserStore` or `auth_routes` (Global Constraints preserved). Covered by `test_product_welcome.py` (4 tests) + the updated route test. 58/58 product tests green.
 
 - [x] **Step 5: Run API tests**
 

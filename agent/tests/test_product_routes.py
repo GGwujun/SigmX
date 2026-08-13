@@ -59,11 +59,11 @@ def test_my_entitlements_defaults_to_free_for_ungranted_user() -> None:
     assert "datahub.basic" in snap.entitlements
 
 
-def test_my_credits_reads_zero_for_new_user() -> None:
-    """GET /api/credits/me reads 0 for a user with no lots."""
+def test_my_credits_seeds_welcome_on_first_read() -> None:
+    """GET /api/credits/me lazily grants the 50 welcome credits on first contact."""
     bal = asyncio.run(pr.my_credits(user={"id": "u-new"}))
-    assert bal.available == 0
-    assert bal.expiring_soon == 0
+    assert bal.available == 50  # one-time welcome grant (Task 5 Step 4, lazy)
+    assert bal.expiring_soon == 0  # welcome lot is permanent
 
 
 def test_activate_then_read_back_flow() -> None:

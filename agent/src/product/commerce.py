@@ -273,6 +273,48 @@ class CommerceService:
         )
 
     # ------------------------------------------------------------------ #
+    # Registration welcome (lazy) — Task 5 Step 4
+    # ------------------------------------------------------------------ #
+
+    def ensure_welcome_grant(self, user_id: str) -> None:
+        """Idempotently grant the free plan + 50 welcome credits on first contact.
+
+        Plan Task 5 Step 4 calls for this at registration; implemented lazily
+        (fired on first entitlement/credits read) so neither ``UserStore`` nor
+        ``auth_routes`` is modified. Skips users who already have any plan grant
+        or a prior welcome lot. Design §4.1: 免费版首次注册 50 积分（一次性）。
+        """
+        welcome_key = f"registration-welcome:{user_id}"
+        with self.store.transaction() as conn:
+            # Skip if the user already has any entitlement grant (e.g. activated
+            # a paid plan out of band) or already received the welcome lot.
+            has_grant = conn.execute(
+                "SELECT 1 FROM entitlement_grants WHERE user_id = ? LIMIT 1", (user_id,)
+            ).fetchone()
+            has_welcome = conn.execute(
+                "SELECT 1 FROM credit_lots WHERE user_id = ? AND idempotency_key = ?",
+                (user_id, welcome_key),
+            ).fetchone()
+            if has_grant or has_welcome:
+                return
+
+            now_iso = _now_iso()
+            conn.execute(
+                """
+                INSERT INTO entitlement_grants
+                    (id, user_id, plan_code, order_id, valid_from, valid_until, source, created_at)
+                VALUES (?, ?, 'free', NULL, ?, NULL, 'welcome', ?)
+                """,
+                (uuid.uuid4().hex, user_id, now_iso, now_iso),
+            )
+
+        # Grant the 50 welcome credits as a permanent lot via the ledger so the
+        # immutable ledger records it. Idempotent on its own key.
+        self.ledger.grant(
+            user_id, 50, source="welcome", expires_at=None, idempotency_key=welcome_key,
+        )
+
+    # ------------------------------------------------------------------ #
     # Entitlement reads
     # ------------------------------------------------------------------ #
 

@@ -233,6 +233,8 @@ async def stable_release() -> StableRelease:
 
 @_router.get("/api/entitlements/me", response_model=EntitlementsResponse)
 async def my_entitlements(user: dict = Depends(require_user)) -> EntitlementsResponse:
+    # Lazy welcome grant (Task 5 Step 4): seed free plan + 50 credits on first contact.
+    _get_commerce().ensure_welcome_grant(user["id"])
     snap = _get_commerce().current_entitlements(user["id"])
     return EntitlementsResponse(
         plan_code=snap.plan_code,
@@ -244,6 +246,8 @@ async def my_entitlements(user: dict = Depends(require_user)) -> EntitlementsRes
 
 @_router.get("/api/credits/me", response_model=CreditsBalanceResponse)
 async def my_credits(user: dict = Depends(require_user)) -> CreditsBalanceResponse:
+    # Lazy welcome grant so the balance reflects the one-time 50 credits on first read.
+    _get_commerce().ensure_welcome_grant(user["id"])
     bal = _get_ledger().balance(user["id"])
     return CreditsBalanceResponse(available=bal.available, expiring_soon=bal.expiring_soon)
 
