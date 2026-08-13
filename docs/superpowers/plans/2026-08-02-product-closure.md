@@ -407,13 +407,17 @@ Commit: `git commit -m "feat(data-hub): enforce unified product entitlements"`
 - Consumes: `GET /api/catalog/plans` and stable release metadata from Task 5.
 - Produces: public `/`, `/product/data-hub`, `/product/desktop`, `/pricing`, `/download`, and `/reports/sample/:slug` routes; moves the protected dashboard to `/app`.
 
-- [ ] **Step 1: Run required impact analysis**
+- [x] **Step 1: Run required impact analysis** *(partial — see note)*
 
 Run: `node .gitnexus/run.cjs impact router --direction upstream`
 
+> **Done note (2026-08-13):** `.gitnexus` absent — impact skipped. `router.tsx` is touched only with additive entries: one lazy import + one public route `{ path: "/pricing" }`, mirroring the existing login/register public-route pattern. No existing route modified.
+
 If the exported router symbol is indexed by UID, use the exact UID returned by `node .gitnexus/run.cjs context router`.
 
-- [ ] **Step 2: Write failing pricing-page tests**
+- [ ] **Step 2: Write failing pricing-page tests** *(partial)*
+
+> PricingPage render test (msw + findByText) NOT written — vitest cannot run (node_modules not installed in this env). Only the pure-function `formatPlanPrice` test is included. Full UI test deferred to when the frontend env is installable.
 
 ```tsx
 it("renders prices and quotas from the server catalog", async () => {
@@ -424,25 +428,33 @@ it("renders prices and quotas from the server catalog", async () => {
 });
 ```
 
-- [ ] **Step 3: Implement the public route tree**
+- [ ] **Step 3: Implement the public route tree** *(partial — `/pricing` only)*
+
+> Done: `/pricing` added as a public route (no auth guard). NOT done: `/` as acquisition LandingPage, `/app` rename of authenticated Home, `/product/data-hub`, `/product/desktop`, `/download`, `/reports/sample/:slug`. Only the pricing slice shipped this pass — remaining public pages deferred (see task summary below).
 
 Keep login and registration public. Make `/` the acquisition homepage and `/app` the existing authenticated `Home`. Preserve all existing deep links and add a temporary authenticated redirect from `/workspace` to `/app` only if tests identify an existing consumer.
 
-- [ ] **Step 4: Implement server-driven product pages**
+- [x] **Step 4: Implement server-driven product pages** *(partial — PricingPage only)*
+
+> Done: PricingPage.tsx reads GET /api/catalog/plans and renders the four plans with entitlement rows; price via formatPlanPrice (no hard-coded numbers). productApi.ts typed client covers all product endpoints for later pages. NOT done: LandingPage, DataHubProductPage, DesktopProductPage, DownloadPage, SampleReportPage.
 
 Use one catalog query cache for pricing and calls to action. Every page must have a primary action (`注册体验`, `下载客户端`, or `查看套餐`) and describe the website/Data Hub/desktop boundary consistently.
 
-- [ ] **Step 5: Run frontend tests and build**
+- [ ] **Step 5: Run frontend tests and build** ⚠️ BLOCKED
 
 Run: `npm --prefix frontend run test:run -- PricingPage.test.tsx`
 
 Run: `npm --prefix frontend run build`
 
+> **BLOCKED (2026-08-13):** node_modules not installed in this env → neither `npm test` nor `npm build` can run, and no global `tsc` for type-checking. All TS verified by static inspection only (imports resolve to real exports, syntax balanced). formatPlanPrice has a unit test but it can't execute here. **USER MUST RUN `npm install && npm run build && npm run test:run` to verify.**
+
 Expected: both succeed and unauthenticated `/` no longer redirects to `/login`.
 
-- [ ] **Step 6: Stage, detect, and commit**
+- [x] **Step 6: Stage, detect, and commit** *(partial slice)*
 
 Run: `git add frontend/src/components/public frontend/src/pages/public frontend/src/lib/productApi.ts frontend/src/router.tsx && node .gitnexus/run.cjs detect-changes --scope staged`
+
+> **Done note (2026-08-13):** `.gitnexus` absent — skipped. Staged (partial Task 7 slice): `frontend/src/lib/productApi.ts`, `frontend/src/pages/public/PricingPage.tsx`, `frontend/src/lib/__tests__/productApi.test.ts`, `frontend/src/router.tsx` (additive public route). No `components/public/PublicLayout` yet (landing page not built). Remaining public pages + Step 5 build verification deferred — frontend env cannot build here.
 
 Commit: `git commit -m "feat(web): add public SigmX product site"`
 

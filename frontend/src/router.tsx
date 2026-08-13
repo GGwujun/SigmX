@@ -85,6 +85,9 @@ const LoginPage = lazy(() =>
 const RegisterPage = lazy(() =>
   import("@/pages/auth/RegisterPage").then((m) => ({ default: m.RegisterPage })),
 );
+const PricingPage = lazy(() =>
+  import("@/pages/public/PricingPage").then((m) => ({ default: m.PricingPage })),
+);
 const Account = lazy(() =>
   import("@/pages/Account").then((m) => ({ default: m.Account })),
 );
@@ -152,6 +155,7 @@ export const router = createBrowserRouter([
   // Public routes — no auth guard
   { path: "/login", element: wrap(LoginPage) },
   { path: "/register", element: wrap(RegisterPage) },
+  { path: "/pricing", element: wrap(PricingPage) },
   // Protected app
   {
     element: <RequireAuth />,
