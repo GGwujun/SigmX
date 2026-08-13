@@ -6,6 +6,13 @@ its own ``product.db`` and transaction boundary so it never disturbs the
 existing local databases.
 """
 
+from src.product.commerce import (
+    ActivationError,
+    ActivationResult,
+    CommerceService,
+    CreatedCode,
+    EntitlementSnapshot,
+)
 from src.product.credits import (
     Balance,
     CreditLedger,
@@ -20,16 +27,31 @@ from src.product.models import (
     PaymentChannel,
     PlanCode,
 )
+from src.product.payment import (
+    ActivationCodeProvider,
+    PaymentEvent,
+    PaymentProvider,
+    hash_code,
+)
 from src.product.store import ProductStore
 
 __all__ = [
     "ProductStore",
     "CreditLedger",
+    "CommerceService",
+    "ActivationResult",
+    "ActivationError",
+    "CreatedCode",
+    "EntitlementSnapshot",
     "Balance",
     "GrantResult",
     "InsufficientCredits",
     "Reservation",
     "migrate_legacy_balances",
+    "ActivationCodeProvider",
+    "PaymentProvider",
+    "PaymentEvent",
+    "hash_code",
     "PlanCode",
     "OrderStatus",
     "PaymentChannel",

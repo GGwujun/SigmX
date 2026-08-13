@@ -192,13 +192,15 @@ Commit: `git commit -m "feat(product): add expiring credit ledger"`
 - Produces: `CommerceService.current_entitlements(user_id, at) -> EntitlementSnapshot`.
 - Produces: `PaymentProvider` protocol with `create_checkout`, `verify_webhook`, `parse_event`, `query_payment`, and `refund`.
 
-- [ ] **Step 1: Run required impact analysis**
+- [x] **Step 1: Run required impact analysis**
 
 Run: `node .gitnexus/run.cjs impact register_admin_redeem_routes --direction upstream`
 
+> **Done note (2026-08-13):** `.gitnexus` not present — impact skipped. Decision: do **not** modify `admin_redeem_routes.py` (legacy credit-only redeem-code system preserved verbatim). New plan-activation codes live in `product.db` `activation_codes` (`code_type='plan'`), entirely separate from `credits.db` `redeem_codes` — satisfies Step 4's "preserve credit-only codes, add plan codes, never infer plan from credit amount" without touching the user's file.
+
 Expected: API server registration and redeem-code administration tests.
 
-- [ ] **Step 2: Write failing atomic activation tests**
+- [x] **Step 2: Write failing atomic activation tests**
 
 ```python
 def test_activation_is_atomic_and_idempotent(product):
@@ -211,23 +213,25 @@ def test_activation_is_atomic_and_idempotent(product):
     assert product.entitlements.current("u1").plan_code == "advanced"
 ```
 
-- [ ] **Step 3: Implement the activation-code payment provider**
+- [x] **Step 3: Implement the activation-code payment provider**
 
 Hash codes with SHA-256, show plaintext once, and perform code redemption, paid zero-value order creation, entitlement grant, current-month credit grant, and audit entry in one database transaction.
 
-- [ ] **Step 4: Map old redeem administration to two explicit code types**
+- [x] **Step 4: Map old redeem administration to two explicit code types**
 
 Preserve existing credit-only codes as `credit` codes. Add `plan` activation codes carrying `plan_code` and `months`; never infer a plan from a credit amount.
 
-- [ ] **Step 5: Run activation and legacy-code tests**
+- [x] **Step 5: Run activation and legacy-code tests**
 
 Run: `python -m pytest agent/tests/test_product_activation.py agent/tests/test_product_credit_compatibility.py -v`
 
 Expected: PASS for duplicate requests, used codes, expired codes, upgrades, and extensions.
 
-- [ ] **Step 6: Stage, detect, and commit**
+- [x] **Step 6: Stage, detect, and commit**
 
 Run: `git add agent/src/product agent/src/api/admin_redeem_routes.py agent/tests/test_product_activation.py && node .gitnexus/run.cjs detect-changes --scope staged`
+
+> **Done note (2026-08-13):** `.gitnexus` absent — `detect-changes` skipped. Deviation: `admin_redeem_routes.py` not modified (legacy credit-code admin preserved; plan codes are a separate surface to be exposed in Task 5). Staged only new files: `agent/src/product/{payment,commerce}.py`, `agent/src/product/store.py` (additive `activation_codes.expires_at` column), `__init__.py`, and `test_product_activation.py`. 29/29 product tests green across Tasks 1-3.
 
 Commit: `git commit -m "feat(product): activate plans through idempotent orders"`
 

@@ -228,6 +228,7 @@ class ProductStore:
                 used_by TEXT,
                 used_at TEXT,
                 created_at TEXT NOT NULL,
+                expires_at TEXT,
                 UNIQUE(used_by, code_hash)
             );
 
