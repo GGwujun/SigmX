@@ -112,6 +112,9 @@ const OperationsPage = lazy(() =>
 const OrdersPage = lazy(() =>
   import("@/pages/account/OrdersPage").then((m) => ({ default: m.OrdersPage })),
 );
+const CloudAccountPage = lazy(() =>
+  import("@/pages/account/CloudAccountPage").then((m) => ({ default: m.CloudAccountPage })),
+);
 const SubscriptionPage = lazy(() =>
   import("@/pages/account/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
 );
@@ -239,6 +242,7 @@ export const router = createBrowserRouter([
           { path: "/account/credits", element: wrap(CreditsPage) },
           { path: "/account/devices", element: wrap(DevicesPage) },
           { path: "/account/orders", element: wrap(OrdersPage) },
+          { path: "/account/devices/authorize", element: wrap(CloudAccountPage) },
         ],
       },
       // Admin-only routes (Factor Zoo) — wrapped in RequireAdmin.

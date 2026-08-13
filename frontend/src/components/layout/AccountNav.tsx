@@ -12,6 +12,7 @@ const ITEMS = [
   { to: "/account/credits", label: "积分", end: false },
   { to: "/account/orders", label: "订单", end: false },
   { to: "/account/devices", label: "设备", end: false },
+  { to: "/account/devices/authorize", label: "云账户", end: false },
 ];
 
 export function AccountNav() {

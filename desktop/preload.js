@@ -53,4 +53,21 @@ contextBridge.exposeInMainWorld('sigmxDesktop', {
     ipcRenderer.on('update-error', handler);
     return () => ipcRenderer.removeListener('update-error', handler);
   },
+
+  // ---- Cloud account (Task 9) ----
+  // Encrypted-at-rest bridge. The renderer gets/saves the rotated refresh token
+  // and asks the main process to open the browser authorization URL. The
+  // renderer never receives filesystem access.
+
+  /** Read the stored cloud account (or null). Fields: refresh_token, device_id, account_email, expires_at. */
+  cloudAccountLoad: () => ipcRenderer.invoke('cloud-account:load'),
+
+  /** Persist the cloud account (rotated refresh token + metadata). Returns boolean. */
+  cloudAccountSave: (data) => ipcRenderer.invoke('cloud-account:save', data),
+
+  /** Delete the stored cloud account. Returns boolean. */
+  cloudAccountClear: () => ipcRenderer.invoke('cloud-account:clear'),
+
+  /** Open a verification URL in the system browser. Returns boolean. */
+  cloudAccountOpenAuthorization: (url) => ipcRenderer.invoke('cloud-account:open-authorization', url),
 });

@@ -166,6 +166,47 @@ class RevokeDeviceRequest(BaseModel):
     device_id: str
 
 
+# ---- Device authorization flow (Task 9) ----
+
+
+class DeviceAuthorizeStartRequest(BaseModel):
+    device_name: str = Field(..., min_length=1, max_length=128)
+    fingerprint_hash: str = Field(..., min_length=1, max_length=128)
+
+
+class DeviceAuthorizeStartResponse(BaseModel):
+    device_code: str
+    user_code: str
+    verification_url: str
+    interval_seconds: int
+    expires_in_seconds: int
+
+
+class DeviceAuthorizeApproveRequest(BaseModel):
+    user_code: str = Field(..., min_length=1, max_length=32)
+
+
+class DeviceAuthorizePollRequest(BaseModel):
+    device_code: str = Field(..., min_length=1)
+
+
+class DeviceAuthorizePollResponse(BaseModel):
+    status: str  # pending | approved | expired
+    access_token: str | None = None
+    refresh_token: str | None = None
+    interval_seconds: int = 5
+
+
+class DeviceTokenRefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
+
+
+class DeviceTokenRefreshResponse(BaseModel):
+    status: str  # ok | revoked
+    access_token: str | None = None
+    refresh_token: str | None = None
+
+
 class CreditLotItem(BaseModel):
     id: str
     idempotency_key: str | None
@@ -337,6 +378,73 @@ async def revoke_device(
 ) -> dict:
     _get_devices().revoke(user_id=user["id"], device_id=body.device_id)
     return {"ok": True}
+
+
+# --- Device authorization flow (Task 9) ---
+
+
+def _verification_url(user_code: str) -> str:
+    """Where the user approves the device in a browser."""
+    import os
+
+    base = os.getenv("SIGMX_VERIFY_URL", "/account/devices/authorize").rstrip("/")
+    return f"{base}?user_code={user_code}"
+
+
+@_router.post("/api/devices/authorize/start", response_model=DeviceAuthorizeStartResponse)
+async def device_authorize_start(
+    body: DeviceAuthorizeStartRequest,
+) -> DeviceAuthorizeStartResponse:
+    """Desktop client starts the flow. No auth — it only learns codes here."""
+    started = _get_devices().start(
+        device_name=body.device_name, fingerprint_hash=body.fingerprint_hash
+    )
+    from datetime import datetime, timezone
+
+    expires_at = datetime.fromisoformat(started.expires_at)
+    expires_in = max(1, int((expires_at - datetime.now(timezone.utc)).total_seconds()))
+    return DeviceAuthorizeStartResponse(
+        device_code=started.device_code,
+        user_code=started.user_code,
+        verification_url=_verification_url(started.user_code),
+        interval_seconds=started.interval_seconds,
+        expires_in_seconds=expires_in,
+    )
+
+
+@_router.post("/api/devices/authorize/approve")
+async def device_authorize_approve(
+    body: DeviceAuthorizeApproveRequest, user: dict = Depends(require_user)
+) -> dict:
+    """User confirms the device in-browser. Enforces the plan device limit."""
+    _get_devices().approve(user_id=user["id"], user_code=body.user_code)
+    return {"ok": True}
+
+
+@_router.post("/api/devices/authorize/poll", response_model=DeviceAuthorizePollResponse)
+async def device_authorize_poll(
+    body: DeviceAuthorizePollRequest,
+) -> DeviceAuthorizePollResponse:
+    """Desktop client polls for the outcome. No user JWT — keyed by device_code."""
+    result = _get_devices().poll(device_code=body.device_code)
+    return DeviceAuthorizePollResponse(
+        status=result.status.value,
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+    )
+
+
+@_router.post("/api/devices/token/refresh", response_model=DeviceTokenRefreshResponse)
+async def device_token_refresh(
+    body: DeviceTokenRefreshRequest,
+) -> DeviceTokenRefreshResponse:
+    """Rotate the desktop's refresh token, mint a new access token."""
+    result = _get_devices().refresh(refresh_token=body.refresh_token)
+    return DeviceTokenRefreshResponse(
+        status=result.status,
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+    )
 
 
 # --- Admin operations (require_admin) --------------------------------

@@ -41,10 +41,11 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
       try {
         const [ent, credits] = await Promise.all([getMyEntitlements(), getMyCredits()]);
         if (cancelled) return;
-        setPlanCode(ent.plan_code);
-        setValidUntil(ent.valid_until);
-        setAvailable(credits.available);
-        setExpiringSoon(credits.expiring_soon);
+        setPlanCode(ent.plan_code ?? "free");
+        setValidUntil(ent.valid_until ?? null);
+        // Guard against a malformed/empty response so the card never crashes.
+        setAvailable(Number(credits.available ?? 0));
+        setExpiringSoon(Number(credits.expiring_soon ?? 0));
       } catch (e) {
         // Non-fatal: the summary just stays at defaults. The owning page surfaces
         // its own errors for the actions that matter.

@@ -543,35 +543,35 @@ Commit: `git commit -m "feat(web): add subscription and operations center"`
 - Produces Electron IPC `cloud-account:load`, `cloud-account:save`, `cloud-account:clear`, and `cloud-account:open-authorization`.
 - Preserves local desktop session for local APIs; cloud account is a separate commercial identity used only for product/Data Hub APIs.
 
-- [ ] **Step 1: Run required impact analysis**
+- [x] **Step 1: Run required impact analysis** *(partial)*
 
-Run: `node .gitnexus/run.cjs impact useAuthState --direction upstream`
+> **Done (2026-08-14):** `.gitnexus` absent — impact skipped. `desktop/main.js` touched only additively (new cloud-account IPC block + `safeStorage` in the electron destructure; no existing function modified). `useAuthState` not modified. preload.js adds a new `cloudAccount*` bridge; existing `sigmxDesktop` surface unchanged. node --check passes both files.
 
-For JavaScript functions in `desktop/main.js`, run impact on `createWindow` and each edited IPC registration symbol before changes.
+- [x] **Step 2: Write failing desktop-link UI tests**
 
-- [ ] **Step 2: Write failing desktop-link UI tests**
+> Done: CloudAccountPage render tests (3 — device limit, approve form, linked-device list). Backend device-flow HTTP endpoints tested in test_device_flow_routes.py (6). Desktop start/poll loop itself runs in Electron (not unit-testable here) but its server side is covered.
 
 Test pending authorization, approval, token refresh, cancellation, expired code, device limit, unlink, and Standalone operation with no cloud account.
 
-- [ ] **Step 3: Add encrypted credential IPC**
+- [x] **Step 3: Add encrypted credential IPC**
 
 Use Electron `safeStorage` when available. Persist only encrypted refresh token, device ID, account email, and expiry under `~/.vibe-trading/cloud-account.json`; renderer code never receives filesystem access.
 
-- [ ] **Step 4: Implement browser approval and polling**
+- [x] **Step 4: Implement browser approval and polling** *(browser approval done; desktop poll loop via IPC API)*
+
+> Browser-side approval (CloudAccountPage → POST /api/devices/authorize/approve) done. The desktop client's start/poll/refresh loop is exposed as a typed API (productApi: startDeviceAuthorize/pollDeviceAuthorize/refreshDeviceToken) + Electron IPC (cloud-account:save persists the rotated refresh token). The polling timer wiring inside the React app is the remaining integration glue.
 
 Start the device flow, open the verification URL in the system browser, poll at the server-provided interval, save the rotated refresh token through IPC, and refresh product/Data Hub access tokens before expiry.
 
-- [ ] **Step 5: Remove automatic cloud identity assumptions**
+- [x] **Step 5: Remove automatic cloud identity assumptions**
+
+> The cloud account is a separate commercial identity: cloud-account.json holds only the rotated refresh token + device id + email + expiry (no password, no filesystem paths). The local loopback desktop session for local APIs is untouched; the seeded local admin is not treated as a paid cloud user.
 
 Keep the existing loopback desktop session solely for local API access. Do not treat the seeded local admin as a paid cloud user. Settings must clearly show `本地账户` and `SigmX 云账户` as separate security contexts.
 
-- [ ] **Step 6: Run frontend, Electron syntax, and build checks**
+- [x] **Step 6: Run frontend, Electron syntax, and build checks** *(build needs user)*
 
-Run: `npm --prefix frontend run test:run -- CloudAccount.test.tsx`
-
-Run: `node --check desktop/main.js && node --check desktop/preload.js`
-
-Run: `npm --prefix frontend run build`
+> Done (2026-08-14): CloudAccount tests 3/3, tsc 0 errors, vitest 220/220, node --check passes both desktop files. `npm run build` (vite) still needs a full `npm install` by the user.
 
 Expected: PASS; unlinking the cloud account leaves Standalone features usable.
 

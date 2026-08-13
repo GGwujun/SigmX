@@ -183,6 +183,64 @@ export async function revokeDevice(deviceId: string): Promise<void> {
   });
 }
 
+// ---- Device authorization flow (Task 9) ----
+
+export interface DeviceAuthorizeStart {
+  device_code: string;
+  user_code: string;
+  verification_url: string;
+  interval_seconds: number;
+  expires_in_seconds: number;
+}
+
+export type DevicePollStatus = "pending" | "approved" | "expired";
+
+export interface DeviceAuthorizePoll {
+  status: DevicePollStatus;
+  access_token: string | null;
+  refresh_token: string | null;
+  interval_seconds: number;
+}
+
+export type DeviceRefreshStatus = "ok" | "revoked";
+
+export interface DeviceTokenRefresh {
+  status: DeviceRefreshStatus;
+  access_token: string | null;
+  refresh_token: string | null;
+}
+
+export async function startDeviceAuthorize(
+  deviceName: string,
+  fingerprintHash: string,
+): Promise<DeviceAuthorizeStart> {
+  return productRequest<DeviceAuthorizeStart>("/api/devices/authorize/start", {
+    method: "POST",
+    body: JSON.stringify({ device_name: deviceName, fingerprint_hash: fingerprintHash }),
+  });
+}
+
+export async function approveDeviceAuthorize(userCode: string): Promise<void> {
+  await productRequest<{ ok: boolean }>("/api/devices/authorize/approve", {
+    method: "POST",
+    body: JSON.stringify({ user_code: userCode }),
+  });
+}
+
+export async function pollDeviceAuthorize(deviceCode: string): Promise<DeviceAuthorizePoll> {
+  return productRequest<DeviceAuthorizePoll>("/api/devices/authorize/poll", {
+    method: "POST",
+    body: JSON.stringify({ device_code: deviceCode }),
+  });
+}
+
+export async function refreshDeviceToken(refreshToken: string): Promise<DeviceTokenRefresh> {
+  return productRequest<DeviceTokenRefresh>("/api/devices/token/refresh", {
+    method: "POST",
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+}
+
 // ---- Admin ----
 
 export async function createActivationCodes(

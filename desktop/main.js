@@ -9,7 +9,7 @@
 // Dev mode (SIGMX_DEV=1): spawn the backend from source via `python -m api_server`.
 // Production (default): spawn the PyInstaller-bundled executable in resources/python-dist.
 
-const { app, BrowserWindow, shell, ipcMain, Menu, dialog } = require('electron');
+const { app, BrowserWindow, shell, ipcMain, Menu, dialog, safeStorage } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
@@ -375,6 +375,76 @@ ipcMain.handle('check-for-updates', async () => {
 // IPC: renderer asks to quit and install the downloaded update.
 ipcMain.handle('quit-and-install', () => {
   autoUpdater.quitAndInstall();
+});
+
+// ---- Cloud account (Task 9) ----
+// Encrypted-at-rest storage for the desktop's cloud refresh token. The renderer
+// never touches the filesystem — it only gets/saves the (already-rotated) token
+// through this IPC. Plaintext token + account metadata live in an OS-keyed
+// safeStorage blob at ~/.vibe-trading/cloud-account.json.
+
+const CLOUD_ACCOUNT_PATH = path.join(os.homedir(), '.vibe-trading', 'cloud-account.json');
+
+function cloudAccountAvailable() {
+  return typeof safeStorage !== 'undefined' && safeStorage.isEncryptionAvailable();
+}
+
+function loadCloudAccount() {
+  try {
+    if (!fs.existsSync(CLOUD_ACCOUNT_PATH)) return null;
+    const raw = JSON.parse(fs.readFileSync(CLOUD_ACCOUNT_PATH, 'utf8'));
+    if (!raw || !raw.blob || !cloudAccountAvailable()) return null;
+    const json = safeStorage.decryptString(Buffer.from(raw.blob, 'base64'));
+    return JSON.parse(json);
+  } catch (e) {
+    console.error(`[sigmx] cloud-account load failed: ${e}`);
+    return null;
+  }
+}
+
+function saveCloudAccount(data) {
+  try {
+    if (!cloudAccountAvailable()) {
+      throw new Error('safeStorage encryption unavailable on this platform');
+    }
+    // Only persist the rotated refresh token, device id, account email, expiry.
+    // Never the password, never filesystem paths.
+    const minimal = {
+      refresh_token: data.refresh_token,
+      device_id: data.device_id,
+      account_email: data.account_email,
+      expires_at: data.expires_at,
+    };
+    const blob = safeStorage.encryptString(JSON.stringify(minimal)).toString('base64');
+    fs.mkdirSync(path.dirname(CLOUD_ACCOUNT_PATH), { recursive: true });
+    fs.writeFileSync(CLOUD_ACCOUNT_PATH, JSON.stringify({ blob }), { mode: 0o600 });
+    return true;
+  } catch (e) {
+    console.error(`[sigmx] cloud-account save failed: ${e}`);
+    return false;
+  }
+}
+
+function clearCloudAccount() {
+  try {
+    if (fs.existsSync(CLOUD_ACCOUNT_PATH)) fs.unlinkSync(CLOUD_ACCOUNT_PATH);
+    return true;
+  } catch (e) {
+    console.error(`[sigmx] cloud-account clear failed: ${e}`);
+    return false;
+  }
+}
+
+ipcMain.handle('cloud-account:load', () => loadCloudAccount());
+ipcMain.handle('cloud-account:save', (_event, data) => saveCloudAccount(data || {}));
+ipcMain.handle('cloud-account:clear', () => clearCloudAccount());
+ipcMain.handle('cloud-account:open-authorization', async (_event, url) => {
+  // Open the browser-verification URL in the user's system browser.
+  if (typeof url === 'string' && /^https?:\/\//.test(url)) {
+    await shell.openExternal(url);
+    return true;
+  }
+  return false;
 });
 
 // ---- Single instance ----
