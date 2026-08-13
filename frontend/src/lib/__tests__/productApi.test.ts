@@ -27,9 +27,9 @@ describe("formatPlanPrice", () => {
     );
   });
 
-  it("pro plan with non-whole yuan keeps decimals", () => {
+  it("pro plan with non-whole yuan keeps two decimals", () => {
     expect(formatPlanPrice(plan({ code: "pro", price_cny_fen: 51850, billing_period: "quarter" }))).toBe(
-      "¥518.5/季",
+      "¥518.50/季",
     );
   });
 
