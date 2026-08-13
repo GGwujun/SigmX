@@ -166,6 +166,33 @@ class RevokeDeviceRequest(BaseModel):
     device_id: str
 
 
+class CreditLotItem(BaseModel):
+    id: str
+    idempotency_key: str | None
+    amount_total: int
+    amount_remaining: int
+    source: str
+    expires_at: str | None
+    created_at: str
+
+
+class CreditLotsResponse(BaseModel):
+    lots: list[CreditLotItem]
+
+
+class LedgerEntryItem(BaseModel):
+    id: str
+    operation: str
+    delta: int
+    lot_id: str | None
+    idempotency_key: str | None
+    created_at: str
+
+
+class LedgerResponse(BaseModel):
+    entries: list[LedgerEntryItem]
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -219,6 +246,45 @@ async def my_entitlements(user: dict = Depends(require_user)) -> EntitlementsRes
 async def my_credits(user: dict = Depends(require_user)) -> CreditsBalanceResponse:
     bal = _get_ledger().balance(user["id"])
     return CreditsBalanceResponse(available=bal.available, expiring_soon=bal.expiring_soon)
+
+
+@_router.get("/api/credits/lots", response_model=CreditLotsResponse)
+async def my_credits_lots(user: dict = Depends(require_user)) -> CreditLotsResponse:
+    """List the user's credit lots with remaining amounts and expiry (design §4.2)."""
+    rows = _get_ledger().list_lots(user["id"])
+    return CreditLotsResponse(
+        lots=[
+            CreditLotItem(
+                id=r["id"],
+                idempotency_key=r.get("idempotency_key"),
+                amount_total=r["amount_total"],
+                amount_remaining=r["amount_remaining"],
+                source=r["source"],
+                expires_at=r.get("expires_at"),
+                created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+    )
+
+
+@_router.get("/api/credits/ledger", response_model=LedgerResponse)
+async def my_credits_ledger(user: dict = Depends(require_user)) -> LedgerResponse:
+    """The immutable credit ledger — every grant/reserve/settle/refund (design §4.2)."""
+    rows = _get_ledger().list_entries(user["id"])
+    return LedgerResponse(
+        entries=[
+            LedgerEntryItem(
+                id=r["id"],
+                operation=r["operation"],
+                delta=r["delta"],
+                lot_id=r.get("lot_id"),
+                idempotency_key=r.get("idempotency_key"),
+                created_at=r["created_at"],
+            )
+            for r in rows
+        ]
+    )
 
 
 @_router.post("/api/orders/activate", response_model=ActivateResponse)

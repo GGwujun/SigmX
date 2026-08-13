@@ -109,3 +109,52 @@ def test_activate_rejects_bad_code_with_400() -> None:
             user={"id": "u1"},
         ))
     assert exc.value.status_code == 400
+
+
+def test_my_credits_lots_lists_batches_after_activation() -> None:
+    """GET /api/credits/lots returns the user's credit lots with expiry info."""
+    from src.product.commerce import CommerceService
+    from src.product.credits import CreditLedger
+
+    commerce = CommerceService(pr._get_store(), CreditLedger(pr._get_store()))
+    created = commerce.admin_create_activation_code(plan="pro", months=3)
+    asyncio.run(pr.activate_order(
+        body=pr.ActivateRequest(code=created.plaintext, idempotency_key="k-lots"),
+        user={"id": "u1"},
+    ))
+
+    lots = asyncio.run(pr.my_credits_lots(user={"id": "u1"}))
+    assert len(lots.lots) == 1
+    lot = lots.lots[0]
+    assert lot.amount_total == 1200           # pro monthly
+    assert lot.amount_remaining == 1200
+    assert lot.source == "monthly"
+    assert lot.expires_at is not None          # monthly lots expire at month-end
+
+    # New user has no lots.
+    empty = asyncio.run(pr.my_credits_lots(user={"id": "nobody"}))
+    assert empty.lots == []
+
+
+def test_my_credits_ledger_records_grant_and_consume() -> None:
+    """GET /api/credits/ledger returns the immutable ledger entries."""
+    from src.product.commerce import CommerceService
+    from src.product.credits import CreditLedger
+
+    store = pr._get_store()
+    ledger = CreditLedger(store)
+    commerce = CommerceService(store, ledger)
+    code = commerce.admin_create_activation_code(plan="advanced", months=3)
+    asyncio.run(pr.activate_order(
+        body=pr.ActivateRequest(code=code.plaintext, idempotency_key="k-ledger"),
+        user={"id": "u2"},
+    ))
+    # Consume some credits through the ledger directly.
+    res = ledger.reserve("u2", 50, operation="alpha", idempotency_key="run-1")
+    ledger.settle(res.reservation_id, idempotency_key="run-1")
+
+    entries = asyncio.run(pr.my_credits_ledger(user={"id": "u2"}))
+    operations = [e.operation for e in entries.entries]
+    assert "grant" in operations       # the activation monthly grant
+    assert "reserve" in operations     # the AlphaForge reservation
+    assert "settle" in operations      # the settlement

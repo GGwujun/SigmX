@@ -51,6 +51,25 @@ export interface CreditsBalanceResponse {
   expiring_soon: number;
 }
 
+export interface CreditLot {
+  id: string;
+  idempotency_key: string | null;
+  amount_total: number;
+  amount_remaining: number;
+  source: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface LedgerEntry {
+  id: string;
+  operation: string;
+  delta: number;
+  lot_id: string | null;
+  idempotency_key: string | null;
+  created_at: string;
+}
+
 export interface ActivateResult {
   order_id: string;
   plan_code: string;
@@ -128,6 +147,16 @@ export async function getMyEntitlements(): Promise<EntitlementsResponse> {
 
 export async function getMyCredits(): Promise<CreditsBalanceResponse> {
   return productRequest<CreditsBalanceResponse>("/api/credits/me");
+}
+
+export async function getMyLots(): Promise<CreditLot[]> {
+  const data = await productRequest<{ lots: CreditLot[] }>("/api/credits/lots");
+  return data.lots;
+}
+
+export async function getMyLedger(): Promise<LedgerEntry[]> {
+  const data = await productRequest<{ entries: LedgerEntry[] }>("/api/credits/ledger");
+  return data.entries;
 }
 
 export async function activateCode(code: string, idempotencyKey: string): Promise<ActivateResult> {
