@@ -3366,6 +3366,15 @@ register_admin_redeem_routes(app)
 
 
 # ============================================================================
+# Product lifecycle routes (catalog / entitlements / credits / orders / devices)
+# — defined in src/api/product_routes.py. Product-closure Task 5.
+# ============================================================================
+
+from src.api.product_routes import register_product_routes  # noqa: E402
+register_product_routes(app)
+
+
+# ============================================================================
 # Notify routes (Feishu/DingTalk/WeChat) — defined in src/api/notify_routes.py
 # ============================================================================
 

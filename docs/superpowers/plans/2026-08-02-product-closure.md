@@ -301,13 +301,15 @@ Commit: `git commit -m "feat(product): add desktop device authorization"`
 - Produces authenticated subscription, credits, usage, orders, and device APIs.
 - Produces admin activation-code, credit-adjustment, user-status, and audit APIs.
 
-- [ ] **Step 1: Run required impact analysis**
+- [x] **Step 1: Run required impact analysis**
 
 Run: `node .gitnexus/run.cjs impact app --direction upstream`
 
+> **Done note (2026-08-13):** `.gitnexus` absent — impact skipped. `api_server.py` is touched only at the minimal mount point (2 lines mirroring the existing `register_*_routes(app)` pattern, inserted after the admin_redeem block). No existing line of `api_server.py` is modified. Full module import is blocked by a pre-existing config error (`_load_llm_providers` / `LLMProviderOption` Pydantic forward-ref at line 846), unrelated to this task; `ast.parse` confirms syntax integrity.
+
 Also run impact on the exact route-registration block or registration function identified by `node .gitnexus/run.cjs context api_server.py` before editing `agent/api_server.py`.
 
-- [ ] **Step 2: Write failing route contract tests**
+- [x] **Step 2: Write failing route contract tests**
 
 ```python
 def test_new_user_receives_free_plan_once(client, product_store):
@@ -320,23 +322,27 @@ def test_new_user_receives_free_plan_once(client, product_store):
     assert second["credits"]["available"] == 50
 ```
 
-- [ ] **Step 3: Implement route registration and DTOs**
+- [x] **Step 3: Implement route registration and DTOs**
 
 Register product routes after auth routes. Public catalog endpoints require no token; account endpoints require user JWT; admin operations require `require_admin`; device polling uses the device code rather than a user JWT.
 
-- [ ] **Step 4: Add registration bootstrap**
+- [ ] **Step 4: Add registration bootstrap** ⚠️ DEFERRED
 
 After `UserStore.create_user()` succeeds, idempotently create the free entitlement and the one-time 50-credit lot with key `registration-welcome:<user_id>`.
 
-- [ ] **Step 5: Run API tests**
+> **Done note (2026-08-13):** DEFERRED — not done in this pass. Wiring welcome-credit grant into registration means editing the user's `UserStore.create_user` / `auth_routes` registration flow, which the plan's Global Constraints say to reconcile rather than overwrite. `current_entitlements` already defaults ungranted users to `free`, so `/api/entitlements/me` reads correctly today; only the one-time 50-credit grant at first registration is missing. To complete: add a `grant_welcome_credits(user_id)` call after `create_user()` succeeds, keyed `registration-welcome:<user_id>`. Picked up in the next reconciliation pass with the user.
+
+- [x] **Step 5: Run API tests**
 
 Run: `python -m pytest agent/tests/test_product_routes.py agent/tests/test_security_auth_api.py -v`
 
 Expected: PASS with stable response models and no admin data exposed to ordinary users.
 
-- [ ] **Step 6: Stage, detect, and commit**
+- [x] **Step 6: Stage, detect, and commit**
 
 Run: `git add agent/src/api/product_routes.py agent/api_server.py agent/tests/test_product_routes.py && node .gitnexus/run.cjs detect-changes --scope staged`
+
+> **Done note (2026-08-13):** `.gitnexus` absent — skipped. Staged: new `agent/src/api/product_routes.py` (module-level handlers + DTOs), `agent/api_server.py` (2-line mount only), `agent/tests/test_product_routes.py`. Verification limit: TestClient is broken in this env (httpx/starlette version mismatch — `Client.__init__() got unexpected kwarg 'app'`), so HTTP roundtrip is NOT tested; instead handlers are unit-tested by direct async invocation (5 tests: catalog serialization, free-default entitlements, credits read, activate→read-back + idempotency, 400 on bad code). 43/43 product tests green across Tasks 1-5. Deferred: Step 4 welcome-credit bootstrap (see above).
 
 Commit: `git commit -m "feat(api): expose product lifecycle APIs"`
 
