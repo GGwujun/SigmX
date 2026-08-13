@@ -11,6 +11,7 @@ const ITEMS = [
   { to: "/account/subscription", label: "套餐与激活", end: false },
   { to: "/account/credits", label: "积分", end: false },
   { to: "/account/orders", label: "订单", end: false },
+  { to: "/account/usage", label: "用量", end: false },
   { to: "/account/devices", label: "设备", end: false },
   { to: "/account/devices/authorize", label: "云账户", end: false },
 ];

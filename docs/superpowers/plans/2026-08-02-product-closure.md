@@ -431,7 +431,7 @@ it("renders prices and quotas from the server catalog", async () => {
 - [x] **Step 3: Implement the public route tree**
 
 > Done (2026-08-14): `/` is now the public LandingPage (acquisition homepage), Home moved to `/app` (authenticated). PublicLayout shells `/` and `/pricing`. Updated all `/` references: Layout workbench link + logo → `/app`, login/register success → `/app`. No `/workspace` consumer exists, so no redirect needed. Verified tsc 0 errors + 208/208 tests.
-> NOT done: `/product/data-hub`, `/product/desktop`, `/download`, `/reports/sample/:slug` (remaining public pages).
+> All Task 7 public pages now done (Step 4): `/product/data-hub`, `/product/desktop`, `/download`, `/reports/sample/:slug`.
 
 Keep login and registration public. Make `/` the acquisition homepage and `/app` the existing authenticated `Home`. Preserve all existing deep links and add a temporary authenticated redirect from `/workspace` to `/app` only if tests identify an existing consumer.
 
@@ -498,7 +498,7 @@ it("refreshes all product state after activation", async () => {
 
 - [x] **Step 3: Implement account navigation and status summary** *(partial)*
 
-> Done: `ProductStatus` (plan/validity/credits/expiring-soon summary) + `AccountNav` (sub-nav between account pages). NOT done: moving credit redemption into `/account/credits` and editing the existing `Account.tsx` (kept intact per Step 1 decision); `/account/usage`, `/account/orders` pages deferred.
+> Done: `ProductStatus` (plan/validity/credits/expiring-soon summary) + `AccountNav` (sub-nav). `/account/orders` page added. NOT done: `/account/usage` page (Data Hub/cloud-AI usage) and moving legacy credit redemption into `/account/credits` — both deferred (kept Account.tsx intact).
 
 Keep password and logout in `/account`; move credit redemption and ledger to `/account/credits`. Add visible plan, expiration, expiring credits, Data Hub usage, and device count to `ProductStatus`.
 

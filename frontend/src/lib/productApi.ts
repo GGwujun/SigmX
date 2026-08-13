@@ -159,6 +159,18 @@ export async function getMyLedger(): Promise<LedgerEntry[]> {
   return data.entries;
 }
 
+export interface UsageResponse {
+  metric: string;
+  day: string;
+  consumed: number;
+  quota_daily: number;
+  remaining: number;
+}
+
+export async function getMyUsage(): Promise<UsageResponse> {
+  return productRequest<UsageResponse>("/api/usage/me");
+}
+
 export async function activateCode(code: string, idempotencyKey: string): Promise<ActivateResult> {
   return productRequest<ActivateResult>("/api/orders/activate", {
     method: "POST",

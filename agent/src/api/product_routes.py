@@ -234,6 +234,14 @@ class LedgerResponse(BaseModel):
     entries: list[LedgerEntryItem]
 
 
+class UsageResponse(BaseModel):
+    metric: str
+    day: str
+    consumed: int
+    quota_daily: int
+    remaining: int
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -329,6 +337,30 @@ async def my_credits_ledger(user: dict = Depends(require_user)) -> LedgerRespons
             )
             for r in rows
         ]
+    )
+
+
+@_router.get("/api/usage/me", response_model=UsageResponse)
+async def my_usage(user: dict = Depends(require_user)) -> UsageResponse:
+    """Today's Data Hub request usage against the plan's daily quota (design §7.2)."""
+    from datetime import datetime, timezone
+
+    metric = "datahub.request"
+    today = datetime.now(timezone.utc).date().isoformat()
+    snap = _get_commerce().current_entitlements(user["id"])
+    quota = int(snap.entitlements.get("datahub.daily_quota", 0))
+    conn = _get_store()._get_conn()
+    row = conn.execute(
+        "SELECT consumed FROM usage_daily WHERE user_id = ? AND metric = ? AND day = ?",
+        (user["id"], metric, today),
+    ).fetchone()
+    consumed = int(row["consumed"]) if row else 0
+    return UsageResponse(
+        metric=metric,
+        day=today,
+        consumed=consumed,
+        quota_daily=quota,
+        remaining=max(0, quota - consumed),
     )
 
 
