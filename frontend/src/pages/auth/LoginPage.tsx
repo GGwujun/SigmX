@@ -4,11 +4,8 @@ import { Loader2, LogIn, Monitor } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { setToken, setUser } from "@/lib/apiAuth";
+import { isDesktopMode, postLoginTarget } from "@/lib/desktop";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
-
-function isDesktopMode(): boolean {
-  return !!window.sigmxDesktop?.isDesktop;
-}
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -26,9 +23,9 @@ export function LoginPage() {
       setToken(res.token);
       setUser(res.user);
       toast.success("登录成功");
-      // RequireAuth will route to disclaimer modal if not yet accepted,
-      // otherwise to the home page.
-      navigate("/app");
+      // RequireAuth will route to disclaimer modal if not yet accepted.
+      // Desktop lands on the workbench, browsers on the light portal.
+      navigate(postLoginTarget());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "登录失败");
     } finally {
@@ -43,7 +40,7 @@ export function LoginPage() {
       setToken(res.token);
       setUser(res.user);
       toast.success("已进入桌面模式");
-      navigate("/app");
+      navigate(postLoginTarget());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "桌面会话创建失败，请手动登录");
     } finally {

@@ -4,6 +4,7 @@ import { ChevronDown, Loader2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { setToken, setUser } from "@/lib/apiAuth";
+import { postLoginTarget } from "@/lib/desktop";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import {
   DISCLAIMER_AGREE_LABEL, DISCLAIMER_BODY, DISCLAIMER_NOTE,
@@ -41,7 +42,7 @@ export function RegisterPage() {
       setUser(res.user);
       toast.success("注册成功");
       // New user has disclaimer_accepted_at = null → RequireAuth shows the modal.
-      navigate("/app");
+      navigate(postLoginTarget());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "注册失败");
     } finally {

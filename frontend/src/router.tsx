@@ -1,8 +1,10 @@
 import { Suspense, lazy, type ComponentType } from "react";
 import { Navigate, Outlet, createBrowserRouter } from "react-router-dom";
 import { Layout } from "@/components/layout/Layout";
+import { AccountShell } from "@/components/portal/AccountShell";
 import { DisclaimerModal } from "@/components/DisclaimerModal";
 import { isAdmin } from "@/lib/apiAuth";
+import { isDesktopMode } from "@/lib/desktop";
 import { useAuthState } from "@/hooks/useAuthState";
 
 const Home = lazy(() => import("@/pages/Home").then((m) => ({ default: m.Home })));
@@ -190,6 +192,17 @@ function RequireAdmin() {
   return <Outlet />;
 }
 
+/**
+ * Desktop-only guard: the heavy workbench relies on local agent/LLM backends
+ * that the web deployment doesn't run — browsers are bounced to the portal.
+ */
+export function DesktopOnly() {
+  if (!isDesktopMode()) {
+    return <Navigate to="/portal" replace />;
+  }
+  return <Outlet />;
+}
+
 export const router = createBrowserRouter([
   // Public acquisition site — no auth guard, shared PublicLayout shell.
   {
@@ -206,40 +219,55 @@ export const router = createBrowserRouter([
   // Public auth routes — own minimal layout (no PublicLayout chrome).
   { path: "/login", element: wrap(LoginPage) },
   { path: "/register", element: wrap(RegisterPage) },
+  // Light portal alias — browsers land here after login, then on to /account.
+  { path: "/portal", element: <Navigate to="/account" replace /> },
   // Protected app
   {
     element: <RequireAuth />,
     children: [
+      // Desktop workbench — heavy pages rely on local agent/LLM backends.
       {
-        element: <Layout />,
+        element: <DesktopOnly />,
         children: [
-          { path: "/app", element: wrap(Home) },
-          { path: "/market-dashboard", element: wrap(MarketDashboard) },
-          { path: "/big-screen", element: wrap(BigScreen) },
-          { path: "/morning-brief", element: wrap(MorningBrief) },
-          { path: "/intraday-monitor", element: wrap(IntradayMonitor) },
-          { path: "/tail-strategy", element: wrap(TailStrategy) },
-          { path: "/close-review", element: wrap(CloseReview) },
-          { path: "/agent", element: wrap(Agent) },
-          { path: "/settings", element: wrap(Settings) },
-          { path: "/runs/:runId", element: wrap(RunDetail) },
-          { path: "/compare", element: wrap(Compare) },
-          { path: "/correlation", element: wrap(Correlation) },
-          { path: "/events", element: wrap(Events) },
-          { path: "/global-events", element: wrap(GlobalEvents) },
-          { path: "/tracking-dashboard", element: wrap(TrackingDashboard) },
-          { path: "/watchlist-schedule", element: wrap(WatchlistSchedule) },
-          { path: "/news", element: wrap(News) },
-          { path: "/rss-feed", element: wrap(RssFeed) },
-          { path: "/daily-recommendations", element: wrap(DailyRecommendations) },
-          { path: "/recommendation-history", element: wrap(RecommendationHistory) },
-          { path: "/opportunity", element: wrap(Opportunity) },
-          { path: "/logic-chain", element: wrap(LogicChain) },
-          { path: "/alpha-forge", element: wrap(AlphaForge) },
-          { path: "/fund-arbitrage", element: wrap(FundArbitrage) },
-          { path: "/fund-opportunity", element: wrap(FundOpportunity) },
-          { path: "/signals", element: wrap(Signals) },
-          { path: "/risk-dashboard", element: wrap(RiskDashboard) },
+          {
+            element: <Layout />,
+            children: [
+              { path: "/app", element: wrap(Home) },
+              { path: "/market-dashboard", element: wrap(MarketDashboard) },
+              { path: "/big-screen", element: wrap(BigScreen) },
+              { path: "/morning-brief", element: wrap(MorningBrief) },
+              { path: "/intraday-monitor", element: wrap(IntradayMonitor) },
+              { path: "/tail-strategy", element: wrap(TailStrategy) },
+              { path: "/close-review", element: wrap(CloseReview) },
+              { path: "/agent", element: wrap(Agent) },
+              { path: "/settings", element: wrap(Settings) },
+              { path: "/runs/:runId", element: wrap(RunDetail) },
+              { path: "/compare", element: wrap(Compare) },
+              { path: "/correlation", element: wrap(Correlation) },
+              { path: "/events", element: wrap(Events) },
+              { path: "/global-events", element: wrap(GlobalEvents) },
+              { path: "/tracking-dashboard", element: wrap(TrackingDashboard) },
+              { path: "/watchlist-schedule", element: wrap(WatchlistSchedule) },
+              { path: "/news", element: wrap(News) },
+              { path: "/rss-feed", element: wrap(RssFeed) },
+              { path: "/daily-recommendations", element: wrap(DailyRecommendations) },
+              { path: "/recommendation-history", element: wrap(RecommendationHistory) },
+              { path: "/opportunity", element: wrap(Opportunity) },
+              { path: "/logic-chain", element: wrap(LogicChain) },
+              { path: "/alpha-forge", element: wrap(AlphaForge) },
+              { path: "/fund-arbitrage", element: wrap(FundArbitrage) },
+              { path: "/fund-opportunity", element: wrap(FundOpportunity) },
+              { path: "/signals", element: wrap(Signals) },
+              { path: "/risk-dashboard", element: wrap(RiskDashboard) },
+            ],
+          },
+        ],
+      },
+      // Shared account area — desktop keeps the workbench shell, browsers get
+      // the light portal shell.
+      {
+        element: <AccountShell />,
+        children: [
           { path: "/account", element: wrap(Account) },
           { path: "/account/subscription", element: wrap(SubscriptionPage) },
           { path: "/account/credits", element: wrap(CreditsPage) },
