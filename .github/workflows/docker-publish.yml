@@ -73,6 +73,11 @@ jobs:
           push: true
           tags: ${{ steps.meta_ghcr.outputs.tags }}
           labels: ${{ steps.meta_ghcr.outputs.labels }}
+          # provenance/attestation off: newer buildkit emits an OCI empty
+          # manifest (application/vnd.oci.empty.v1+json) that Aliyun ACR and
+          # some registries reject with "unknown manifest class".
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -95,6 +100,8 @@ jobs:
           tags: |
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:latest
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:${{ github.sha }}
+          provenance: false
+          sbom: false
           cache-from: type=gha
 
   # ---------- Slim Data Hub image (server-only, ~600MB vs 1.69GB) ----------
@@ -150,4 +157,6 @@ jobs:
             ${{ steps.meta_ghcr.outputs.tags }}
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:data-hub
             ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_IMAGE }}:data-hub-${{ github.sha }}
+          provenance: false
+          sbom: false
           cache-from: type=gha
