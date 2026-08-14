@@ -15,6 +15,9 @@ from __future__ import annotations
 from typing import Callable
 
 from src.live.enforcement import OrderIntent
+from src.trading.connectors.paper.extractor import (
+    extract_order_intent as _paper_extract,
+)
 from src.trading.connectors.robinhood.extractor import (
     extract_order_intent as _robinhood_extract,
 )
@@ -26,6 +29,7 @@ OrderIntentExtractor = Callable[[str, dict], "OrderIntent | None"]
 #: connector package; this module is only the live-safety lookup table.
 BROKER_EXTRACTORS: dict[str, OrderIntentExtractor] = {
     "robinhood": _robinhood_extract,
+    "paper": _paper_extract,
 }
 
 
