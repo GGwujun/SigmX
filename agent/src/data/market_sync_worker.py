@@ -13,6 +13,7 @@ import logging
 import os
 import sqlite3
 import socket
+import sys
 import time
 from pathlib import Path
 from typing import Iterable
@@ -255,6 +256,12 @@ def _publish_shadow(shadow_db: Path, live_db: Path) -> None:
     with sqlite3.connect(f"file:{shadow_db}?mode=ro", uri=True, timeout=30) as source:
         with sqlite3.connect(str(live_db), timeout=30) as target:
             target.execute("PRAGMA busy_timeout=30000")
+            # 与 MarketStore 一致：Linux 用 WAL，Windows 保留 DELETE。幂等，已是
+            # 目标模式时无副作用；显式设置避免靠 DB 持久属性继承时被误改静默跟随。
+            target.execute(
+                "PRAGMA journal_mode=WAL" if sys.platform != "win32"
+                else "PRAGMA journal_mode=DELETE"
+            )
             source.backup(target, pages=1000, sleep=0.02)
 
 
@@ -326,6 +333,11 @@ def _merge_shadow_to_live(shadow_db: Path, live_db: Path, trade_date: str) -> No
     src.row_factory = sqlite3.Row
     tgt = sqlite3.connect(str(live_db), timeout=30)
     tgt.execute("PRAGMA busy_timeout=30000")
+    # 与 MarketStore 一致：Linux 用 WAL，Windows 保留 DELETE（见 market_store.__init__）。
+    tgt.execute(
+        "PRAGMA journal_mode=WAL" if sys.platform != "win32"
+        else "PRAGMA journal_mode=DELETE"
+    )
     # Ensure the live DB has every table the shadow may merge. The live DB is a
     # long-lived file that may predate the current schema (early builds created
     # only a subset of tables); CREATE TABLE IF NOT EXISTS is idempotent and

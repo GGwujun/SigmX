@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import sqlite3
+import sys
 import threading
 import uuid
 from contextlib import contextmanager
@@ -715,12 +716,18 @@ class MarketStore:
         # busy_timeout 必须在 journal_mode 切换之前设置：切换 journal_mode 需要
         # 排他锁，若此时还没 busy_timeout，多进程并发会立刻 database is locked
         # 而非等待重试（market-sync/data-sync/vibe-trading 三进程共写同一 db）。
-        self._conn.execute("PRAGMA busy_timeout=5000")
-        # 用 DELETE 模式替代 WAL：避免 Windows bind mount 下 -wal/-shm 文件权限问题。
-        # 切换需排他锁，并发下可能拿不到 —— 已是 DELETE 模式时无需切换，失败时
-        # 退化为默认 journal 模式，不让构造崩溃（market-sync worker tick 的致命点）。
+        # 30s 与 market_sync_worker 裸写连接对齐（原 5s 是全项目最短，导致频繁锁失败）。
+        self._conn.execute("PRAGMA busy_timeout=30000")
+        # journal_mode 按平台区分：Linux 生产用 WAL（读写并发，根治 database is locked
+        # 与读写互斥；项目其余 store 均用 WAL）；Windows 保留 DELETE，避免 bind mount
+        # 下 -wal/-shm 文件权限问题（保护桌面端）。WAL 是 DB 级持久属性，首个 Linux
+        # 进程切一次即永久生效。切换需排他锁，并发下可能拿不到 —— 已是目标模式时无需
+        # 切换，失败时退化为默认 journal 模式，不让构造崩溃（worker tick 的致命点）。
+        _want_wal = sys.platform != "win32"
         try:
-            self._conn.execute("PRAGMA journal_mode=DELETE")
+            self._conn.execute(
+                "PRAGMA journal_mode=WAL" if _want_wal else "PRAGMA journal_mode=DELETE"
+            )
         except sqlite3.OperationalError:
             pass
         self._conn.execute("PRAGMA synchronous=NORMAL")
