@@ -22,9 +22,9 @@
 
 **Files:** Create `agent/src/harness/models.py`, `agent/src/harness/registry.py`; test `agent/tests/test_harness_registry.py`.
 
-- [ ] Write tests for descriptor validation, stable categories, cost dimensions, confirmation rules, and absence of `execute` tools.
-- [ ] Confirm RED, implement enums/models and adapters over the existing tool registry, then confirm GREEN.
-- [ ] Commit `feat(harness): add governed tool registry`.
+- [x] Write tests for descriptor validation, stable categories, cost dimensions, confirmation rules, and absence of `execute` tools.
+- [x] Confirm RED, implement enums/models and adapters over the existing tool registry, then confirm GREEN.
+- [x] Commit `feat(harness): add governed tool registry`.
 
 ### Task 2: Context manifest and run adapters
 
