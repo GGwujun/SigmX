@@ -132,6 +132,9 @@ const DevicesPage = lazy(() =>
 const Account = lazy(() =>
   import("@/pages/Account").then((m) => ({ default: m.Account })),
 );
+const MePage = lazy(() =>
+  import("@/pages/portal/MePage").then((m) => ({ default: m.MePage })),
+);
 const RedeemCodes = lazy(() =>
   import("@/pages/RedeemCodes").then((m) => ({ default: m.RedeemCodes })),
 );
@@ -268,6 +271,7 @@ export const router = createBrowserRouter([
       {
         element: <AccountShell />,
         children: [
+          { path: "/me", element: wrap(MePage) },
           { path: "/account", element: wrap(Account) },
           { path: "/account/subscription", element: wrap(SubscriptionPage) },
           { path: "/account/credits", element: wrap(CreditsPage) },
