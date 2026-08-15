@@ -22,7 +22,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost, deduplicated weekly effective research users, and the anonymous personal-user acquisition stages | Complete; funnel accepts only fixed events, deduplicates per browser/stage/day and stores no PII, query, instrument, IP, user-agent or arbitrary metadata |
 | SSR/static public delivery | FastAPI public-route allowlist injects escaped semantic HTML, canonical/OG metadata and JSON-LD into built Vite shell; private routes excluded; artifact verified | Complete |
 | SDK and CLI delivery | Dependency-free `sigmx-datahub` wheel, typed response metadata, secure client, `sigmx-data` CLI and public docs | Complete |
-| Full verification | Product/Harness/Data Hub suites and frontend/build pass | Repository-wide backend suite has unrelated Windows/environment and legacy failures; completion requires scoped gates plus documented baseline |
+| Full verification | Fresh scoped backend gate: 176 passed; full frontend: 43 files / 258 passed; production TypeScript/Vite build succeeded; Python SDK: 3 passed and sdist/wheel built | Complete for the product-architecture scope. Repository-wide historical baseline remains 3588 passed, 74 failed, 24 errors, dominated by Windows symlink permissions and legacy/external environment suites outside this architecture change |
 
 ## Next implementation order
 

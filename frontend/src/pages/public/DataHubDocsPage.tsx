@@ -21,7 +21,7 @@ export function DataHubDocsPage() {
       <section className="grid gap-4 lg:grid-cols-3">
         <Example title="cURL">{`curl -H "Authorization: Bearer sxd_live_YOUR_KEY" \\
   "https://data.sigmx.cn/api/v1/stocks/daily?symbol=600519.SH&limit=100"`}</Example>
-        <Example title="Python SDK">{`import os
+        <Example title="Python SDK 示例">{`import os
 from sigmx_datahub import DataHubClient
 
 client = DataHubClient(os.environ["SIGMX_DATAHUB_KEY"])
