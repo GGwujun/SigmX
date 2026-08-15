@@ -62,7 +62,7 @@ export function DataHubProductPage() {
 
       <div className="mt-10 rounded-2xl border bg-card p-8 text-center">
         <p className="text-sm text-muted-foreground">
-          套餐决定 Data Hub 每日请求配额与是否含特色数据。
+          套餐决定可用接口组、速率、并发和每月 Data Credit；每次成功调用按接口成本扣减积分。
         </p>
         <Link
           to="/pricing"
