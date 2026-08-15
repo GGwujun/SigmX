@@ -11,7 +11,7 @@ import os
 from datetime import timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from src.api.auth_routes import require_admin
