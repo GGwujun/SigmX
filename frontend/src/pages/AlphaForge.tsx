@@ -32,6 +32,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { api, type AlphaForgeReportDetail, type AlphaForgeReportItem, type AlphaForgeRunDetail } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { PublishReportSnapshot } from "@/components/harness/PublishReportSnapshot";
 
 const SIGNAL_COLORS: Record<string, string> = {
   BUY: "text-success bg-success/10",
@@ -1038,6 +1039,7 @@ function ReportViewer({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <PublishReportSnapshot suggestedTitle={`${report.stock_name || report.target} 投研摘要`} />
           <button
             onClick={() => onDownload("md")}
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors hover:bg-muted"

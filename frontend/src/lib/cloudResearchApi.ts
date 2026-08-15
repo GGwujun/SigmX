@@ -55,6 +55,7 @@ export const cloudResearchApi = {
   listQueries: async () => (await request<{ items: CloudSavedQuery[] }>("/api/cloud/queries", true)).items,
   listWatchlist: async () => (await request<{ items: CloudWatchlistItem[] }>("/api/cloud/watchlist", true)).items,
   listReports: async () => (await request<{ items: CloudReport[] }>("/api/cloud/reports", true)).items,
+  publishReport: (title: string, summary: string) => request<CloudReport>("/api/cloud/reports", true, { method: "POST", body: JSON.stringify({ title, summary }) }),
   removeWatchlist: (symbol: string) => request(`/api/cloud/watchlist/${encodeURIComponent(symbol)}`, true, { method: "DELETE" }),
   revokeReport: (id: string) => request(`/api/cloud/reports/${encodeURIComponent(id)}`, true, { method: "DELETE" }),
   createHandoff: (kind: "saved_query" | "instrument" | "similar_query", payload: Record<string, string>) =>

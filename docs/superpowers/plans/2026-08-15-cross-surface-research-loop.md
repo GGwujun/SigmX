@@ -61,10 +61,10 @@
 
 **Interfaces:** Consumes existing `POST /api/cloud/reports` with `{title, summary}` and returns immutable public `slug`.
 
-- [ ] Write failing tests proving preview, explicit confirmation, character limits, no file/path fields, public link, and revoke state.
-- [ ] Implement the publish dialog from a user-selected summary only.
-- [ ] Run focused backend/frontend tests and confirm pass.
-- [ ] Commit `feat(reports): publish redacted web snapshots`.
+- [x] Write failing tests proving preview, explicit confirmation, character limits, no file/path fields, public link, and revoke state.
+- [x] Implement the publish dialog from a user-selected summary only.
+- [x] Run focused backend/frontend tests and confirm pass.
+- [x] Commit `feat(reports): publish redacted web snapshots`.
 
 ### Task 5: Reconciliation and verification
 
