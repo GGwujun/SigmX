@@ -84,11 +84,13 @@ def test_full_product_closure_loop(env):
     access_token = poll.access_token
     assert access_token
 
-    # 4. The token resolves to a Data Hub principal with advanced quota (1000/day).
+    # 4. The token still resolves while request charging awaits the dedicated
+    # credential/middleware batch. Removed plan quota keys are not synthesized;
+    # the legacy principal therefore retains only its neutral fallback.
     principal = resolve_product_principal(FakeRequest(auth=f"Bearer {access_token}"), env.store)
     assert principal is not None
     assert principal.plan == "advanced"
-    assert principal.quota_daily == 1000
+    assert principal.quota_daily == 100
 
     # 5. Data Hub quota is metered atomically.
     assert acquire_product_quota(env.store, principal) is True
