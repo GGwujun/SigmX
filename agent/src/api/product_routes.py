@@ -25,6 +25,8 @@ from pydantic import BaseModel, Field
 from src.api.auth_routes import require_admin, require_user
 from src.product.commerce import ActivationError, CommerceService
 from src.product.credits import CreditLedger
+from src.product.data_credits import DataCreditLedger
+from src.product.datahub_catalog import DataHubEndpointCatalog
 from src.product.devices import DeviceLimitReached, DeviceService
 from src.product.store import ProductStore
 
@@ -38,6 +40,8 @@ _store: ProductStore | None = None
 _ledger: CreditLedger | None = None
 _commerce: CommerceService | None = None
 _devices: DeviceService | None = None
+_data_ledger: DataCreditLedger | None = None
+_endpoint_catalog: DataHubEndpointCatalog | None = None
 
 
 def _get_store() -> ProductStore:
@@ -66,6 +70,20 @@ def _get_devices() -> DeviceService:
     if _devices is None:
         _devices = DeviceService(_get_store())
     return _devices
+
+
+def _get_data_ledger() -> DataCreditLedger:
+    global _data_ledger
+    if _data_ledger is None:
+        _data_ledger = DataCreditLedger(_get_store())
+    return _data_ledger
+
+
+def _get_endpoint_catalog() -> DataHubEndpointCatalog:
+    global _endpoint_catalog
+    if _endpoint_catalog is None:
+        _endpoint_catalog = DataHubEndpointCatalog(_get_store())
+    return _endpoint_catalog
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +260,57 @@ class UsageResponse(BaseModel):
     remaining: int
 
 
+class DataCreditsBalanceResponse(BaseModel):
+    available: int
+    expiring_soon: int
+
+
+class DataCreditLotItem(BaseModel):
+    id: str
+    idempotency_key: str
+    amount_total: int
+    amount_remaining: int
+    source: str
+    expires_at: str | None
+    created_at: str
+
+
+class DataCreditLotsResponse(BaseModel):
+    lots: list[DataCreditLotItem]
+
+
+class DataCreditLedgerItem(BaseModel):
+    id: str
+    operation: str
+    delta: int
+    lot_id: str | None
+    reservation_id: str | None
+    created_at: str
+
+
+class DataCreditLedgerResponse(BaseModel):
+    entries: list[DataCreditLedgerItem]
+
+
+class DataHubEndpointItem(BaseModel):
+    endpoint_code: str
+    catalog_version: int
+    http_method: str
+    path_pattern: str
+    dataset_group: str
+    pricing_mode: str
+    base_cost: int
+    unit_name: str | None
+    unit_size: int | None
+    unit_cost: int | None
+    max_cost: int | None
+    enabled: bool
+
+
+class DataHubCatalogResponse(BaseModel):
+    items: list[DataHubEndpointItem]
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -264,6 +333,14 @@ async def list_plans() -> CatalogResponse:
     """Public plan catalog (design §4.1, §7.1 /pricing). No auth."""
     plans = [PlanView(**p) for p in _get_store().list_plans()]
     return CatalogResponse(plans=plans)
+
+
+@_router.get("/api/datahub/catalog", response_model=DataHubCatalogResponse)
+async def datahub_catalog() -> DataHubCatalogResponse:
+    """Public, enabled latest-version Data Hub endpoint price list."""
+    return DataHubCatalogResponse(
+        items=[DataHubEndpointItem(**vars(entry)) for entry in _get_endpoint_catalog().list()]
+    )
 
 
 @_router.get("/api/catalog/releases/stable", response_model=StableRelease)
@@ -299,6 +376,39 @@ async def my_credits(user: dict = Depends(require_user)) -> CreditsBalanceRespon
     _get_commerce().ensure_welcome_grant(user["id"])
     bal = _get_ledger().balance(user["id"])
     return CreditsBalanceResponse(available=bal.available, expiring_soon=bal.expiring_soon)
+
+
+@_router.get("/api/data-credits/me", response_model=DataCreditsBalanceResponse)
+async def my_data_credits(user: dict = Depends(require_user)) -> DataCreditsBalanceResponse:
+    balance = _get_data_ledger().balance(user["id"])
+    return DataCreditsBalanceResponse(
+        available=balance.available, expiring_soon=balance.expiring_soon
+    )
+
+
+@_router.get("/api/data-credits/lots", response_model=DataCreditLotsResponse)
+async def my_data_credit_lots(user: dict = Depends(require_user)) -> DataCreditLotsResponse:
+    return DataCreditLotsResponse(
+        lots=[DataCreditLotItem(**row) for row in _get_data_ledger().list_lots(user["id"])]
+    )
+
+
+@_router.get("/api/data-credits/ledger", response_model=DataCreditLedgerResponse)
+async def my_data_credit_ledger(user: dict = Depends(require_user)) -> DataCreditLedgerResponse:
+    rows = _get_data_ledger().list_entries(user["id"])
+    return DataCreditLedgerResponse(
+        entries=[
+            DataCreditLedgerItem(
+                id=row["id"],
+                operation=row["operation"],
+                delta=row["delta"],
+                lot_id=row.get("lot_id"),
+                reservation_id=row.get("reservation_id"),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+    )
 
 
 @_router.get("/api/credits/lots", response_model=CreditLotsResponse)

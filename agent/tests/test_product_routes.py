@@ -121,7 +121,8 @@ def test_my_usage_reports_consumed_against_quota() -> None:
 
     store = pr._get_store()
     commerce = CommerceService(store, CreditLedger(store))
-    # Activate advanced (quota 1000) and record 3 data-hub requests today.
+    # Activate advanced and record legacy request-count telemetry. The removed
+    # daily-quota entitlement must not be synthesized from the new credit plan.
     code = commerce.admin_create_activation_code(plan="advanced", months=3)
     asyncio.run(pr.activate_order(
         body=pr.ActivateRequest(code=code.plaintext, idempotency_key="k-usage"),
@@ -137,8 +138,8 @@ def test_my_usage_reports_consumed_against_quota() -> None:
     usage = asyncio.run(pr.my_usage(user={"id": "u1"}))
     assert usage.metric == "datahub.request"
     assert usage.consumed == 3
-    assert usage.quota_daily == 1000  # advanced
-    assert usage.remaining == 997
+    assert usage.quota_daily == 0
+    assert usage.remaining == 0
 
 
 def test_my_usage_zero_for_new_user() -> None:
