@@ -14,25 +14,29 @@ import {
 
 import {
   getMyCredits,
+  getDataCreditBalance,
+  getDataHubUsage,
   getMyEntitlements,
-  getMyUsage,
   listDevices,
   type CreditsBalanceResponse,
+  type DataCreditBalance,
+  type DataHubUsage,
   type DeviceItem,
   type EntitlementsResponse,
-  type UsageResponse,
 } from "@/lib/productApi";
 
 interface ProductState {
   entitlements: EntitlementsResponse | null;
   credits: CreditsBalanceResponse | null;
-  usage: UsageResponse | null;
+  dataCredits: DataCreditBalance | null;
+  usage: DataHubUsage | null;
   devices: DeviceItem[] | null;
 }
 
 const EMPTY_STATE: ProductState = {
   entitlements: null,
   credits: null,
+  dataCredits: null,
   usage: null,
   devices: null,
 };
@@ -51,15 +55,17 @@ export function MePage() {
     const results = await Promise.allSettled([
       getMyEntitlements(),
       getMyCredits(),
-      getMyUsage(),
+      getDataCreditBalance(),
+      getDataHubUsage(),
       listDevices(),
     ] as const);
 
     setState({
       entitlements: results[0].status === "fulfilled" ? results[0].value : null,
       credits: results[1].status === "fulfilled" ? results[1].value : null,
-      usage: results[2].status === "fulfilled" ? results[2].value : null,
-      devices: results[3].status === "fulfilled" ? results[3].value : null,
+      dataCredits: results[2].status === "fulfilled" ? results[2].value : null,
+      usage: results[3].status === "fulfilled" ? results[3].value : null,
+      devices: results[4].status === "fulfilled" ? results[4].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -128,10 +134,10 @@ export function MePage() {
         />
         <StatusCard
           icon={Database}
-          label="Data Hub 今日用量"
-          value={loading ? "加载中…" : state.usage ? `${formatNumber(state.usage.consumed)} / ${formatNumber(state.usage.quota_daily)}` : "暂不可用"}
-          detail={state.usage ? `剩余 ${formatNumber(state.usage.remaining)}` : "数据用量独立计量"}
-          to="/account/usage"
+          label="Data Credit"
+          value={loading ? "加载中…" : state.dataCredits ? formatNumber(state.dataCredits.available) : "暂不可用"}
+          detail={state.usage ? `${formatNumber(state.usage.total_requests)} 次调用，已扣 ${formatNumber(state.usage.credits_charged)}` : "数据积分独立计量"}
+          to="/account/data-hub"
         />
         <StatusCard
           icon={Laptop}

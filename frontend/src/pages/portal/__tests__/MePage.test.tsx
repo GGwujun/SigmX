@@ -7,7 +7,8 @@ import { MePage } from "../MePage";
 const productApi = vi.hoisted(() => ({
   getMyEntitlements: vi.fn(),
   getMyCredits: vi.fn(),
-  getMyUsage: vi.fn(),
+  getDataCreditBalance: vi.fn(),
+  getDataHubUsage: vi.fn(),
   listDevices: vi.fn(),
 }));
 
@@ -29,19 +30,22 @@ describe("MePage", () => {
       valid_until: "2026-11-01",
       entitlements: {
         "desktop.device_limit": 3,
-        "datahub.daily_quota": 10000,
+        "datahub.monthly_credits": 150000,
       },
     });
     productApi.getMyCredits.mockReset().mockResolvedValue({
       available: 900,
       expiring_soon: 200,
     });
-    productApi.getMyUsage.mockReset().mockResolvedValue({
-      metric: "datahub_requests",
-      day: "2026-08-15",
-      consumed: 120,
-      quota_daily: 10000,
-      remaining: 9880,
+    productApi.getDataCreditBalance.mockReset().mockResolvedValue({
+      available: 149880,
+      expiring_soon: 0,
+    });
+    productApi.getDataHubUsage.mockReset().mockResolvedValue({
+      total_requests: 120,
+      successful_requests: 118,
+      credits_charged: 120,
+      by_endpoint: [],
     });
     productApi.listDevices.mockReset().mockResolvedValue([
       {
@@ -59,20 +63,21 @@ describe("MePage", () => {
     expect(await screen.findByRole("heading", { name: "我的 SigmX" })).toBeInTheDocument();
     expect(screen.getByText("pro")).toBeInTheDocument();
     expect(screen.getByText("900")).toBeInTheDocument();
-    expect(screen.getByText("120 / 10,000")).toBeInTheDocument();
+    expect(screen.getByText("149,880")).toBeInTheDocument();
+    expect(screen.getByText(/120 次调用，已扣 120/)).toBeInTheDocument();
     expect(screen.getByText("1 / 3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /管理账户/ })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("link", { name: /下载 Desktop/ })).toHaveAttribute("href", "/download");
   });
 
   it("keeps successful product cards visible when one status API fails", async () => {
-    productApi.getMyUsage.mockRejectedValueOnce(new Error("usage unavailable"));
+    productApi.getDataHubUsage.mockRejectedValueOnce(new Error("usage unavailable"));
 
     renderPage();
 
     expect(await screen.findByText("部分产品状态暂时不可用")).toBeInTheDocument();
     expect(screen.getByText("pro")).toBeInTheDocument();
     expect(screen.getByText("900")).toBeInTheDocument();
-    expect(screen.getByText("暂不可用")).toBeInTheDocument();
+    expect(screen.getByText("149,880")).toBeInTheDocument();
   });
 });

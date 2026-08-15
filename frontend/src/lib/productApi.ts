@@ -14,7 +14,7 @@ const BASE = "";
 // ---- Types matching the Pydantic models in src/api/product_routes.py ----
 
 export interface PlanEntitlements {
-  [key: string]: number | boolean;
+  [key: string]: number | boolean | string[];
 }
 
 export interface PlanView {
@@ -159,16 +159,84 @@ export async function getMyLedger(): Promise<LedgerEntry[]> {
   return data.entries;
 }
 
-export interface UsageResponse {
-  metric: string;
-  day: string;
-  consumed: number;
-  quota_daily: number;
-  remaining: number;
+export interface DataCreditBalance {
+  available: number;
+  expiring_soon: number;
 }
 
-export async function getMyUsage(): Promise<UsageResponse> {
-  return productRequest<UsageResponse>("/api/usage/me");
+export interface DataHubCredential {
+  id: string;
+  key_prefix: string;
+  name: string;
+  scopes: string[];
+  ip_allowlist: string[];
+  expires_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+  revoked_at: string | null;
+}
+
+export interface CreatedDataHubCredential extends DataHubCredential {
+  plaintext: string;
+}
+
+export interface DataHubEndpoint {
+  endpoint_code: string;
+  dataset_group: string;
+  pricing_mode: "free" | "fixed" | "per_unit";
+  base_cost: number;
+}
+
+export interface DataHubUsage {
+  total_requests: number;
+  successful_requests: number;
+  credits_charged: number;
+  by_endpoint: Array<{
+    endpoint_code: string;
+    requests: number;
+    successful_requests: number;
+    credits_charged: number;
+  }>;
+}
+
+export async function getDataCreditBalance(): Promise<DataCreditBalance> {
+  return productRequest<DataCreditBalance>("/api/data-credits/me");
+}
+
+export async function listDataHubCredentials(): Promise<DataHubCredential[]> {
+  const data = await productRequest<{ items: DataHubCredential[] }>("/api/datahub/credentials");
+  return data.items;
+}
+
+export async function createDataHubCredential(input: {
+  name: string;
+  scopes: string[];
+  ip_allowlist: string[];
+  expires_at: string | null;
+}): Promise<CreatedDataHubCredential> {
+  return productRequest<CreatedDataHubCredential>("/api/datahub/credentials", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function rotateDataHubCredential(id: string): Promise<CreatedDataHubCredential> {
+  return productRequest<CreatedDataHubCredential>(`/api/datahub/credentials/${id}/rotate`, {
+    method: "POST",
+  });
+}
+
+export async function revokeDataHubCredential(id: string): Promise<void> {
+  await productRequest(`/api/datahub/credentials/${id}`, { method: "DELETE" });
+}
+
+export async function getDataHubUsage(): Promise<DataHubUsage> {
+  return productRequest<DataHubUsage>("/api/datahub/usage");
+}
+
+export async function getDataHubCatalog(): Promise<DataHubEndpoint[]> {
+  const data = await productRequest<{ items: DataHubEndpoint[] }>("/api/datahub/catalog");
+  return data.items;
 }
 
 export async function activateCode(code: string, idempotencyKey: string): Promise<ActivateResult> {

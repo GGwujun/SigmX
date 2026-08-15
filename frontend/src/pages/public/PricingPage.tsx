@@ -13,10 +13,14 @@ import { cn } from "@/lib/utils";
 // Human labels for the stable entitlement keys (design §6). Keys themselves are
 // stable; only the display label is localized here.
 const ENTITLEMENT_LABELS: Record<string, string> = {
-  "datahub.basic": "Data Hub 基础数据",
-  "datahub.featured": "特色数据",
-  "datahub.daily_quota": "Data Hub 每日请求",
-  "datahub.external_api": "外部 API 访问",
+  "datahub.enabled": "Data Hub",
+  "datahub.dataset_groups": "数据集权限",
+  "datahub.monthly_credits": "每月 Data Credit",
+  "datahub.rate_limit_per_minute": "每分钟调用",
+  "datahub.concurrent_limit": "并发请求",
+  "datahub.max_rows_per_request": "单次最大行数",
+  "datahub.history_depth_days": "历史数据深度",
+  "datahub.commercial_use": "商业使用",
   "desktop.connected_mode": "桌面端 Connected 模式",
   "desktop.device_limit": "设备数",
   "cloud_ai.enabled": "云端 AI",
@@ -24,9 +28,14 @@ const ENTITLEMENT_LABELS: Record<string, string> = {
   "reports.cloud_history": "云端报告历史",
 };
 
-function quotaLabel(key: string, value: number | boolean): string {
+function quotaLabel(key: string, value: number | boolean | string[]): string {
+  if (Array.isArray(value)) return value.length > 0 ? value.join("、") : "合同配置";
   if (typeof value === "boolean") return value ? "✓" : "—";
-  if (key === "datahub.daily_quota") return `${value.toLocaleString()} 次/日`;
+  if (key === "datahub.monthly_credits") return `${value.toLocaleString()} 分/月`;
+  if (key === "datahub.rate_limit_per_minute") return value > 0 ? `${value.toLocaleString()} 次/分` : "合同配置";
+  if (key === "datahub.concurrent_limit") return value > 0 ? `${value} 个` : "合同配置";
+  if (key === "datahub.max_rows_per_request") return value > 0 ? `${value.toLocaleString()} 行` : "合同配置";
+  if (key === "datahub.history_depth_days") return value > 0 ? `${value.toLocaleString()} 天` : "合同配置";
   if (key === "desktop.device_limit") return `${value} 台`;
   if (key === "cloud_ai.concurrent_jobs") return `${value} 个`;
   return String(value);

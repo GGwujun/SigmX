@@ -15,6 +15,6 @@ describe("AccountNav", () => {
     expect(screen.getByRole("link", { name: "返回我的 SigmX" })).toHaveAttribute("href", "/me");
     expect(screen.getByRole("link", { name: "账户与安全" })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("link", { name: "套餐与激活" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Data Hub 用量" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Data Hub" })).toHaveAttribute("href", "/account/data-hub");
   });
 });
