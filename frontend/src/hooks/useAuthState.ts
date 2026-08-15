@@ -4,6 +4,7 @@ import {
   clearAuth, disclaimerAccepted as disclaimerAcceptedFn,
   isAuthenticated, setToken, setUser, type AuthUser,
 } from "@/lib/apiAuth";
+import { restoreDesktopConnectedSession } from "@/lib/desktopConnectedSession";
 
 declare global {
   interface Window {
@@ -67,6 +68,7 @@ export function useAuthState() {
           if (cancelled) return;
           setUser(user);
           setAuthed(true);
+          if (isDesktopMode()) void restoreDesktopConnectedSession().catch(() => undefined);
         } catch {
           if (cancelled) return;
           clearAuth();
@@ -85,6 +87,7 @@ export function useAuthState() {
           setToken(res.token);
           setUser(res.user);
           setAuthed(true);
+          void restoreDesktopConnectedSession().catch(() => undefined);
         } catch {
           if (cancelled) return;
           // Desktop session failed — fall through to login page.

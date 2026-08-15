@@ -14,9 +14,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   pollDeviceAuthorize,
+  createDesktopDataHubSession,
   startDeviceAuthorize,
   type DeviceAuthorizeStart,
 } from "@/lib/productApi";
+import { setDataMode, setDesktopDataHubSessionKey } from "@/lib/dataMode";
 
 export type FlowPhase = "idle" | "pending" | "approved" | "expired" | "error";
 
@@ -72,12 +74,16 @@ export function useDesktopDeviceFlow(onApproved?: () => void): DesktopDeviceFlow
       try {
         const result = await pollDeviceAuthorize(deviceCode);
         if (cancelledRef.current) return;
-        if (result.status === "approved" && result.refresh_token) {
+        if (result.status === "approved" && result.refresh_token && result.access_token && result.device_id) {
           clearTimer();
           const bridge = getBridge();
           await bridge?.cloudAccountSave?.({
             refresh_token: result.refresh_token,
+            device_id: result.device_id,
           });
+          const session = await createDesktopDataHubSession(result.device_id, result.access_token);
+          setDesktopDataHubSessionKey(session.plaintext);
+          setDataMode("connected");
           setPhase("approved");
           onApproved?.();
           return;

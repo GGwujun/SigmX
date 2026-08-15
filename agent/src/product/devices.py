@@ -74,6 +74,7 @@ class PollResult:
     status: PollStatus
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
+    device_id: Optional[str] = None
 
 
 @dataclass
@@ -191,7 +192,12 @@ class DeviceService:
                 "UPDATE device_codes SET consumed_at = ? WHERE device_code = ?",
                 (now.isoformat(), device_code),
             )
-            return PollResult(status=PollStatus.APPROVED, access_token=access, refresh_token=refresh_plaintext)
+            return PollResult(
+                status=PollStatus.APPROVED,
+                access_token=access,
+                refresh_token=refresh_plaintext,
+                device_id=device_id,
+            )
 
     # ------------------------------------------------------------------ #
     # Refresh / revoke

@@ -239,6 +239,7 @@ class DeviceAuthorizePollResponse(BaseModel):
     status: str  # pending | approved | expired
     access_token: str | None = None
     refresh_token: str | None = None
+    device_id: str | None = None
     interval_seconds: int = 5
 
 
@@ -877,6 +878,7 @@ async def device_authorize_poll(
         status=result.status.value,
         access_token=result.access_token,
         refresh_token=result.refresh_token,
+        device_id=result.device_id,
     )
 
 

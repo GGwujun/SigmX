@@ -43,6 +43,7 @@ function DataHubTab() {
   const [hubKey, setHubKey] = useState(getDataHubKey());
   const [rsshubUrl, setRsshubUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [developerCredential, setDeveloperCredential] = useState(false);
 
   // Hydrate from persistent backend (.env) on mount — survives app updates,
   // whereas localStorage is wiped on every update. localStorage is still
@@ -113,6 +114,12 @@ function DataHubTab() {
 
           {mode === "connected" && (
             <>
+              <div className="rounded-md border border-success/25 bg-success/5 px-3 py-2 text-sm">
+                <div className="font-medium">账号自动连接</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {hubKey.startsWith("sxd_live_") ? "已安装设备绑定的短期凭证，客户端会自动轮换。" : "授权 Desktop 设备后，将自动安装最长 24 小时的短期凭证。"}
+                </div>
+              </div>
               <label className="grid gap-1.5">
                 <span className="text-sm font-medium">Data Hub 地址</span>
                 <input
@@ -124,17 +131,15 @@ function DataHubTab() {
                 />
                 <span className={hintClass}>远程 Data Hub 服务器的地址（包含端口）</span>
               </label>
-              <label className="grid gap-1.5">
-                <span className="text-sm font-medium">API Key</span>
-                <input
-                  type="password"
-                  value={hubKey}
-                  onChange={e => setHubKey(e.target.value)}
-                  placeholder="sxd_live_..."
-                  className={fieldClass}
-                />
-                <span className={hintClass}>在个人中心生成；仅保存在当前 Desktop 会话中</span>
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                <input type="checkbox" checked={developerCredential} onChange={event => setDeveloperCredential(event.target.checked)} />
+                开发者调试：手动指定长期 Credential
               </label>
+              {developerCredential && <label className="grid gap-1.5">
+                  <span className="text-sm font-medium">开发者 Credential</span>
+                  <input type="password" value={hubKey} onChange={e => setHubKey(e.target.value)} placeholder="sxd_live_..." className={fieldClass} />
+                  <span className={hintClass}>仅用于接口调试；日常 Connected 模式无需复制 Key。</span>
+                </label>}
             </>
           )}
 

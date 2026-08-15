@@ -46,17 +46,17 @@
 
 **Files:** Modify `agent/src/product/datahub_credentials.py`, `agent/src/api/product_routes.py`; test `agent/tests/test_desktop_datahub_session.py`.
 
-- [ ] Write tests for 24-hour maximum expiry, device/user ownership, entitlement-limited scopes, automatic prior-session revocation, exclusion from long-term Key limit, and gateway authentication.
-- [ ] Confirm RED, add `credential_kind`/`device_id` schema v8 migration and session issuance endpoint, then confirm GREEN.
-- [ ] Commit `feat(data-hub): issue device-bound desktop sessions`.
+- [x] Write tests for 24-hour maximum expiry, device/user ownership, entitlement-limited scopes, automatic prior-session revocation, exclusion from long-term Key limit, and gateway authentication.
+- [x] Confirm RED, add `credential_kind`/`device_id` schema v8 migration and session issuance endpoint, then confirm GREEN.
+- [x] Commit `feat(harness): issue device-bound data sessions`.
 
 ### Task 5: Harness Overview and Connected UX
 
 **Files:** Create `frontend/src/lib/harnessApi.ts`, `frontend/src/components/harness/HarnessOverview.tsx`; modify `frontend/src/pages/Home.tsx`, `frontend/src/pages/Settings.tsx`; test focused component/page files.
 
-- [ ] Write UI tests for mode, source, governance, recent runs, dual credits, partial state, and automatic Connected setup.
-- [ ] Confirm RED, implement Overview and replace manual-Key-first Connected UX, then confirm GREEN.
-- [ ] Commit `feat(desktop): surface financial harness status`.
+- [x] Write UI tests for mode, source, governance, recent runs, dual credits, partial state, and automatic Connected setup.
+- [x] Confirm RED, implement Overview and replace manual-Key-first Connected UX, then confirm GREEN.
+- [x] Commit `feat(desktop): surface financial harness status`.
 
 ### Task 6: Verification and reconciliation
 

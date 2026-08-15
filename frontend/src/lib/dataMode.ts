@@ -11,6 +11,7 @@
 const MODE_KEY = "sigmx_data_mode";
 const HUB_URL_KEY = "sigmx_data_hub_url";
 const HUB_KEY_KEY = "sigmx_data_hub_key";
+const DESKTOP_SESSION_KEY = "sigmx_desktop_data_hub_key";
 
 export type DataMode = "standalone" | "connected";
 
@@ -20,6 +21,11 @@ export function getDataMode(): DataMode {
     if (v === "connected") return "connected";
   } catch { /* ignore */ }
   return "standalone";
+}
+
+export function setDesktopDataHubSessionKey(value: string): void {
+  if (value.trim()) window.sessionStorage.setItem(DESKTOP_SESSION_KEY, value.trim());
+  else window.sessionStorage.removeItem(DESKTOP_SESSION_KEY);
 }
 
 export function setDataMode(mode: DataMode): void {
@@ -43,6 +49,8 @@ export function setDataHubUrl(url: string): void {
 }
 
 export function getDataHubKey(): string {
+  const desktopSession = window.sessionStorage.getItem(DESKTOP_SESSION_KEY);
+  if (desktopSession) return desktopSession;
   try {
     return window.sessionStorage.getItem(HUB_KEY_KEY) || "";
   } catch { return ""; }

@@ -21,6 +21,9 @@ import {
 import { api, type AlphaForgeReportItem, type OpportunityCategory, type RunListItem } from "@/lib/api";
 import { cached as cachedFetch } from "@/lib/cache";
 import { cn } from "@/lib/utils";
+import { HarnessOverview } from "@/components/harness/HarnessOverview";
+import { getDataMode } from "@/lib/dataMode";
+import { getHarnessRuns, getHarnessStatus, type HarnessRun, type HarnessStatus } from "@/lib/harnessApi";
 
 interface DashboardState {
   opportunities: OpportunityCategory[];
@@ -93,6 +96,7 @@ const reportsCache = cachedFetch<AlphaForgeReportItem[]>("home:reports", () => a
 const runsCache = cachedFetch<RunListItem[]>("home:runs", () => api.listRuns(), 60_000);
 
 export function Home() {
+  const [harness, setHarness] = useState<{ status: HarnessStatus; runs: HarnessRun[] } | null>(null);
   const [data, setData] = useState<DashboardState>({
     opportunities: [],
     reports: [],
@@ -153,6 +157,14 @@ export function Home() {
     return () => clearTimeout(t);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([getHarnessStatus(), getHarnessRuns(4)])
+      .then(([status, runs]) => { if (!cancelled) setHarness({ status, runs }); })
+      .catch(() => { /* legacy/local runtime may not expose Harness yet */ });
+    return () => { cancelled = true; };
+  }, []);
+
   const topOpportunities = useMemo(
     () => data.opportunities.flatMap((category) => category.opportunities).slice(0, 5),
     [data.opportunities],
@@ -207,6 +219,7 @@ export function Home() {
       </header>
 
       <main className="mx-auto space-y-6 px-4 py-6 md:px-6">
+        {harness && <HarnessOverview status={harness.status} runs={harness.runs} dataMode={getDataMode()} />}
         {loading ? (
           <div className="flex min-h-64 items-center justify-center rounded-md border bg-card text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

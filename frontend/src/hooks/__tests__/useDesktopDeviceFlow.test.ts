@@ -54,8 +54,9 @@ describe("useDesktopDeviceFlow", () => {
         pollCount += 1;
         // First poll pending, second approved.
         if (pollCount === 1) return { status: "pending", access_token: null, refresh_token: null, interval_seconds: 1 };
-        return { status: "approved", access_token: "tok", refresh_token: "rfr_rotated", interval_seconds: 1 };
+        return { status: "approved", access_token: "tok", refresh_token: "rfr_rotated", device_id: "device-1", interval_seconds: 1 };
       },
+      "/api/datahub/desktop-session": () => ({ plaintext: "sxd_live_session" }),
     });
     const { save, openAuth } = installBridge();
     const onApproved = vi.fn();
@@ -76,7 +77,8 @@ describe("useDesktopDeviceFlow", () => {
 
     expect(result.current.phase).toBe("approved");
     expect(pollCount).toBe(2);
-    expect(save).toHaveBeenCalledWith({ refresh_token: "rfr_rotated" });
+    expect(save).toHaveBeenCalledWith({ refresh_token: "rfr_rotated", device_id: "device-1" });
+    expect(sessionStorage.getItem("sigmx_desktop_data_hub_key")).toBe("sxd_live_session");
     expect(onApproved).toHaveBeenCalled();
   });
 

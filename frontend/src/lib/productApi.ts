@@ -315,7 +315,19 @@ export interface DeviceAuthorizePoll {
   status: DevicePollStatus;
   access_token: string | null;
   refresh_token: string | null;
+  device_id: string | null;
   interval_seconds: number;
+}
+
+export async function createDesktopDataHubSession(
+  deviceId: string,
+  accessToken: string,
+): Promise<CreatedDataHubCredential> {
+  return productRequest<CreatedDataHubCredential>("/api/datahub/desktop-session", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ device_id: deviceId }),
+  });
 }
 
 export type DeviceRefreshStatus = "ok" | "revoked";
