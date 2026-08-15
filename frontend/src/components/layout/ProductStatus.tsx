@@ -7,15 +7,8 @@ import { useEffect, useState } from "react";
 import { Coins, Crown, Loader2, Timer } from "lucide-react";
 
 import { ApiError } from "@/lib/api";
-import { getMyCredits, getMyEntitlements } from "@/lib/productApi";
+import { getMyCredits, getMyEntitlements, getPlans } from "@/lib/productApi";
 import { cn } from "@/lib/utils";
-
-const PLAN_NAME_ZH: Record<string, string> = {
-  free: "免费版",
-  desktop_pro: "Desktop Pro",
-  data_developer: "Data Developer",
-  pro_bundle: "Pro Bundle",
-};
 
 function shortDate(value?: string | null): string {
   if (!value) return "—";
@@ -33,19 +26,23 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
   const [validUntil, setValidUntil] = useState<string | null>(null);
   const [available, setAvailable] = useState<number>(0);
   const [expiringSoon, setExpiringSoon] = useState<number>(0);
+  const [planNames, setPlanNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [ent, credits] = await Promise.all([getMyEntitlements(), getMyCredits()]);
+        const [ent, credits, plans] = await Promise.all([
+          getMyEntitlements(), getMyCredits(), getPlans(),
+        ]);
         if (cancelled) return;
         setPlanCode(ent.plan_code ?? "free");
         setValidUntil(ent.valid_until ?? null);
         // Guard against a malformed/empty response so the card never crashes.
         setAvailable(Number(credits.available ?? 0));
         setExpiringSoon(Number(credits.expiring_soon ?? 0));
+        setPlanNames(Object.fromEntries(plans.map((plan) => [plan.code, plan.name_zh])));
       } catch (e) {
         // Non-fatal: the summary just stays at defaults. The owning page surfaces
         // its own errors for the actions that matter.
@@ -73,7 +70,7 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
     {
       icon: Crown,
       label: "当前套餐",
-      value: PLAN_NAME_ZH[planCode] ?? planCode,
+      value: planNames[planCode] ?? planCode,
       sub: validUntil ? `有效期至 ${shortDate(validUntil)}` : "永久 / 默认",
     },
     {

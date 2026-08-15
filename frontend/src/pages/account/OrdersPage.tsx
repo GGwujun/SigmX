@@ -9,20 +9,13 @@ import { toast } from "sonner";
 
 import { AccountNav } from "@/components/layout/AccountNav";
 import { ApiError } from "@/lib/api";
-import { listOrders, type OrderItem } from "@/lib/productApi";
+import { getPlans, listOrders, type OrderItem } from "@/lib/productApi";
 
 const STATUS_LABEL: Record<string, string> = {
   paid: "已支付",
   pending: "待支付",
   failed: "失败",
   refunded: "已退款",
-};
-
-const PLAN_NAME_ZH: Record<string, string> = {
-  free: "免费版",
-  desktop_pro: "Desktop Pro",
-  data_developer: "Data Developer",
-  pro_bundle: "Pro Bundle",
 };
 
 function shortDateTime(value?: string | null): string {
@@ -32,11 +25,14 @@ function shortDateTime(value?: string | null): string {
 
 export function OrdersPage() {
   const [orders, setOrders] = useState<OrderItem[]>([]);
+  const [planNames, setPlanNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
     try {
-      setOrders(await listOrders());
+      const [items, plans] = await Promise.all([listOrders(), getPlans()]);
+      setOrders(items);
+      setPlanNames(Object.fromEntries(plans.map((plan) => [plan.code, plan.name_zh])));
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "加载订单失败");
     } finally {
@@ -85,7 +81,7 @@ export function OrdersPage() {
             <tbody>
               {orders.map((o) => (
                 <tr key={o.id} className="border-t">
-                  <td className="px-4 py-2">{PLAN_NAME_ZH[o.plan_code] ?? o.plan_code}</td>
+                  <td className="px-4 py-2">{planNames[o.plan_code] ?? o.plan_code}</td>
                   <td className="px-4 py-2">{STATUS_LABEL[o.status] ?? o.status}</td>
                   <td className="px-4 py-2">{o.months} 个月</td>
                   <td className="px-4 py-2 text-muted-foreground">{shortDateTime(o.created_at)}</td>

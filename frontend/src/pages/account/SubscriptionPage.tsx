@@ -3,26 +3,26 @@
  * Uses POST /api/orders/activate (idempotent per request) + the ProductStatus
  * summary. The legacy credit-only redeem code stays on the existing Account page.
  */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ProductStatus } from "@/components/layout/ProductStatus";
 import { AccountNav } from "@/components/layout/AccountNav";
 import { ApiError } from "@/lib/api";
-import { activateCode } from "@/lib/productApi";
-
-const PLAN_NAME_ZH: Record<string, string> = {
-  free: "免费版",
-  desktop_pro: "Desktop Pro",
-  data_developer: "Data Developer",
-  pro_bundle: "Pro Bundle",
-};
+import { activateCode, getPlans } from "@/lib/productApi";
 
 export function SubscriptionPage() {
   const [code, setCode] = useState("");
   const [activating, setActivating] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [planNames, setPlanNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    getPlans()
+      .then((plans) => setPlanNames(Object.fromEntries(plans.map((plan) => [plan.code, plan.name_zh]))))
+      .catch(() => undefined);
+  }, []);
 
   const doActivate = async (e: FormEvent) => {
     e.preventDefault();
@@ -39,7 +39,7 @@ export function SubscriptionPage() {
         toast.info("该激活码此前已激活，未重复发放权益");
       } else {
         toast.success(
-          `已开通 ${PLAN_NAME_ZH[res.plan_code] ?? res.plan_code}（${res.months} 个月）` +
+          `已开通 ${planNames[res.plan_code] ?? res.plan_code}（${res.months} 个月）` +
             (res.credits_granted ? `，获得 ${res.credits_granted} 积分` : ""),
         );
       }
