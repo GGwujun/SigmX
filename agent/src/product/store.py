@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 12
+_SCHEMA_VERSION = 13
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -454,6 +454,24 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_datahub_budget_holds_credential_expires
                 ON datahub_budget_holds(credential_id, expires_at);
+            CREATE TABLE IF NOT EXISTS personal_notifications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                read_at TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_personal_notifications_user_created
+                ON personal_notifications(user_id, created_at);
+            CREATE TABLE IF NOT EXISTS notification_preferences (
+                user_id TEXT PRIMARY KEY,
+                budget_alerts INTEGER NOT NULL DEFAULT 1,
+                product_updates INTEGER NOT NULL DEFAULT 1,
+                cloud_tasks INTEGER NOT NULL DEFAULT 1,
+                updated_at TEXT NOT NULL
+            );
 
             CREATE TABLE IF NOT EXISTS saved_queries (
                 id TEXT PRIMARY KEY,

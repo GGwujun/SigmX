@@ -103,6 +103,21 @@ export interface BillingSummary {
   }>;
 }
 
+export interface PersonalNotification {
+  id: string;
+  kind: string;
+  title: string;
+  body: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationPreferences {
+  budget_alerts: boolean;
+  product_updates: boolean;
+  cloud_tasks: boolean;
+}
+
 export interface DeviceItem {
   id: string;
   name: string;
@@ -363,6 +378,27 @@ export async function listOrders(): Promise<OrderItem[]> {
 
 export async function getBillingSummary(days = 30): Promise<BillingSummary> {
   return productRequest<BillingSummary>(`/api/billing/summary?days=${days}`);
+}
+
+export async function listNotifications(): Promise<PersonalNotification[]> {
+  const data = await productRequest<{ items: PersonalNotification[] }>("/api/notifications?limit=100");
+  return data.items;
+}
+
+export async function markNotificationRead(id: string): Promise<void> {
+  await productRequest(`/api/notifications/${encodeURIComponent(id)}/read`, { method: "POST" });
+}
+
+export async function getNotificationPreferences(): Promise<NotificationPreferences> {
+  return productRequest<NotificationPreferences>("/api/notification-preferences");
+}
+
+export async function putNotificationPreferences(
+  preferences: NotificationPreferences,
+): Promise<NotificationPreferences> {
+  return productRequest<NotificationPreferences>("/api/notification-preferences", {
+    method: "PUT", body: JSON.stringify(preferences),
+  });
 }
 
 export async function listDevices(): Promise<DeviceItem[]> {

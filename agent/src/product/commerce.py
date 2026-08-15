@@ -208,6 +208,16 @@ class CommerceService:
                     months, idempotency_key, code_hash, _now_iso(), _now_iso(),
                 ),
             )
+            from src.product.notifications import PersonalNotificationService
+
+            PersonalNotificationService(self.store).emit(
+                user_id,
+                "product",
+                "套餐已开通",
+                f"{plan_row['name_zh']} 已开通 {months} 个月",
+                event_id=f"product:{order_id}",
+                conn=conn,
+            )
 
             # 5. Grant the membership window.
             now = _now()
@@ -331,6 +341,16 @@ class CommerceService:
                     uuid.uuid4().hex, user_id, user_id, f"activated {pack['code']}",
                     json.dumps({"order_id": order_id, "credits": int(pack["credits"])}), now_iso,
                 ),
+            )
+            from src.product.notifications import PersonalNotificationService
+
+            PersonalNotificationService(self.store).emit(
+                user_id,
+                "product",
+                "Data Credit 积分包已到账",
+                f"{pack['name_zh']} 已发放，有效期 {pack['valid_days']} 天",
+                event_id=f"product:{order_id}",
+                conn=conn,
             )
         return ActivationResult(order_id, pack["code"], 0, int(pack["credits"]), False)
 

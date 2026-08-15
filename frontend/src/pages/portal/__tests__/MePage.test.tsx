@@ -10,6 +10,10 @@ const productApi = vi.hoisted(() => ({
   getDataCreditBalance: vi.fn(),
   getDataHubUsage: vi.fn(),
   listDevices: vi.fn(),
+  listNotifications: vi.fn(),
+  markNotificationRead: vi.fn(),
+  getNotificationPreferences: vi.fn(),
+  putNotificationPreferences: vi.fn(),
 }));
 const cloudApi = vi.hoisted(() => ({
   listQueries: vi.fn(), listWatchlist: vi.fn(), listReports: vi.fn(),
@@ -61,6 +65,10 @@ describe("MePage", () => {
         revoked_at: null,
       },
     ]);
+    productApi.listNotifications.mockReset().mockResolvedValue([{ id: "budget:k1:2026-08-15:80", kind: "budget", title: "Data Hub 预算达到 80%", body: "研究脚本今日已使用 80/100 Data Credit", read_at: null, created_at: "2026-08-15T00:00:00Z" }]);
+    productApi.markNotificationRead.mockReset().mockResolvedValue(undefined);
+    productApi.getNotificationPreferences.mockReset().mockResolvedValue({ budget_alerts: true, product_updates: true, cloud_tasks: true });
+    productApi.putNotificationPreferences.mockReset().mockImplementation(async (value) => value);
     cloudApi.listQueries.mockReset().mockResolvedValue([{ id: "q1", query: "低估值 高股息", result_summary: { matches: 2 }, created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listWatchlist.mockReset().mockResolvedValue([{ symbol: "600519.SH", name: "贵州茅台", created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listReports.mockReset().mockResolvedValue([{ id: "r1", slug: "public-report", title: "贵州茅台简析", summary: "摘要", created_at: "2026-08-15T00:00:00Z", revoked_at: null }]);
@@ -106,5 +114,15 @@ describe("MePage", () => {
     expect(screen.getByText("pro_bundle")).toBeInTheDocument();
     expect(screen.getByText("900")).toBeInTheDocument();
     expect(screen.getByText("149,880")).toBeInTheDocument();
+  });
+
+  it("shows personal notifications, marks them read, and updates preferences", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Data Hub 预算达到 80%/ }));
+    expect(productApi.markNotificationRead).toHaveBeenCalledWith("budget:k1:2026-08-15:80");
+    fireEvent.click(screen.getByLabelText("套餐与积分到账"));
+    expect(productApi.putNotificationPreferences).toHaveBeenCalledWith({
+      budget_alerts: true, product_updates: false, cloud_tasks: true,
+    });
   });
 });

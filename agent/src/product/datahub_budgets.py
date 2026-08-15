@@ -142,14 +142,29 @@ class DataHubBudgetService:
         spent = self._spent(conn, credential_id)
         date = self._now().date().isoformat()
         now = self._now().isoformat()
+        credential = conn.execute(
+            "SELECT name FROM datahub_credentials WHERE id=? AND user_id=?",
+            (credential_id, user_id),
+        ).fetchone()
         for threshold in (50, 80, 100):
             if spent * 100 >= limit * threshold:
-                conn.execute(
+                cursor = conn.execute(
                     "INSERT OR IGNORE INTO datahub_budget_events "
                     "(credential_id,user_id,utc_date,threshold_percent,spent,daily_limit,created_at) "
                     "VALUES (?,?,?,?,?,?,?)",
                     (credential_id, user_id, date, threshold, spent, limit, now),
                 )
+                if cursor.rowcount > 0:
+                    from src.product.notifications import PersonalNotificationService
+
+                    PersonalNotificationService(self.store).emit(
+                        user_id,
+                        "budget",
+                        f"Data Hub 预算达到 {threshold}%",
+                        f"{credential['name'] if credential else 'Credential'} 今日已使用 {spent}/{limit} Data Credit",
+                        event_id=f"budget:{credential_id}:{date}:{threshold}",
+                        conn=conn,
+                    )
 
     def list_events(self, user_id: str, limit: int = 100) -> list[BudgetAlert]:
         rows = self.store._get_conn().execute(

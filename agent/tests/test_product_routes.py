@@ -32,6 +32,7 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._ledger = CreditLedger(store)
     pr._commerce = CommerceService(store, pr._ledger)
     pr._devices = DeviceService(store)
+    pr._notification_service = None
 
     yield store
 
@@ -40,6 +41,7 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._ledger = None
     pr._commerce = None
     pr._devices = None
+    pr._notification_service = None
 
 
 def test_catalog_endpoint_serializes_personal_plans_only() -> None:

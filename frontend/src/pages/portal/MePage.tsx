@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import {
   ArrowRight,
   BarChart3,
+  Bell,
   Cloud,
   Coins,
   Database,
@@ -18,11 +19,17 @@ import {
   getDataHubUsage,
   getMyEntitlements,
   listDevices,
+  listNotifications,
+  markNotificationRead,
+  getNotificationPreferences,
+  putNotificationPreferences,
   type CreditsBalanceResponse,
   type DataCreditBalance,
   type DataHubUsage,
   type DeviceItem,
   type EntitlementsResponse,
+  type NotificationPreferences,
+  type PersonalNotification,
 } from "@/lib/productApi";
 import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@/lib/cloudResearchApi";
 
@@ -35,6 +42,8 @@ interface ProductState {
   queries: CloudSavedQuery[] | null;
   watchlist: CloudWatchlistItem[] | null;
   reports: CloudReport[] | null;
+  notifications: PersonalNotification[] | null;
+  notificationPreferences: NotificationPreferences | null;
 }
 
 const EMPTY_STATE: ProductState = {
@@ -46,6 +55,8 @@ const EMPTY_STATE: ProductState = {
   queries: null,
   watchlist: null,
   reports: null,
+  notifications: null,
+  notificationPreferences: null,
 };
 
 function formatNumber(value: number): string {
@@ -70,6 +81,8 @@ export function MePage() {
       cloudResearchApi.listQueries(),
       cloudResearchApi.listWatchlist(),
       cloudResearchApi.listReports(),
+      listNotifications(),
+      getNotificationPreferences(),
     ] as const);
 
     setState({
@@ -81,6 +94,8 @@ export function MePage() {
       queries: results[5].status === "fulfilled" ? results[5].value : null,
       watchlist: results[6].status === "fulfilled" ? results[6].value : null,
       reports: results[7].status === "fulfilled" ? results[7].value : null,
+      notifications: results[8].status === "fulfilled" ? results[8].value : null,
+      notificationPreferences: results[9].status === "fulfilled" ? results[9].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -99,6 +114,28 @@ export function MePage() {
       setDesktopLink((await cloudResearchApi.createHandoff(kind, payload)).deep_link);
     } catch (error) {
       setHandoffError(error instanceof Error ? error.message : "暂时无法创建 Desktop 任务");
+    }
+  };
+
+  const readNotification = async (id: string) => {
+    await markNotificationRead(id);
+    setState((current) => ({
+      ...current,
+      notifications: current.notifications?.map((item) =>
+        item.id === id ? { ...item, read_at: new Date().toISOString() } : item
+      ) ?? null,
+    }));
+  };
+
+  const changePreference = async (key: keyof NotificationPreferences, value: boolean) => {
+    if (!state.notificationPreferences) return;
+    const next = { ...state.notificationPreferences, [key]: value };
+    setState((current) => ({ ...current, notificationPreferences: next }));
+    try {
+      const saved = await putNotificationPreferences(next);
+      setState((current) => ({ ...current, notificationPreferences: saved }));
+    } catch {
+      setHasError(true);
     }
   };
 
@@ -176,6 +213,26 @@ export function MePage() {
         <AssetList icon={BarChart3} title="我的自选" empty="尚未同步云自选。" items={(state.watchlist ?? []).map((item) => ({ key: item.symbol, title: item.name || item.symbol, detail: item.symbol, to: `/stock/${item.symbol}`, handoff: () => createHandoff("instrument", { symbol: item.symbol }) }))} unavailable={state.watchlist === null && !loading} />
         <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}`, handoff: () => createHandoff("saved_query", { query: item.query, saved_query_id: item.id }) }))} unavailable={state.queries === null && !loading} />
         <AssetList icon={Cloud} title="我的报告" empty="尚未发布脱敏报告快照。" items={(state.reports ?? []).filter((item) => !item.revoked_at).map((item) => ({ key: item.id, title: item.title, detail: "打开公开快照", to: `/research/${item.slug}` }))} unavailable={state.reports === null && !loading} />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+        <div className="rounded-md border bg-card p-4">
+          <div className="flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /><h2 className="text-sm font-semibold">通知</h2></div>
+          <div className="mt-3 space-y-2">
+            {state.notifications?.length === 0 && <p className="text-xs text-muted-foreground">暂无通知。</p>}
+            {(state.notifications ?? []).slice(0, 10).map((item) => <button key={item.id} type="button" onClick={() => void readNotification(item.id)} className="block w-full rounded-md border px-3 py-2 text-left"><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium">{item.title}</span>{!item.read_at && <span className="h-2 w-2 rounded-full bg-primary" aria-label="未读" />}</div><p className="mt-1 text-xs text-muted-foreground">{item.body}</p></button>)}
+          </div>
+        </div>
+        <div className="rounded-md border bg-card p-4">
+          <h2 className="text-sm font-semibold">通知偏好</h2>
+          <div className="mt-3 space-y-3 text-sm">
+            {state.notificationPreferences && ([
+              ["budget_alerts", "Data Hub 预算告警"],
+              ["product_updates", "套餐与积分到账"],
+              ["cloud_tasks", "云任务状态"],
+            ] as const).map(([key, label]) => <label key={key} className="flex items-center justify-between gap-3"><span>{label}</span><input aria-label={label} type="checkbox" checked={state.notificationPreferences?.[key] ?? false} onChange={(event) => void changePreference(key, event.target.checked)} /></label>)}
+          </div>
+        </div>
       </section>
 
       {(desktopLink || handoffError) && <section className="rounded-md border border-primary/25 bg-primary/5 p-4 text-sm">

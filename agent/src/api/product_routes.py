@@ -34,6 +34,7 @@ from src.product.credits import CreditLedger
 from src.product.data_credits import DataCreditLedger
 from src.product.datahub_catalog import DataHubEndpointCatalog
 from src.product.datahub_budgets import DataHubBudgetService
+from src.product.notifications import PersonalNotificationService
 from src.product.datahub_credentials import (
     CredentialLimitReached,
     CredentialNotFound,
@@ -65,6 +66,7 @@ _credential_service: DataHubCredentialService | None = None
 _cloud_research: CloudResearchService | None = None
 _research_handoffs: ResearchHandoffService | None = None
 _budget_service: DataHubBudgetService | None = None
+_notification_service: PersonalNotificationService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -135,6 +137,13 @@ def _get_budget_service() -> DataHubBudgetService:
     if _budget_service is None:
         _budget_service = DataHubBudgetService(_get_store())
     return _budget_service
+
+
+def _get_notifications() -> PersonalNotificationService:
+    global _notification_service
+    if _notification_service is None:
+        _notification_service = PersonalNotificationService(_get_store())
+    return _notification_service
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +241,29 @@ class BillingSummaryResponse(BaseModel):
     research_credits_consumed: int
     data_credits_consumed: int
     daily: list[BillingDailyItem]
+
+
+class NotificationItem(BaseModel):
+    id: str
+    kind: str
+    title: str
+    body: str
+    read_at: str | None
+    created_at: str
+
+
+class NotificationsResponse(BaseModel):
+    items: list[NotificationItem]
+
+
+class NotificationPreferencesResponse(BaseModel):
+    budget_alerts: bool
+    product_updates: bool
+    cloud_tasks: bool
+
+
+class PutNotificationPreferencesRequest(NotificationPreferencesResponse):
+    pass
 
 
 class CreateActivationCodeRequest(BaseModel):
@@ -1111,6 +1143,43 @@ async def billing_summary(
         data_credits_consumed=sum(int(row["amount_settled"] or 0) for row in data),
         daily=[BillingDailyItem(date=date, **values) for date, values in sorted(daily.items())],
     )
+
+
+@_router.get("/api/notifications", response_model=NotificationsResponse)
+async def list_notifications(
+    limit: int = Query(100, ge=1, le=500), user: dict = Depends(require_user)
+) -> NotificationsResponse:
+    return NotificationsResponse(items=[
+        NotificationItem(**vars(item)) for item in _get_notifications().list(user["id"], limit)
+    ])
+
+
+@_router.post("/api/notifications/{notification_id}/read")
+async def read_notification(
+    notification_id: str, user: dict = Depends(require_user)
+) -> dict:
+    if not _get_notifications().mark_read(user["id"], notification_id):
+        raise HTTPException(status_code=404, detail="notification not found")
+    return {"ok": True}
+
+
+@_router.get(
+    "/api/notification-preferences", response_model=NotificationPreferencesResponse
+)
+async def get_notification_preferences(
+    user: dict = Depends(require_user),
+) -> NotificationPreferencesResponse:
+    return NotificationPreferencesResponse(**vars(_get_notifications().preferences(user["id"])))
+
+
+@_router.put(
+    "/api/notification-preferences", response_model=NotificationPreferencesResponse
+)
+async def put_notification_preferences(
+    body: PutNotificationPreferencesRequest, user: dict = Depends(require_user)
+) -> NotificationPreferencesResponse:
+    preferences = _get_notifications().set_preferences(user["id"], **body.model_dump())
+    return NotificationPreferencesResponse(**vars(preferences))
 
 
 # --- Devices (require_user) ------------------------------------------

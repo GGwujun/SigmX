@@ -17,7 +17,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Personal bills and consumption insight | `/api/billing/summary`, paid order amount, 30-day Research/Data Credit consumption, account display | In progress in current change |
 | Real checkout/payment/refund | Provider protocol exists; only activation-code provider is operational | Missing: signed Alipay/WeChat provider and production credentials; explicitly excluded from first-phase §15 but required by rollout §13.7 |
 | Purchased Data Credit packs | Server-driven 10k/50k/200k pack catalog; hashed prepaid codes; atomic order, `purchase` lot, 365-day expiry, audit; personal/admin UI | Complete for the operational activation-code payment channel |
-| Personal notifications/subscriptions | Data Hub threshold events exist | Missing unified notification inbox/preferences and query/report subscriptions |
+| Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; `/me` UI | Notification center complete; saved-query/report delivery subscriptions remain missing |
 | Operations console | Activation-code generation and immutable activation audit | Partial: product/price editing, refund workflow, credit adjustment, device/credential operations, content and funnel views missing |
 | Metrics and funnel | Domain events and usage records exist in parts | Missing consolidated weekly-effective-research and conversion funnel reporting |
 | SSR/static public delivery | React public SPA exists | Missing production SSR/static generation and SEO artifact verification |
@@ -27,7 +27,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 ## Next implementation order
 
 1. Finish personal billing summary and account bill view.
-2. Add unified personal notifications/preferences from budget, cloud task and subscription events.
+2. Add saved-query/report subscriptions and cloud-task completion events.
 3. Expand operations and funnel metrics.
 4. Add public static/SSR output and Data Hub SDK/CLI packaging.
 5. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
