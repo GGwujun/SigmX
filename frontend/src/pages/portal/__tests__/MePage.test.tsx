@@ -14,6 +14,9 @@ const productApi = vi.hoisted(() => ({
   markNotificationRead: vi.fn(),
   getNotificationPreferences: vi.fn(),
   putNotificationPreferences: vi.fn(),
+  listSavedQuerySubscriptions: vi.fn(),
+  putSavedQuerySubscription: vi.fn(),
+  deleteSavedQuerySubscription: vi.fn(),
 }));
 const cloudApi = vi.hoisted(() => ({
   listQueries: vi.fn(), listWatchlist: vi.fn(), listReports: vi.fn(),
@@ -69,6 +72,9 @@ describe("MePage", () => {
     productApi.markNotificationRead.mockReset().mockResolvedValue(undefined);
     productApi.getNotificationPreferences.mockReset().mockResolvedValue({ budget_alerts: true, product_updates: true, cloud_tasks: true });
     productApi.putNotificationPreferences.mockReset().mockImplementation(async (value) => value);
+    productApi.listSavedQuerySubscriptions.mockReset().mockResolvedValue([]);
+    productApi.putSavedQuerySubscription.mockReset().mockResolvedValue({ id: "s1", saved_query_id: "q1", query: "低估值 高股息", frequency: "weekly", next_run_at: "2026-08-22T00:00:00Z", last_run_at: null, created_at: "2026-08-15T00:00:00Z" });
+    productApi.deleteSavedQuerySubscription.mockReset().mockResolvedValue(undefined);
     cloudApi.listQueries.mockReset().mockResolvedValue([{ id: "q1", query: "低估值 高股息", result_summary: { matches: 2 }, created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listWatchlist.mockReset().mockResolvedValue([{ symbol: "600519.SH", name: "贵州茅台", created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listReports.mockReset().mockResolvedValue([{ id: "r1", slug: "public-report", title: "贵州茅台简析", summary: "摘要", created_at: "2026-08-15T00:00:00Z", revoked_at: null }]);
@@ -86,7 +92,7 @@ describe("MePage", () => {
   it("renders real personal cloud assets instead of planning placeholders", async () => {
     renderPage();
     expect(await screen.findByText("贵州茅台")).toBeInTheDocument();
-    expect(screen.getByText("低估值 高股息")).toBeInTheDocument();
+    expect(screen.getAllByText("低估值 高股息")).toHaveLength(2);
     expect(screen.getByText("贵州茅台简析")).toBeInTheDocument();
     expect(screen.queryByText("规划中")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /打开公开快照/ })).toHaveAttribute("href", "/research/public-report");
@@ -124,5 +130,12 @@ describe("MePage", () => {
     expect(productApi.putNotificationPreferences).toHaveBeenCalledWith({
       budget_alerts: true, product_updates: false, cloud_tasks: true,
     });
+  });
+
+  it("subscribes a saved query to a personal weekly review", async () => {
+    renderPage();
+    fireEvent.change(await screen.findByLabelText("复查频率：低估值 高股息"), { target: { value: "weekly" } });
+    expect(productApi.putSavedQuerySubscription).toHaveBeenCalledWith("q1", "weekly");
+    expect(await screen.findByText("下次提醒：2026-08-22")).toBeInTheDocument();
   });
 });

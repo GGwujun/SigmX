@@ -23,6 +23,9 @@ import {
   markNotificationRead,
   getNotificationPreferences,
   putNotificationPreferences,
+  listSavedQuerySubscriptions,
+  putSavedQuerySubscription,
+  deleteSavedQuerySubscription,
   type CreditsBalanceResponse,
   type DataCreditBalance,
   type DataHubUsage,
@@ -30,6 +33,7 @@ import {
   type EntitlementsResponse,
   type NotificationPreferences,
   type PersonalNotification,
+  type SavedQuerySubscription,
 } from "@/lib/productApi";
 import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@/lib/cloudResearchApi";
 
@@ -44,6 +48,7 @@ interface ProductState {
   reports: CloudReport[] | null;
   notifications: PersonalNotification[] | null;
   notificationPreferences: NotificationPreferences | null;
+  querySubscriptions: SavedQuerySubscription[] | null;
 }
 
 const EMPTY_STATE: ProductState = {
@@ -57,6 +62,7 @@ const EMPTY_STATE: ProductState = {
   reports: null,
   notifications: null,
   notificationPreferences: null,
+  querySubscriptions: null,
 };
 
 function formatNumber(value: number): string {
@@ -83,6 +89,7 @@ export function MePage() {
       cloudResearchApi.listReports(),
       listNotifications(),
       getNotificationPreferences(),
+      listSavedQuerySubscriptions(),
     ] as const);
 
     setState({
@@ -96,6 +103,7 @@ export function MePage() {
       reports: results[7].status === "fulfilled" ? results[7].value : null,
       notifications: results[8].status === "fulfilled" ? results[8].value : null,
       notificationPreferences: results[9].status === "fulfilled" ? results[9].value : null,
+      querySubscriptions: results[10].status === "fulfilled" ? results[10].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -134,6 +142,30 @@ export function MePage() {
     try {
       const saved = await putNotificationPreferences(next);
       setState((current) => ({ ...current, notificationPreferences: saved }));
+    } catch {
+      setHasError(true);
+    }
+  };
+
+  const changeQuerySubscription = async (savedQueryId: string, frequency: "off" | "daily" | "weekly") => {
+    try {
+      const existing = state.querySubscriptions?.find((item) => item.saved_query_id === savedQueryId);
+      if (frequency === "off") {
+        if (existing) await deleteSavedQuerySubscription(existing.id);
+        setState((current) => ({
+          ...current,
+          querySubscriptions: current.querySubscriptions?.filter((item) => item.saved_query_id !== savedQueryId) ?? null,
+        }));
+        return;
+      }
+      const saved = await putSavedQuerySubscription(savedQueryId, frequency);
+      setState((current) => ({
+        ...current,
+        querySubscriptions: [
+          ...(current.querySubscriptions ?? []).filter((item) => item.saved_query_id !== savedQueryId),
+          saved,
+        ],
+      }));
     } catch {
       setHasError(true);
     }
@@ -214,6 +246,22 @@ export function MePage() {
         <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}`, handoff: () => createHandoff("saved_query", { query: item.query, saved_query_id: item.id }) }))} unavailable={state.queries === null && !loading} />
         <AssetList icon={Cloud} title="我的报告" empty="尚未发布脱敏报告快照。" items={(state.reports ?? []).filter((item) => !item.revoked_at).map((item) => ({ key: item.id, title: item.title, detail: "打开公开快照", to: `/research/${item.slug}` }))} unavailable={state.reports === null && !loading} />
       </section>
+
+      {(state.queries?.length ?? 0) > 0 && <section className="rounded-md border bg-card p-4">
+        <div className="flex items-center gap-2"><RefreshCw className="h-4 w-4 text-primary" /><h2 className="text-sm font-semibold">查询复查订阅</h2></div>
+        <p className="mt-1 text-xs text-muted-foreground">按日或按周提醒你复查保存的云端查询；结果仍由你决定是否交给 Desktop 深入研究。</p>
+        <div className="mt-3 divide-y">
+          {(state.queries ?? []).map((query) => {
+            const subscription = state.querySubscriptions?.find((item) => item.saved_query_id === query.id);
+            return <div key={query.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
+              <div><p className="text-sm font-medium">{query.query}</p>{subscription && <p className="mt-1 text-xs text-muted-foreground">下次提醒：{subscription.next_run_at.slice(0, 10)}</p>}</div>
+              <select aria-label={`复查频率：${query.query}`} value={subscription?.frequency ?? "off"} onChange={(event) => void changeQuerySubscription(query.id, event.target.value as "off" | "daily" | "weekly")} className="h-9 rounded-md border bg-background px-3 text-sm">
+                <option value="off">不订阅</option><option value="daily">每天</option><option value="weekly">每周</option>
+              </select>
+            </div>;
+          })}
+        </div>
+      </section>}
 
       <section className="grid gap-4 lg:grid-cols-[2fr_1fr]">
         <div className="rounded-md border bg-card p-4">

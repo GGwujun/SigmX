@@ -118,6 +118,16 @@ export interface NotificationPreferences {
   cloud_tasks: boolean;
 }
 
+export interface SavedQuerySubscription {
+  id: string;
+  saved_query_id: string;
+  query: string;
+  frequency: "daily" | "weekly";
+  next_run_at: string;
+  last_run_at: string | null;
+  created_at: string;
+}
+
 export interface AdminProductMetrics {
   period_days: number;
   active_entitled_users: number;
@@ -412,6 +422,25 @@ export async function putNotificationPreferences(
   return productRequest<NotificationPreferences>("/api/notification-preferences", {
     method: "PUT", body: JSON.stringify(preferences),
   });
+}
+
+export async function listSavedQuerySubscriptions(): Promise<SavedQuerySubscription[]> {
+  const data = await productRequest<{ items: SavedQuerySubscription[] }>("/api/cloud/query-subscriptions");
+  return data.items;
+}
+
+export async function putSavedQuerySubscription(
+  savedQueryId: string,
+  frequency: SavedQuerySubscription["frequency"],
+): Promise<SavedQuerySubscription> {
+  return productRequest<SavedQuerySubscription>("/api/cloud/query-subscriptions", {
+    method: "PUT",
+    body: JSON.stringify({ saved_query_id: savedQueryId, frequency }),
+  });
+}
+
+export async function deleteSavedQuerySubscription(id: string): Promise<void> {
+  await productRequest(`/api/cloud/query-subscriptions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function listDevices(): Promise<DeviceItem[]> {

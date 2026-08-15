@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 13
+_SCHEMA_VERSION = 14
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -472,6 +472,18 @@ class ProductStore:
                 cloud_tasks INTEGER NOT NULL DEFAULT 1,
                 updated_at TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS saved_query_subscriptions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                saved_query_id TEXT NOT NULL,
+                frequency TEXT NOT NULL CHECK (frequency IN ('daily','weekly')),
+                next_run_at TEXT NOT NULL,
+                last_run_at TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(user_id, saved_query_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_saved_query_subscriptions_due
+                ON saved_query_subscriptions(user_id, next_run_at);
 
             CREATE TABLE IF NOT EXISTS saved_queries (
                 id TEXT PRIMARY KEY,

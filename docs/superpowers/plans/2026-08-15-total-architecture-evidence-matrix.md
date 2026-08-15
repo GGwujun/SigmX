@@ -14,10 +14,10 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Four personal products | `free`, `desktop_pro`, `data_developer`, `pro_bundle`; old personal/enterprise codes removed; server-driven names/prices | Complete |
 | Double-credit separation | Independent stores, lots, ledgers, authorization/reservation and settlement paths | Complete |
 | Personal renewal | Same-plan activation extends from current expiry | Complete |
-| Personal bills and consumption insight | `/api/billing/summary`, paid order amount, 30-day Research/Data Credit consumption, account display | In progress in current change |
+| Personal bills and consumption insight | `/api/billing/summary`, paid order amount, 30-day Research/Data Credit consumption, account display | Complete |
 | Real checkout/payment/refund | Provider protocol exists; only activation-code provider is operational | Missing: signed Alipay/WeChat provider and production credentials; explicitly excluded from first-phase §15 but required by rollout §13.7 |
 | Purchased Data Credit packs | Server-driven 10k/50k/200k pack catalog; hashed prepaid codes; atomic order, `purchase` lot, 365-day expiry, audit; personal/admin UI | Complete for the operational activation-code payment channel |
-| Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; `/me` UI | Notification center complete; saved-query/report delivery subscriptions remain missing |
+| Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; personal daily/weekly saved-query review subscriptions and idempotent due notifications; `/me` UI | Complete for personal saved-query review; published report delivery is intentionally not duplicated because reports are immutable snapshots |
 | Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics | Partial: catalog editing, external-payment refund, credit adjustment, device/credential operations and content controls remain missing |
 | Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost and deduplicated weekly effective research users | Product/engagement metrics complete; anonymous conversion event funnel remains missing |
 | SSR/static public delivery | FastAPI public-route allowlist injects escaped semantic HTML, canonical/OG metadata and JSON-LD into built Vite shell; private routes excluded; artifact verified | Complete |
@@ -26,7 +26,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 
 ## Next implementation order
 
-1. Finish personal billing summary and account bill view.
-2. Add saved-query/report subscriptions and cloud-task completion events.
-3. Expand operations and funnel metrics.
-4. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
+1. Add the anonymous conversion event funnel and expose it in personal-product operations metrics.
+2. Expand safe personal operations controls where domain services already support auditable mutations.
+3. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
+4. Run the scoped completion gates and record the repository-wide baseline separately.

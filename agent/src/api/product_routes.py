@@ -35,6 +35,7 @@ from src.product.data_credits import DataCreditLedger
 from src.product.datahub_catalog import DataHubEndpointCatalog
 from src.product.datahub_budgets import DataHubBudgetService
 from src.product.notifications import PersonalNotificationService
+from src.product.subscriptions import SavedQuerySubscriptionService
 from src.product.datahub_credentials import (
     CredentialLimitReached,
     CredentialNotFound,
@@ -67,6 +68,7 @@ _cloud_research: CloudResearchService | None = None
 _research_handoffs: ResearchHandoffService | None = None
 _budget_service: DataHubBudgetService | None = None
 _notification_service: PersonalNotificationService | None = None
+_subscription_service: SavedQuerySubscriptionService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -144,6 +146,13 @@ def _get_notifications() -> PersonalNotificationService:
     if _notification_service is None:
         _notification_service = PersonalNotificationService(_get_store())
     return _notification_service
+
+
+def _get_subscriptions() -> SavedQuerySubscriptionService:
+    global _subscription_service
+    if _subscription_service is None:
+        _subscription_service = SavedQuerySubscriptionService(_get_store())
+    return _subscription_service
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +286,25 @@ class AdminProductMetricsResponse(BaseModel):
     datahub_success_rate: float
     data_credits_charged: int
     weekly_effective_research_users: int
+
+
+class SavedQuerySubscriptionItem(BaseModel):
+    id: str
+    saved_query_id: str
+    query: str
+    frequency: str
+    next_run_at: str
+    last_run_at: str | None
+    created_at: str
+
+
+class SavedQuerySubscriptionsResponse(BaseModel):
+    items: list[SavedQuerySubscriptionItem]
+
+
+class PutSavedQuerySubscriptionRequest(BaseModel):
+    saved_query_id: str
+    frequency: str
 
 
 class CreateActivationCodeRequest(BaseModel):
@@ -1162,9 +1190,43 @@ async def billing_summary(
 async def list_notifications(
     limit: int = Query(100, ge=1, le=500), user: dict = Depends(require_user)
 ) -> NotificationsResponse:
+    _get_subscriptions().process_due(user["id"])
     return NotificationsResponse(items=[
         NotificationItem(**vars(item)) for item in _get_notifications().list(user["id"], limit)
     ])
+
+
+@_router.get(
+    "/api/cloud/query-subscriptions", response_model=SavedQuerySubscriptionsResponse
+)
+async def list_saved_query_subscriptions(
+    user: dict = Depends(require_user),
+) -> SavedQuerySubscriptionsResponse:
+    return SavedQuerySubscriptionsResponse(items=[
+        SavedQuerySubscriptionItem(**vars(item)) for item in _get_subscriptions().list(user["id"])
+    ])
+
+
+@_router.put(
+    "/api/cloud/query-subscriptions", response_model=SavedQuerySubscriptionItem
+)
+async def put_saved_query_subscription(
+    body: PutSavedQuerySubscriptionRequest, user: dict = Depends(require_user)
+) -> SavedQuerySubscriptionItem:
+    try:
+        item = _get_subscriptions().create(user["id"], body.saved_query_id, body.frequency)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return SavedQuerySubscriptionItem(**vars(item))
+
+
+@_router.delete("/api/cloud/query-subscriptions/{subscription_id}")
+async def delete_saved_query_subscription(
+    subscription_id: str, user: dict = Depends(require_user)
+) -> dict:
+    if not _get_subscriptions().delete(user["id"], subscription_id):
+        raise HTTPException(status_code=404, detail="subscription not found")
+    return {"ok": True}
 
 
 @_router.post("/api/notifications/{notification_id}/read")
