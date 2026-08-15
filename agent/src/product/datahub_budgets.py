@@ -75,6 +75,13 @@ class DataHubBudgetService:
         limit = int(row["daily_limit"])
         return CredentialBudget(credential_id, limit, spent, max(0, limit - spent), self._now().date().isoformat())
 
+    def list(self, user_id: str) -> list[CredentialBudget]:
+        rows = self.store._get_conn().execute(
+            "SELECT credential_id FROM datahub_credential_budgets WHERE user_id=? ORDER BY updated_at DESC",
+            (user_id,),
+        ).fetchall()
+        return [budget for row in rows if (budget := self.get(user_id, row["credential_id"])) is not None]
+
     def check(self, user_id: str, credential_id: str, credits_authorized: int) -> None:
         budget = self.get(user_id, credential_id)
         if budget and budget.spent_today + credits_authorized > budget.daily_limit:

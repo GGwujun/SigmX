@@ -225,6 +225,23 @@ export interface DataHubUsage {
   }>;
 }
 
+export interface DataHubRequestLog {
+  request_id: string; credential_id: string; credential_name: string; key_prefix: string;
+  endpoint_code: string; status_code: number; requested_units: number; actual_units: number;
+  credits_authorized: number; credits_charged: number; duration_ms: number;
+  error_code: string | null; created_at: string;
+}
+
+export interface DataHubBudget {
+  credential_id: string; daily_limit: number; spent_today: number;
+  remaining_today: number; utc_date: string;
+}
+
+export interface DataHubBudgetAlert {
+  credential_id: string; credential_name: string; utc_date: string;
+  threshold_percent: number; spent: number; daily_limit: number; created_at: string;
+}
+
 export async function getDataCreditBalance(): Promise<DataCreditBalance> {
   return productRequest<DataCreditBalance>("/api/data-credits/me");
 }
@@ -272,6 +289,27 @@ export async function getDataHubUsage(): Promise<DataHubUsage> {
 
 export async function getDataHubCatalog(): Promise<DataHubEndpoint[]> {
   const data = await productRequest<{ items: DataHubEndpoint[] }>("/api/datahub/catalog");
+  return data.items;
+}
+
+export async function getDataHubLogs(errorsOnly = false): Promise<DataHubRequestLog[]> {
+  const data = await productRequest<{ items: DataHubRequestLog[] }>(`/api/datahub/logs?limit=50&errors_only=${errorsOnly}`);
+  return data.items;
+}
+
+export async function setDataHubBudget(id: string, dailyLimit: number | null): Promise<DataHubBudget | null> {
+  return productRequest<DataHubBudget | null>(`/api/datahub/credentials/${id}/budget`, {
+    method: "PUT", body: JSON.stringify({ daily_limit: dailyLimit }),
+  });
+}
+
+export async function getDataHubBudgets(): Promise<DataHubBudget[]> {
+  const data = await productRequest<{ items: DataHubBudget[] }>("/api/datahub/budgets");
+  return data.items;
+}
+
+export async function getDataHubBudgetAlerts(): Promise<DataHubBudgetAlert[]> {
+  const data = await productRequest<{ items: DataHubBudgetAlert[] }>("/api/datahub/budget-alerts?limit=100");
   return data.items;
 }
 

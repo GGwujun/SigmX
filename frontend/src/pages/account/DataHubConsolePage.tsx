@@ -9,6 +9,10 @@ import {
   getDataCreditLots,
   getDataHubCatalog,
   getDataHubUsage,
+  getDataHubLogs,
+  getDataHubBudgetAlerts,
+  setDataHubBudget,
+  getDataHubBudgets,
   listDataHubCredentials,
   revokeDataHubCredential,
   rotateDataHubCredential,
@@ -19,6 +23,9 @@ import {
   type DataHubCredential,
   type DataHubEndpoint,
   type DataHubUsage,
+  type DataHubRequestLog,
+  type DataHubBudgetAlert,
+  type DataHubBudget,
 } from "@/lib/productApi";
 
 export function DataHubConsolePage() {
@@ -35,12 +42,22 @@ export function DataHubConsolePage() {
   const [secret, setSecret] = useState<CreatedDataHubCredential | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [logs, setLogs] = useState<DataHubRequestLog[]>([]);
+  const [alerts, setAlerts] = useState<DataHubBudgetAlert[]>([]);
+  const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({});
+  const [budgets, setBudgets] = useState<Record<string, DataHubBudget>>({});
+  const [debugKey, setDebugKey] = useState("");
+  const [debugEndpoint, setDebugEndpoint] = useState("");
+  const [debugQuery, setDebugQuery] = useState("");
+  const [debugResult, setDebugResult] = useState("");
+  const [debugging, setDebugging] = useState(false);
+  const [errorsOnly, setErrorsOnly] = useState(false);
 
   const reload = useCallback(async () => {
     setError("");
     try {
-      const [nextBalance, nextUsage, nextCredentials, nextCatalog, nextLots, nextLedger] = await Promise.all([
-        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataHubCatalog(), getDataCreditLots(), getDataCreditLedger(),
+      const [nextBalance, nextUsage, nextCredentials, nextCatalog, nextLots, nextLedger, nextLogs, nextAlerts, nextBudgets] = await Promise.all([
+        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataHubCatalog(), getDataCreditLots(), getDataCreditLedger(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(),
       ]);
       setBalance(nextBalance);
       setUsage(nextUsage);
@@ -48,6 +65,11 @@ export function DataHubConsolePage() {
       setCatalog(nextCatalog);
       setLots(nextLots);
       setLedger(nextLedger);
+      setLogs(nextLogs);
+      setAlerts(nextAlerts);
+      setBudgets(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, item])));
+      setBudgetInputs(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, String(item.daily_limit)])));
+      setDebugEndpoint((current) => current || nextCatalog.find((item) => item.enabled && item.http_method === "GET")?.endpoint_code || "");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "加载 Data Hub 控制台失败");
     } finally {
@@ -104,6 +126,39 @@ export function DataHubConsolePage() {
     }
   };
 
+  const saveBudget = async (item: DataHubCredential) => {
+    const value = budgetInputs[item.id]?.trim() || "";
+    const dailyLimit = value ? Number(value) : null;
+    if (dailyLimit !== null && (!Number.isInteger(dailyLimit) || dailyLimit < 1)) {
+      setError("每日预算必须是正整数，留空表示不限制"); return;
+    }
+    try {
+      const saved = await setDataHubBudget(item.id, dailyLimit);
+      setBudgets((current) => { const next = { ...current }; if (saved) next[item.id] = saved; else delete next[item.id]; return next; });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "保存预算失败"); }
+  };
+
+  const debugRequest = async () => {
+    const endpoint = catalog.find((item) => item.endpoint_code === debugEndpoint && item.enabled && item.http_method === "GET");
+    if (!endpoint || !debugKey.trim()) { setError("请选择可调试接口并输入 Credential"); return; }
+    setDebugging(true); setDebugResult(""); setError("");
+    try {
+      const query = debugQuery.trim().replace(/^\?/, "");
+      const response = await fetch(`${endpoint.path_pattern}${query ? `?${new URLSearchParams(query).toString()}` : ""}`, {
+        method: "GET", headers: { Authorization: `Bearer ${debugKey.trim()}` },
+      });
+      const body = await response.text();
+      setDebugResult(`HTTP ${response.status} · Request ${response.headers.get("X-Request-ID") || "—"} · Data Credit ${response.headers.get("X-DataHub-Credits-Charged") || "0"}\n${body}`);
+    } catch (reason) { setDebugResult(`请求失败：${reason instanceof Error ? reason.message : String(reason)}`); }
+    finally { setDebugging(false); }
+  };
+
+  const filterLogs = async (onlyErrors: boolean) => {
+    setErrorsOnly(onlyErrors);
+    try { setLogs(await getDataHubLogs(onlyErrors)); }
+    catch (reason) { setError(reason instanceof Error ? reason.message : "加载日志失败"); }
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <AccountNav />
@@ -157,7 +212,7 @@ export function DataHubConsolePage() {
           {credentials.length === 0 && <p className="text-sm text-muted-foreground">尚未创建 Key。</p>}
           {credentials.map((item) => (
             <div key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3 text-sm">
-              <div><div className="font-medium">{item.name}</div><code className="text-xs text-muted-foreground">{item.key_prefix}…</code><div className="text-xs text-muted-foreground">{item.scopes.join(", ")}</div></div>
+              <div className="min-w-64"><div className="font-medium">{item.name}</div><code className="text-xs text-muted-foreground">{item.key_prefix}…</code><div className="text-xs text-muted-foreground">{item.scopes.join(", ")}</div><div className="mt-2 flex items-end gap-2"><label className="text-xs">每日 Data Credit 预算<input aria-label={`${item.name}每日预算`} type="number" min="1" value={budgetInputs[item.id] ?? ""} onChange={(event) => setBudgetInputs((current) => ({ ...current, [item.id]: event.target.value }))} placeholder="留空不限制" className="mt-1 block w-40 rounded border bg-background px-2 py-1" /></label><button aria-label={`保存${item.name}预算`} onClick={() => void saveBudget(item)} className="rounded border px-2 py-1 text-xs">保存</button></div>{budgets[item.id] && <div className="mt-1 text-xs text-muted-foreground">今日 {budgets[item.id].spent_today}/{budgets[item.id].daily_limit}，剩余 {budgets[item.id].remaining_today}</div>}</div>
               <div className="flex gap-2">
                 {!item.revoked_at && <button aria-label={`轮换 ${item.name}`} onClick={() => void rotate(item)} className="rounded border p-2"><RotateCw className="h-4 w-4" /></button>}
                 {!item.revoked_at && <button aria-label={`吊销 ${item.name}`} onClick={() => void revoke(item)} className="rounded border p-2 text-destructive"><Trash2 className="h-4 w-4" /></button>}
@@ -166,6 +221,22 @@ export function DataHubConsolePage() {
             </div>
           ))}
         </div>
+      </section>
+
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="font-semibold">预算告警</h2>
+        <div className="mt-3 space-y-2">{alerts.length === 0 ? <p className="text-sm text-muted-foreground">暂无阈值告警。</p> : alerts.slice(0, 20).map((item) => <div key={`${item.credential_id}-${item.utc_date}-${item.threshold_percent}`} className="rounded border border-warning/30 bg-warning/5 p-3 text-sm"><strong>{item.credential_name} · {item.threshold_percent}%</strong><div className="text-xs text-muted-foreground">UTC {item.utc_date} 已使用 {item.spent}/{item.daily_limit} Data Credit</div></div>)}</div>
+      </section>
+
+      <section className="rounded-xl border bg-card p-5">
+        <div className="flex items-center justify-between"><h2 className="font-semibold">请求与错误日志</h2><label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={errorsOnly} onChange={(event) => void filterLogs(event.target.checked)} />仅看错误</label></div>
+        <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b"><th className="py-2">时间</th><th>Credential</th><th>接口</th><th>状态</th><th>耗时</th><th>扣分</th><th>错误</th></tr></thead><tbody>{logs.map((item) => <tr key={item.request_id} className="border-b"><td className="py-2">{new Date(item.created_at).toLocaleString()}</td><td>{item.credential_name}</td><td><code>{item.endpoint_code}</code></td><td>{item.status_code}</td><td>{item.duration_ms}ms</td><td>{item.credits_charged}</td><td className="text-destructive">{item.error_code || "—"}</td></tr>)}</tbody></table>{logs.length === 0 && <p className="py-4 text-sm text-muted-foreground">暂无请求日志。</p>}</div>
+      </section>
+
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="font-semibold">在线调试</h2><p className="mt-1 text-xs text-muted-foreground">Credential 只保存在当前页面内存，不会写入浏览器存储。仅允许调用目录中的已启用 GET 接口。</p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm">接口<select aria-label="调试接口" value={debugEndpoint} onChange={(event) => setDebugEndpoint(event.target.value)} className="mt-1 w-full rounded border bg-background px-3 py-2">{catalog.filter((item) => item.enabled && item.http_method === "GET").map((item) => <option key={item.endpoint_code} value={item.endpoint_code}>{item.endpoint_code} · {item.path_pattern}</option>)}</select></label><label className="text-sm">Credential<input aria-label="调试 Credential" type="password" value={debugKey} onChange={(event) => setDebugKey(event.target.value)} className="mt-1 w-full rounded border bg-background px-3 py-2" /></label><label className="text-sm">Query 参数<input aria-label="调试 Query 参数" value={debugQuery} onChange={(event) => setDebugQuery(event.target.value)} placeholder="code=600519.SH&limit=10" className="mt-1 w-full rounded border bg-background px-3 py-2" /></label></div>
+        <button aria-label="发送调试请求" disabled={debugging} onClick={() => void debugRequest()} className="mt-3 rounded bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">{debugging ? "请求中…" : "发送调试请求"}</button>{debugResult && <pre className="mt-3 max-h-72 overflow-auto rounded border bg-muted/30 p-3 text-xs whitespace-pre-wrap">{debugResult}</pre>}
       </section>
 
       <section className="rounded-xl border bg-card p-5">
@@ -181,6 +252,7 @@ export function DataHubConsolePage() {
             <h2 className="font-semibold">保存你的 Data Hub Key</h2>
             <p className="mt-2 text-sm text-amber-600">该密钥仅显示一次，关闭后无法再次查看。</p>
             <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted p-3"><code className="min-w-0 flex-1 break-all">{secret.plaintext}</code><button aria-label="复制 Key" onClick={() => void navigator.clipboard?.writeText(secret.plaintext)}><Copy className="h-4 w-4" /></button></div>
+            <button className="mt-3 rounded-md border px-4 py-2 text-sm" onClick={() => { setDebugKey(secret.plaintext); setSecret(null); }}>用于在线调试</button>
             <button className="mt-5 rounded-md bg-primary px-4 py-2 text-primary-foreground" onClick={() => setSecret(null)}>我已保存</button>
           </div>
         </div>

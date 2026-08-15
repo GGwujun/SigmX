@@ -432,6 +432,10 @@ class DataHubBudgetResponse(BaseModel):
     utc_date: str
 
 
+class DataHubBudgetsResponse(BaseModel):
+    items: list[DataHubBudgetResponse]
+
+
 class DataHubBudgetAlertItem(BaseModel):
     credential_id: str
     credential_name: str
@@ -823,6 +827,15 @@ async def get_datahub_budget(
     if budget is None:
         raise HTTPException(status_code=404, detail="credential budget not found")
     return DataHubBudgetResponse(**vars(budget))
+
+
+@_router.get("/api/datahub/budgets", response_model=DataHubBudgetsResponse)
+async def list_datahub_budgets(
+    user: dict = Depends(require_user),
+) -> DataHubBudgetsResponse:
+    return DataHubBudgetsResponse(items=[
+        DataHubBudgetResponse(**vars(item)) for item in _get_budget_service().list(user["id"])
+    ])
 
 
 @_router.put(

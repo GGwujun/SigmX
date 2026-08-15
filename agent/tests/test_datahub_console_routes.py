@@ -43,6 +43,7 @@ def test_budget_crud_and_alerts_are_personal(tmp_path):
     ))
     assert budget.daily_limit == 100
     assert asyncio.run(routes.get_datahub_budget(credential.id, user={"id": "u1"})).remaining_today == 99
+    assert asyncio.run(routes.list_datahub_budgets(user={"id": "u1"})).items[0].credential_id == credential.id
     store._get_conn().execute(
         "INSERT INTO datahub_budget_events VALUES (?,?,?,?,?,?,?)",
         (credential.id, "u1", datetime.now(timezone.utc).date().isoformat(), 50, 50, 100, datetime.now(timezone.utc).isoformat()),
