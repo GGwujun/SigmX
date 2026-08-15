@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ const productApi = vi.hoisted(() => ({
 const cloudApi = vi.hoisted(() => ({
   listQueries: vi.fn(), listWatchlist: vi.fn(), listReports: vi.fn(),
   removeWatchlist: vi.fn(), revokeReport: vi.fn(),
+  createHandoff: vi.fn(),
 }));
 
 vi.mock("@/lib/productApi", () => productApi);
@@ -63,6 +64,15 @@ describe("MePage", () => {
     cloudApi.listQueries.mockReset().mockResolvedValue([{ id: "q1", query: "低估值 高股息", result_summary: { matches: 2 }, created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listWatchlist.mockReset().mockResolvedValue([{ symbol: "600519.SH", name: "贵州茅台", created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listReports.mockReset().mockResolvedValue([{ id: "r1", slug: "public-report", title: "贵州茅台简析", summary: "摘要", created_at: "2026-08-15T00:00:00Z", revoked_at: null }]);
+    cloudApi.createHandoff.mockReset().mockResolvedValue({ id: "h1", token: "sxrh_abc", deep_link: "sigmx://research/sxrh_abc", expires_at: "2026-08-15T00:10:00Z" });
+  });
+
+  it("creates an opaque one-time Desktop handoff for a saved query", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "在 Desktop 继续：低估值 高股息" }));
+    expect(await screen.findByRole("link", { name: "打开 Desktop" })).toHaveAttribute("href", "sigmx://research/sxrh_abc");
+    expect(screen.getByRole("link", { name: "尚未安装？下载 Desktop" })).toHaveAttribute("href", "/download");
+    expect(cloudApi.createHandoff).toHaveBeenCalledWith("saved_query", { query: "低估值 高股息", saved_query_id: "q1" });
   });
 
   it("renders real personal cloud assets instead of planning placeholders", async () => {

@@ -56,6 +56,8 @@ export function MePage() {
   const [state, setState] = useState<ProductState>(EMPTY_STATE);
   const [loading, setLoading] = useState(true);
   const [hasError, setHasError] = useState(false);
+  const [desktopLink, setDesktopLink] = useState<string | null>(null);
+  const [handoffError, setHandoffError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -90,6 +92,15 @@ export function MePage() {
 
   const activeDevices = state.devices?.filter((device) => !device.revoked_at).length;
   const deviceLimit = state.entitlements?.entitlements["desktop.device_limit"];
+
+  const createHandoff = async (kind: "saved_query" | "instrument", payload: Record<string, string>) => {
+    setHandoffError(null);
+    try {
+      setDesktopLink((await cloudResearchApi.createHandoff(kind, payload)).deep_link);
+    } catch (error) {
+      setHandoffError(error instanceof Error ? error.message : "暂时无法创建 Desktop 任务");
+    }
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8">
@@ -162,10 +173,14 @@ export function MePage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <AssetList icon={BarChart3} title="我的自选" empty="尚未同步云自选。" items={(state.watchlist ?? []).map((item) => ({ key: item.symbol, title: item.name || item.symbol, detail: item.symbol, to: `/stock/${item.symbol}` }))} unavailable={state.watchlist === null && !loading} />
-        <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}` }))} unavailable={state.queries === null && !loading} />
+        <AssetList icon={BarChart3} title="我的自选" empty="尚未同步云自选。" items={(state.watchlist ?? []).map((item) => ({ key: item.symbol, title: item.name || item.symbol, detail: item.symbol, to: `/stock/${item.symbol}`, handoff: () => createHandoff("instrument", { symbol: item.symbol }) }))} unavailable={state.watchlist === null && !loading} />
+        <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}`, handoff: () => createHandoff("saved_query", { query: item.query, saved_query_id: item.id }) }))} unavailable={state.queries === null && !loading} />
         <AssetList icon={Cloud} title="我的报告" empty="尚未发布脱敏报告快照。" items={(state.reports ?? []).filter((item) => !item.revoked_at).map((item) => ({ key: item.id, title: item.title, detail: "打开公开快照", to: `/research/${item.slug}` }))} unavailable={state.reports === null && !loading} />
       </section>
+
+      {(desktopLink || handoffError) && <section className="rounded-md border border-primary/25 bg-primary/5 p-4 text-sm">
+        {handoffError ? <p className="text-destructive">{handoffError}</p> : <div className="flex flex-wrap items-center gap-3"><span>一次性研究任务已就绪，10 分钟内有效。</span><a href={desktopLink!} className="font-medium text-primary">打开 Desktop</a><Link to="/download" className="text-xs text-muted-foreground underline">尚未安装？下载 Desktop</Link></div>}
+      </section>}
 
       <section className="grid gap-4 md:grid-cols-2">
         <ProductCard
@@ -218,7 +233,7 @@ function StatusCard({
   return to ? <Link to={to}>{body}</Link> : body;
 }
 
-function AssetList({ icon: Icon, title, items, empty, unavailable }: { icon: ComponentType<{ className?: string }>; title: string; items: Array<{ key: string; title: string; detail: string; to: string }>; empty: string; unavailable: boolean }) {
+function AssetList({ icon: Icon, title, items, empty, unavailable }: { icon: ComponentType<{ className?: string }>; title: string; items: Array<{ key: string; title: string; detail: string; to: string; handoff?: () => void }>; empty: string; unavailable: boolean }) {
   return (
     <div className="rounded-md border bg-card p-4">
       <div className="flex items-center gap-2">
@@ -228,7 +243,7 @@ function AssetList({ icon: Icon, title, items, empty, unavailable }: { icon: Com
       <div className="mt-3 space-y-2">
         {unavailable && <p className="text-xs text-muted-foreground">暂时无法加载。</p>}
         {!unavailable && items.length === 0 && <p className="text-xs text-muted-foreground">{empty}</p>}
-        {items.slice(0, 5).map((item) => <Link key={item.key} to={item.to} className="block rounded-md border px-3 py-2 hover:border-primary/40"><div className="truncate text-sm font-medium">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.detail}</div></Link>)}
+        {items.slice(0, 5).map((item) => <div key={item.key} className="rounded-md border px-3 py-2 hover:border-primary/40"><Link to={item.to} className="block"><div className="truncate text-sm font-medium">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.detail}</div></Link>{item.handoff && <button type="button" aria-label={`在 Desktop 继续：${item.title}`} onClick={item.handoff} className="mt-2 text-xs font-medium text-primary">在 Desktop 继续 →</button>}</div>)}
       </div>
     </div>
   );

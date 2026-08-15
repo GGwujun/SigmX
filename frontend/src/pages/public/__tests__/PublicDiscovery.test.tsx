@@ -44,6 +44,18 @@ describe("public discovery funnel", () => {
     expect(await screen.findByText("沪深300ETF")).toBeInTheDocument();
   });
 
+  it("creates an opaque instrument handoff before exposing a Desktop link", async () => {
+    window.localStorage.setItem("sigmx_auth_token", "jwt");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ code: "600519.SH", name: "贵州茅台", industry: "白酒", market: "主板", close: 1500, pe_ttm: 24, pb: 8, dividend_yield: 2, total_market_value: 1900000, as_of: "20260814", source: "local_market_store", is_delayed: true }))
+      .mockResolvedValueOnce(ok({ id: "h1", token: "sxrh_abc", deep_link: "sigmx://research/sxrh_abc", expires_at: "2026-08-15T00:10:00Z" }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MemoryRouter initialEntries={["/stock/600519"]}><Routes><Route path="/stock/:code" element={<PublicInstrumentPage kind="stock" />} /></Routes></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: "在 Desktop 中继续研究" }));
+    expect(await screen.findByRole("link", { name: "打开 Desktop" })).toHaveAttribute("href", "sigmx://research/sxrh_abc");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toEqual({ kind: "instrument", payload: { symbol: "600519.SH" } });
+  });
+
   it("shows an explicit revoked state for a shared report", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 410, json: async () => ({ detail: "report has been revoked" }) } as Response));
     render(<MemoryRouter initialEntries={["/research/revoked"]}><Routes><Route path="/research/:slug" element={<PublicReportPage />} /></Routes></MemoryRouter>);

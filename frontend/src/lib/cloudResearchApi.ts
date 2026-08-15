@@ -31,6 +31,7 @@ export interface CloudReport {
 
 export interface CloudSavedQuery { id: string; query: string; result_summary: Record<string, unknown>; created_at: string; }
 export interface CloudWatchlistItem { symbol: string; name: string; created_at: string; }
+export interface CreatedResearchHandoff { id: string; token: string; deep_link: string; expires_at: string; }
 
 async function request<T>(path: string, authenticated = false, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
@@ -56,4 +57,7 @@ export const cloudResearchApi = {
   listReports: async () => (await request<{ items: CloudReport[] }>("/api/cloud/reports", true)).items,
   removeWatchlist: (symbol: string) => request(`/api/cloud/watchlist/${encodeURIComponent(symbol)}`, true, { method: "DELETE" }),
   revokeReport: (id: string) => request(`/api/cloud/reports/${encodeURIComponent(id)}`, true, { method: "DELETE" }),
+  createHandoff: (kind: "saved_query" | "instrument" | "similar_query", payload: Record<string, string>) =>
+    request<CreatedResearchHandoff>("/api/cloud/handoffs", true, { method: "POST", body: JSON.stringify({ kind, payload }) }),
+  consumeHandoff: (token: string) => request<{ id: string; kind: string; payload: Record<string, string>; created_at: string }>(`/api/cloud/handoffs/${encodeURIComponent(token)}/consume`, true, { method: "POST" }),
 };

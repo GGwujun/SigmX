@@ -37,11 +37,11 @@
 
 **Interfaces:** Consumes `createHandoff(kind, payload)` and opens only the returned `sigmx://research/<token>` URL.
 
-- [ ] Write failing tests for “Desktop 继续研究” on saved queries/instruments and download fallback when protocol launch is unavailable.
-- [ ] Run focused Vitest files and confirm RED.
-- [ ] Implement explicit handoff creation buttons without embedding research data in the URI.
-- [ ] Run focused tests and confirm GREEN.
-- [ ] Commit `feat(web): hand research tasks to desktop`.
+- [x] Write failing tests for “Desktop 继续研究” on saved queries/instruments and download fallback when protocol launch is unavailable.
+- [x] Run focused Vitest files and confirm RED.
+- [x] Implement explicit handoff creation buttons without embedding research data in the URI.
+- [x] Run focused tests and confirm GREEN.
+- [x] Commit `feat(web): hand research tasks to desktop`.
 
 ### Task 3: Electron protocol allowlist and Desktop consumption
 
