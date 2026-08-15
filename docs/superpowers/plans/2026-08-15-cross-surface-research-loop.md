@@ -68,7 +68,7 @@
 
 ### Task 5: Reconciliation and verification
 
-- [ ] Run all backend product/Harness tests, all frontend tests, Electron parser tests, production build, and `git diff --check`.
-- [ ] Scan deep links and API models for secrets, paths, holdings, broker fields, and non-personal ownership.
-- [ ] Update the total architecture spec with concrete APIs and route behavior.
-- [ ] Commit `docs(product): record cross-surface research loop`.
+- [x] Run all backend product/Harness tests, all frontend tests, Electron parser tests, production build, and `git diff --check`.
+- [x] Scan deep links and API models for secrets, paths, holdings, broker fields, and non-personal ownership.
+- [x] Update the total architecture spec with concrete APIs and route behavior.
+- [x] Commit `docs(product): record cross-surface research loop`.
