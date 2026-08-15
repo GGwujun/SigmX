@@ -50,6 +50,13 @@ from src.product.datahub_credentials import (
     CredentialView,
     DataHubCredentialService,
 )
+from src.product.datahub_limits import (
+    ConcurrentLimitExceeded,
+    DataHubLimitNotConfigured,
+    DataHubLimitService,
+    LimitLease,
+    RateLimitExceeded,
+)
 from src.product.devices import (
     DeviceLimitReached,
     DeviceService,
@@ -124,4 +131,9 @@ __all__ = [
     "CredentialExpired",
     "CredentialIpNotAllowed",
     "CredentialLimitReached",
+    "DataHubLimitService",
+    "LimitLease",
+    "RateLimitExceeded",
+    "ConcurrentLimitExceeded",
+    "DataHubLimitNotConfigured",
 ]
