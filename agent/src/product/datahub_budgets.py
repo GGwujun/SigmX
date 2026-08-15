@@ -89,6 +89,48 @@ class DataHubBudgetService:
                 f"daily Data Credit budget exceeded ({budget.spent_today}/{budget.daily_limit})"
             )
 
+    def reserve(self, user_id: str, credential_id: str, request_id: str, credits_authorized: int) -> None:
+        if credits_authorized <= 0:
+            return
+        now = self._now()
+        with self.store.transaction() as conn:
+            conn.execute("DELETE FROM datahub_budget_holds WHERE expires_at<=?", (now.isoformat(),))
+            budget = conn.execute(
+                "SELECT daily_limit FROM datahub_credential_budgets WHERE credential_id=? AND user_id=?",
+                (credential_id, user_id),
+            ).fetchone()
+            if budget is None:
+                return
+            spent = self._spent(conn, credential_id)
+            held = conn.execute(
+                "SELECT COALESCE(SUM(credits_authorized),0) held FROM datahub_budget_holds "
+                "WHERE credential_id=? AND expires_at>?",
+                (credential_id, now.isoformat()),
+            ).fetchone()["held"]
+            limit = int(budget["daily_limit"])
+            if spent + int(held or 0) + credits_authorized > limit:
+                raise DailyBudgetExceeded(f"daily Data Credit budget exceeded ({spent}/{limit})")
+            conn.execute(
+                "INSERT INTO datahub_budget_holds "
+                "(request_id,credential_id,user_id,credits_authorized,expires_at,created_at) "
+                "VALUES (?,?,?,?,?,?)",
+                (
+                    request_id,
+                    credential_id,
+                    user_id,
+                    credits_authorized,
+                    (now + timedelta(minutes=30)).isoformat(),
+                    now.isoformat(),
+                ),
+            )
+
+    def release(self, request_id: str, conn=None) -> None:
+        if conn is not None:
+            conn.execute("DELETE FROM datahub_budget_holds WHERE request_id=?", (request_id,))
+            return
+        with self.store.transaction() as tx:
+            tx.execute("DELETE FROM datahub_budget_holds WHERE request_id=?", (request_id,))
+
     def record_events(self, conn, user_id: str, credential_id: str) -> None:
         row = conn.execute(
             "SELECT daily_limit FROM datahub_credential_budgets WHERE credential_id=? AND user_id=?",

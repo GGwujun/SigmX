@@ -122,7 +122,9 @@ class DataHubRequestGateway:
                 principal.user_id, snapshot.plan_code, datetime.now(timezone.utc).date()
             )
             authorized = self.catalog.estimate(endpoint, usage.requested_units)
-            self.budgets.check(principal.user_id, principal.credential_id, authorized)
+            self.budgets.reserve(
+                principal.user_id, principal.credential_id, request_id, authorized
+            )
             reservation_id = None
             if authorized > 0:
                 authorization = self.data_credits.authorize(
@@ -133,6 +135,7 @@ class DataHubRequestGateway:
                 )
                 reservation_id = authorization.reservation_id
         except Exception:
+            self.budgets.release(request_id)
             self.limits.release(lease.lease_id)
             raise
         return PreparedDataHubRequest(
@@ -226,6 +229,7 @@ class DataHubRequestGateway:
     ) -> None:
         duration_ms = max(0, int((time.monotonic() - prepared.started_at) * 1000))
         with self.store.transaction() as conn:
+            self.budgets.release(prepared.request_id, conn)
             conn.execute(
                 "INSERT OR IGNORE INTO datahub_request_usage "
                 "(request_id, user_id, credential_id, endpoint_code, status_code, "

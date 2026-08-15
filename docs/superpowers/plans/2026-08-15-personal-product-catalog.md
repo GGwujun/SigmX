@@ -17,4 +17,4 @@
 - [x] Replace domain enums and server catalog; migrate active legacy grants/codes/catalog rows out.
 - [x] Update admin and personal Web surfaces to render four-product terminology.
 - [x] Verify Data Hub and Desktop enforcement for each product.
-- [ ] Run backend/frontend/build verification and update the total architecture record.
+- [x] Run focused backend enforcement tests, all frontend tests, production build, and update the total architecture record.

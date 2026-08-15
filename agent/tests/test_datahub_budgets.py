@@ -57,3 +57,17 @@ def test_gateway_rejects_before_credit_deduction_and_emits_thresholds(tmp_path):
     with pytest.raises(DailyBudgetExceeded):
         gateway.prepare(Request(created.plaintext), "GET", "/api/v1/stocks/metadata")
     assert DataCreditLedger(store).balance("u1").available == before
+
+
+def test_in_flight_authorizations_cannot_oversubscribe_budget(tmp_path):
+    store = ProductStore(tmp_path / "product.db")
+    credential = DataHubCredentialService(store).create("u1", "dev", ["stocks.metadata"], [], None)
+    budgets = DataHubBudgetService(store)
+    budgets.set("u1", credential.id, 10)
+
+    budgets.reserve("u1", credential.id, "request-1", 7)
+    with pytest.raises(DailyBudgetExceeded):
+        budgets.reserve("u1", credential.id, "request-2", 4)
+
+    budgets.release("request-1")
+    budgets.reserve("u1", credential.id, "request-2", 4)

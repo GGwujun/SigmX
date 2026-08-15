@@ -45,6 +45,6 @@
 
 ### Task 4: Verification and documentation
 
-- [ ] Run relevant backend tests, all frontend tests, production build, secret scan, and `git diff --check`.
-- [ ] Update total architecture spec with concrete budget/log/debug behavior.
-- [ ] Commit `docs(product): record data hub console completion`.
+- [x] Run relevant backend tests, all frontend tests, production build, secret scan, and `git diff --check`.
+- [x] Update total architecture spec with concrete budget/log/debug behavior.
+- [x] Commit the console completion record with the concurrency-safe budget closeout.

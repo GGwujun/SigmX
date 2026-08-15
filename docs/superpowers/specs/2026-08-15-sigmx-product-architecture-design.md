@@ -132,6 +132,8 @@ Data Hub 的销售价值不是简单转售上游原始数据，而是多源降�
 
 控制台提供套餐开通、API Key、数据集权限、接口文档、在线调试、SDK 示例、用量、数据积分、请求日志、错误日志和预算告警。
 
+当前个人控制台已形成自服务闭环：请求日志按本人 Credential 分页展示，可只看失败请求，但不保存查询值、响应正文、IP、授权头或密钥；每个长期个人 Credential 可设置 UTC 自然日 Data Credit 预算，并在 50%、80% 和 100% 形成当日唯一站内告警。预算在积分预授权前用短期在途占用原子校验，多个并发请求不能共同穿透上限；失败或结算后释放占用，最终用量仍以成功结算日志为准。在线调试器只能选择服务端目录中已启用的 GET 接口，临时 Credential 仅保存在 React 组件内存，展示 HTTP 状态、请求 ID、实际积分和响应结果，不写入浏览器持久存储。
+
 ### 5.4 凭证
 
 - Desktop 和个人开发者统一使用绑定个人账户的 `sxd_live_` Credential；
@@ -148,6 +150,8 @@ Data Hub 的销售价值不是简单转售上游原始数据，而是多源降�
 - `Data Developer`：面向 API 用户的标准数据集和开发者额度，不强制购买 Desktop；
 - `Pro Bundle`：Desktop Pro 与更多 Data Hub 权限、额度的主推组合；
 旧 Data Hub Key、旧请求次数配额和企业套餐不做兼容映射，统一按当前接口权限组与 Data Credit 模型执行。
+
+当前服务端目录使用四个稳定代码：`free`、`desktop_pro`、`data_developer`、`pro_bundle`。`desktop_pro` 只附带 `basic.v1` 和基础数据积分；`data_developer` 提供 `basic.v1`、`market.v1`、`finance.v1`，但 `desktop.connected_mode=false` 且设备上限为 0；`pro_bundle` 才同时开放完整 Desktop 和 `pro.v1`。启动迁移直接移除旧 `advanced`、`pro`、`enterprise` 商品、未使用激活码和活动权益，不提供兼容别名。相同套餐再次激活从当前有效期末尾续期，不覆盖剩余时长。
 
 ### 6.2 稳定权益键
 
