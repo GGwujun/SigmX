@@ -6,25 +6,30 @@
  * Legacy credit-only redeem codes keep their own page (/redeem-codes); this
  * console is for *plan* activation codes only (never infers a plan from credits).
  */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Copy, KeyRound, Loader2, Plus, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/lib/api";
-import { createActivationCodes, type CreatedCodeItem } from "@/lib/productApi";
-
-const PLAN_OPTIONS = [
-  { value: "desktop_pro", label: "Desktop Pro（268 元/季）" },
-  { value: "data_developer", label: "Data Developer（198 元/季）" },
-  { value: "pro_bundle", label: "Pro Bundle（518 元/季）" },
-];
+import {
+  createActivationCodes, formatPlanPrice, getPlans, type CreatedCodeItem, type PlanView,
+} from "@/lib/productApi";
 
 export function OperationsPage() {
-  const [planCode, setPlanCode] = useState("desktop_pro");
+  const [planCode, setPlanCode] = useState("");
+  const [plans, setPlans] = useState<PlanView[]>([]);
   const [months, setMonths] = useState(3);
   const [count, setCount] = useState(1);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedCodeItem[]>([]);
+
+  useEffect(() => {
+    getPlans().then((catalog) => {
+      const paid = catalog.filter((plan) => plan.code !== "free");
+      setPlans(paid);
+      setPlanCode((current) => current || paid[0]?.code || "");
+    }).catch(() => toast.error("加载套餐目录失败"));
+  }, []);
 
   const doCreate = async (e: FormEvent) => {
     e.preventDefault();
@@ -69,9 +74,9 @@ export function OperationsPage() {
               onChange={(e) => setPlanCode(e.target.value)}
               className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm"
             >
-              {PLAN_OPTIONS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
+              {plans.map((plan) => (
+                <option key={plan.code} value={plan.code}>
+                  {plan.name_zh}（{formatPlanPrice(plan)}）
                 </option>
               ))}
             </select>
@@ -100,7 +105,7 @@ export function OperationsPage() {
           </label>
           <button
             type="submit"
-            disabled={creating}
+            disabled={creating || !planCode}
             className="mt-4 inline-flex h-10 items-center justify-center gap-1 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 sm:mt-auto"
           >
             {creating ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
