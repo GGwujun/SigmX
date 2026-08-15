@@ -35,6 +35,8 @@ SigmX 是面向个人投资者、进阶研究者和个人量化开发者的 AI �
 
 不安装 Desktop 也可以通过 Data Hub REST API、Python SDK 和 CLI 获取标准化数据，按套餐获得接口权限并按数据积分计量。
 
+Python SDK 与 CLI 已形成独立可构建的 `sigmx-datahub` 包。SDK 无第三方运行时依赖，返回业务数据、请求 ID、实际 Data Credit 和剩余额度；CLI 使用显式 `--param key=value` 参数。两者只接受 `sxd_live_` Credential，不持久化或输出密钥，远程地址强制 HTTPS，仅本地开发允许 HTTP。
+
 ## 3. Web 产品边界
 
 ### 3.1 公开获客层

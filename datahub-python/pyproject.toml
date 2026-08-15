@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sigmx-datahub"
+version = "0.1.0"
+description = "Personal Python SDK and CLI for SigmX Data Hub"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+sigmx-data = "sigmx_datahub.cli:entrypoint"
+
+[tool.setuptools.packages.find]
+where = ["src"]

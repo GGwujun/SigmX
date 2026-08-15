@@ -21,7 +21,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics | Partial: catalog editing, external-payment refund, credit adjustment, device/credential operations and content controls remain missing |
 | Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost and deduplicated weekly effective research users | Product/engagement metrics complete; anonymous conversion event funnel remains missing |
 | SSR/static public delivery | React public SPA exists | Missing production SSR/static generation and SEO artifact verification |
-| SDK and CLI delivery | REST docs/examples exist | Missing packaged personal Data Hub Python SDK and CLI |
+| SDK and CLI delivery | Dependency-free `sigmx-datahub` wheel, typed response metadata, secure client, `sigmx-data` CLI and public docs | Complete |
 | Full verification | Product/Harness/Data Hub suites and frontend/build pass | Repository-wide backend suite has unrelated Windows/environment and legacy failures; completion requires scoped gates plus documented baseline |
 
 ## Next implementation order
@@ -29,5 +29,5 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 1. Finish personal billing summary and account bill view.
 2. Add saved-query/report subscriptions and cloud-task completion events.
 3. Expand operations and funnel metrics.
-4. Add public static/SSR output and Data Hub SDK/CLI packaging.
+4. Add public static/SSR output.
 5. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
