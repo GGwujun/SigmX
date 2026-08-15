@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 8
+_SCHEMA_VERSION = 9
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -433,6 +433,19 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_report_snapshots_user_created
                 ON report_snapshots(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS research_handoffs (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                token_hash TEXT NOT NULL UNIQUE,
+                kind TEXT NOT NULL CHECK (kind IN ('saved_query','instrument','similar_query')),
+                payload_json TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                consumed_at TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_research_handoffs_user_created
+                ON research_handoffs(user_id, created_at);
 
             -- Operator audit log (design §9).
             CREATE TABLE IF NOT EXISTS audit_log (

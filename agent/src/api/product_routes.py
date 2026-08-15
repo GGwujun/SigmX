@@ -39,6 +39,12 @@ from src.product.datahub_credentials import (
     DataHubCredentialService,
 )
 from src.product.devices import DeviceLimitReached, DeviceService
+from src.product.research_handoffs import (
+    HandoffExpired,
+    HandoffNotFound,
+    HandoffUsed,
+    ResearchHandoffService,
+)
 from src.product.store import ProductStore
 
 logger = logging.getLogger(__name__)
@@ -55,6 +61,7 @@ _data_ledger: DataCreditLedger | None = None
 _endpoint_catalog: DataHubEndpointCatalog | None = None
 _credential_service: DataHubCredentialService | None = None
 _cloud_research: CloudResearchService | None = None
+_research_handoffs: ResearchHandoffService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -111,6 +118,13 @@ def _get_cloud_research() -> CloudResearchService:
     if _cloud_research is None:
         _cloud_research = CloudResearchService(_get_store())
     return _cloud_research
+
+
+def _get_research_handoffs() -> ResearchHandoffService:
+    global _research_handoffs
+    if _research_handoffs is None:
+        _research_handoffs = ResearchHandoffService(_get_store())
+    return _research_handoffs
 
 
 # ---------------------------------------------------------------------------
@@ -425,6 +439,25 @@ class CloudReportsResponse(BaseModel):
     items: list[CloudReportResponse]
 
 
+class CreateResearchHandoffRequest(BaseModel):
+    kind: str = Field(..., min_length=1, max_length=32)
+    payload: dict[str, Any]
+
+
+class CreatedResearchHandoffResponse(BaseModel):
+    id: str
+    token: str
+    deep_link: str
+    expires_at: str
+
+
+class ConsumedResearchHandoffResponse(BaseModel):
+    id: str
+    kind: str
+    payload: dict[str, str]
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -530,6 +563,33 @@ async def public_cloud_report(slug: str) -> CloudReportResponse:
         raise HTTPException(status_code=410, detail="report has been revoked") from exc
     except ReportNotFound as exc:
         raise HTTPException(status_code=404, detail="report not found") from exc
+
+
+@_router.post("/api/cloud/handoffs", response_model=CreatedResearchHandoffResponse)
+async def create_research_handoff(
+    body: CreateResearchHandoffRequest, user: dict = Depends(require_user)
+) -> CreatedResearchHandoffResponse:
+    try:
+        created = _get_research_handoffs().create(user["id"], body.kind, body.payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CreatedResearchHandoffResponse(**vars(created))
+
+
+@_router.post(
+    "/api/cloud/handoffs/{token}/consume",
+    response_model=ConsumedResearchHandoffResponse,
+)
+async def consume_research_handoff(
+    token: str, user: dict = Depends(require_user)
+) -> ConsumedResearchHandoffResponse:
+    try:
+        consumed = _get_research_handoffs().consume(user["id"], token)
+    except HandoffNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except (HandoffExpired, HandoffUsed) as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return ConsumedResearchHandoffResponse(**vars(consumed))
 
 
 def _credential_item(value) -> DataHubCredentialItem:
