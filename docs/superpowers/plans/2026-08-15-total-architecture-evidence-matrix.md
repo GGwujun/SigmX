@@ -18,8 +18,8 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Real checkout/payment/refund | Provider protocol exists; only activation-code provider is operational | Missing: signed Alipay/WeChat provider and production credentials; explicitly excluded from first-phase §15 but required by rollout §13.7 |
 | Purchased Data Credit packs | Server-driven 10k/50k/200k pack catalog; hashed prepaid codes; atomic order, `purchase` lot, 365-day expiry, audit; personal/admin UI | Complete for the operational activation-code payment channel |
 | Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; `/me` UI | Notification center complete; saved-query/report delivery subscriptions remain missing |
-| Operations console | Activation-code generation and immutable activation audit | Partial: product/price editing, refund workflow, credit adjustment, device/credential operations, content and funnel views missing |
-| Metrics and funnel | Domain events and usage records exist in parts | Missing consolidated weekly-effective-research and conversion funnel reporting |
+| Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics | Partial: catalog editing, external-payment refund, credit adjustment, device/credential operations and content controls remain missing |
+| Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost and deduplicated weekly effective research users | Product/engagement metrics complete; anonymous conversion event funnel remains missing |
 | SSR/static public delivery | React public SPA exists | Missing production SSR/static generation and SEO artifact verification |
 | SDK and CLI delivery | REST docs/examples exist | Missing packaged personal Data Hub Python SDK and CLI |
 | Full verification | Product/Harness/Data Hub suites and frontend/build pass | Repository-wide backend suite has unrelated Windows/environment and legacy failures; completion requires scoped gates plus documented baseline |

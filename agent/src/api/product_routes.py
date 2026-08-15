@@ -266,6 +266,19 @@ class PutNotificationPreferencesRequest(NotificationPreferencesResponse):
     pass
 
 
+class AdminProductMetricsResponse(BaseModel):
+    period_days: int
+    active_entitled_users: int
+    plan_distribution: dict[str, int]
+    paid_orders: int
+    revenue_cny_fen: int
+    active_datahub_credentials: int
+    datahub_requests: int
+    datahub_success_rate: float
+    data_credits_charged: int
+    weekly_effective_research_users: int
+
+
 class CreateActivationCodeRequest(BaseModel):
     plan_code: str
     months: int = Field(..., ge=1, le=36)
@@ -1272,6 +1285,70 @@ async def device_token_refresh(
 
 
 # --- Admin operations (require_admin) --------------------------------
+
+
+@_router.get("/api/admin/product-metrics", response_model=AdminProductMetricsResponse)
+async def admin_product_metrics(
+    days: int = Query(30, ge=7, le=365), _: dict = Depends(require_admin)
+) -> AdminProductMetricsResponse:
+    now = datetime.now(timezone.utc)
+    start = (now - timedelta(days=days - 1)).date().isoformat()
+    weekly = (now - timedelta(days=6)).date().isoformat()
+    conn = _get_store()._get_conn()
+    grants = conn.execute(
+        "SELECT user_id,plan_code,valid_until FROM entitlement_grants "
+        "WHERE valid_until IS NULL OR valid_until>=? "
+        "ORDER BY user_id, CASE WHEN valid_until IS NULL THEN 0 ELSE 1 END DESC, valid_until DESC",
+        (now.isoformat(),),
+    ).fetchall()
+    current_by_user: dict[str, str] = {}
+    for row in grants:
+        current_by_user.setdefault(row["user_id"], row["plan_code"])
+    distribution: dict[str, int] = {}
+    for plan_code in current_by_user.values():
+        distribution[plan_code] = distribution.get(plan_code, 0) + 1
+    orders = conn.execute(
+        "SELECT price_cny_fen FROM orders WHERE status='paid' AND paid_at IS NOT NULL AND paid_at>=?",
+        (start,),
+    ).fetchall()
+    credential_count = conn.execute(
+        "SELECT COUNT(*) count FROM datahub_credentials WHERE credential_kind='personal' "
+        "AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at>?)",
+        (now.isoformat(),),
+    ).fetchone()["count"]
+    usage = conn.execute(
+        "SELECT COUNT(*) requests, SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) successes, "
+        "COALESCE(SUM(credits_charged),0) credits FROM datahub_request_usage WHERE created_at>=?",
+        (start,),
+    ).fetchone()
+    effective_users: set[str] = set()
+    for table, condition in (
+        ("saved_queries", "created_at>=?"),
+        ("cloud_watchlist", "created_at>=?"),
+        ("report_snapshots", "created_at>=?"),
+        ("credit_ledger", "operation='settle' AND created_at>=?"),
+        ("datahub_request_usage", "status_code BETWEEN 200 AND 299 AND created_at>=?"),
+    ):
+        effective_users.update(
+            row["user_id"] for row in conn.execute(
+                f"SELECT DISTINCT user_id FROM {table} WHERE {condition}",
+                (weekly,),
+            ).fetchall()
+        )
+    requests = int(usage["requests"] or 0)
+    successes = int(usage["successes"] or 0)
+    return AdminProductMetricsResponse(
+        period_days=days,
+        active_entitled_users=len(current_by_user),
+        plan_distribution=distribution,
+        paid_orders=len(orders),
+        revenue_cny_fen=sum(int(row["price_cny_fen"]) for row in orders),
+        active_datahub_credentials=int(credential_count or 0),
+        datahub_requests=requests,
+        datahub_success_rate=round(successes / requests, 4) if requests else 0.0,
+        data_credits_charged=int(usage["credits"] or 0),
+        weekly_effective_research_users=len(effective_users),
+    )
 
 
 @_router.post(

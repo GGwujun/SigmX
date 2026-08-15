@@ -118,6 +118,19 @@ export interface NotificationPreferences {
   cloud_tasks: boolean;
 }
 
+export interface AdminProductMetrics {
+  period_days: number;
+  active_entitled_users: number;
+  plan_distribution: Record<string, number>;
+  paid_orders: number;
+  revenue_cny_fen: number;
+  active_datahub_credentials: number;
+  datahub_requests: number;
+  datahub_success_rate: number;
+  data_credits_charged: number;
+  weekly_effective_research_users: number;
+}
+
 export interface DeviceItem {
   id: string;
   name: string;
@@ -484,6 +497,10 @@ export async function refreshDeviceToken(refreshToken: string): Promise<DeviceTo
 }
 
 // ---- Admin ----
+
+export async function getAdminProductMetrics(days = 30): Promise<AdminProductMetrics> {
+  return productRequest<AdminProductMetrics>(`/api/admin/product-metrics?days=${days}`);
+}
 
 export async function createActivationCodes(
   planCode: string,

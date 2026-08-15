@@ -12,8 +12,9 @@ import { toast } from "sonner";
 
 import { ApiError } from "@/lib/api";
 import {
-  createActivationCodes, createDataCreditCodes, formatPlanPrice, getDataCreditPacks, getPlans,
-  type CreatedCodeItem, type DataCreditPack, type PlanView,
+  createActivationCodes, createDataCreditCodes, formatPlanPrice, getAdminProductMetrics,
+  getDataCreditPacks, getPlans, type AdminProductMetrics, type CreatedCodeItem,
+  type DataCreditPack, type PlanView,
 } from "@/lib/productApi";
 
 export function OperationsPage() {
@@ -25,14 +26,16 @@ export function OperationsPage() {
   const [created, setCreated] = useState<CreatedCodeItem[]>([]);
   const [packs, setPacks] = useState<DataCreditPack[]>([]);
   const [packCode, setPackCode] = useState("");
+  const [metrics, setMetrics] = useState<AdminProductMetrics | null>(null);
 
   useEffect(() => {
-    Promise.all([getPlans(), getDataCreditPacks()]).then(([catalog, packCatalog]) => {
+    Promise.all([getPlans(), getDataCreditPacks(), getAdminProductMetrics(30)]).then(([catalog, packCatalog, nextMetrics]) => {
       const paid = catalog.filter((plan) => plan.code !== "free");
       setPlans(paid);
       setPlanCode((current) => current || paid[0]?.code || "");
       setPacks(packCatalog);
       setPackCode((current) => current || packCatalog[0]?.code || "");
+      setMetrics(nextMetrics);
     }).catch(() => toast.error("加载套餐目录失败"));
   }, []);
 
@@ -79,6 +82,13 @@ export function OperationsPage() {
         </h1>
         <p className="text-xs text-muted-foreground">生成套餐激活码。明文仅在此处显示一次，请立即复制保存。</p>
       </header>
+
+      {metrics && <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Metric label="周有效研究用户" value={metrics.weekly_effective_research_users.toLocaleString()} />
+        <Metric label="近 30 日实付" value={`¥${(metrics.revenue_cny_fen / 100).toFixed(2)}`} detail={`${metrics.paid_orders} 笔订单`} />
+        <Metric label="活跃 Data Hub Credential" value={metrics.active_datahub_credentials.toLocaleString()} />
+        <Metric label="Data Hub 成功率" value={`${(metrics.datahub_success_rate * 100).toFixed(1)}%`} detail={`${metrics.datahub_requests} 次调用 · ${metrics.data_credits_charged} Data Credit`} />
+      </section>}
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">生成激活码</h2>
@@ -168,4 +178,8 @@ export function OperationsPage() {
       )}
     </div>
   );
+}
+
+function Metric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">{label}</div><div className="mt-1 text-xl font-bold">{value}</div>{detail && <div className="text-xs text-muted-foreground">{detail}</div>}</div>;
 }

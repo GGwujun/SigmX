@@ -191,3 +191,37 @@ def test_billing_summary_is_personal_and_combines_orders_and_both_credit_types()
     assert summary.data_credits_consumed == 7
     assert summary.daily[-1].research_credits_consumed == 20
 
+
+def test_admin_personal_metrics_deduplicate_effective_users() -> None:
+    from datetime import datetime, timezone
+    import json
+
+    store = pr._get_store()
+    commerce = pr._get_commerce()
+    code = commerce.admin_create_activation_code(plan="desktop_pro", months=3)
+    result = commerce.activate_code("u1", code.plaintext, "metrics-order")
+    store._get_conn().execute(
+        "UPDATE orders SET price_cny_fen=26800 WHERE id=?", (result.order_id,)
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    store._get_conn().execute(
+        "INSERT INTO saved_queries (id,user_id,query,result_summary_json,created_at) VALUES (?,?,?,?,?)",
+        ("q1", "u1", "高股息", json.dumps({}), now),
+    )
+    store._get_conn().execute(
+        "INSERT INTO saved_queries (id,user_id,query,result_summary_json,created_at) VALUES (?,?,?,?,?)",
+        ("q2", "u2", "低估值", json.dumps({}), now),
+    )
+    store._get_conn().execute(
+        "INSERT INTO datahub_request_usage VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+        ("metrics-r1", "u1", "credential", "stocks.metadata", 200, 1, 1, 0, 0, 1, None, now),
+    )
+    store._get_conn().commit()
+
+    metrics = asyncio.run(pr.admin_product_metrics(days=30, _={"id": "admin"}))
+    assert metrics.paid_orders == 1
+    assert metrics.revenue_cny_fen == 26800
+    assert metrics.weekly_effective_research_users == 2
+    assert metrics.plan_distribution["desktop_pro"] == 1
+    assert metrics.datahub_requests == 1
+
