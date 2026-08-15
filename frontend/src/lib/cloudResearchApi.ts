@@ -59,5 +59,5 @@ export const cloudResearchApi = {
   revokeReport: (id: string) => request(`/api/cloud/reports/${encodeURIComponent(id)}`, true, { method: "DELETE" }),
   createHandoff: (kind: "saved_query" | "instrument" | "similar_query", payload: Record<string, string>) =>
     request<CreatedResearchHandoff>("/api/cloud/handoffs", true, { method: "POST", body: JSON.stringify({ kind, payload }) }),
-  consumeHandoff: (token: string) => request<{ id: string; kind: string; payload: Record<string, string>; created_at: string }>(`/api/cloud/handoffs/${encodeURIComponent(token)}/consume`, true, { method: "POST" }),
+  consumeHandoff: (token: string, accessToken?: string) => request<{ id: string; kind: string; payload: Record<string, string>; created_at: string }>(`/api/cloud/handoffs/${encodeURIComponent(token)}/consume`, true, { method: "POST", headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : undefined }),
 };

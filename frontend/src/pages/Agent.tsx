@@ -15,6 +15,7 @@ import { ConversationTimeline } from "@/components/chat/ConversationTimeline";
 import { ToolProgressIndicator } from "@/components/chat/ToolProgressIndicator";
 import { MandateProposalCard } from "@/components/chat/MandateProposalCard";
 import { RunnerStatus } from "@/components/chat/RunnerStatus";
+import { takeConsumedResearchHandoff } from "@/lib/researchHandoff";
 
 /* ---------- Message grouping ---------- */
 type MsgGroup =
@@ -257,6 +258,18 @@ export function Agent() {
   const { connect, disconnect, onStatusChange } = useSSE();
 
   const urlSessionId = searchParams.get("session");
+
+  useEffect(() => {
+    if (searchParams.get("handoff") !== "1") return;
+    const task = takeConsumedResearchHandoff();
+    if (!task) return;
+    const prompt = task.kind === "instrument"
+      ? `请对 ${task.payload.symbol} 开展完整研究，先给出研究计划并标注数据与证据来源。`
+      : task.payload.query;
+    if (prompt) setInput(prompt);
+    setSearchParams({}, { replace: true });
+    inputRef.current?.focus();
+  }, [searchParams, setSearchParams]);
 
   /* Smart scroll — only auto-scroll when near bottom */
   const isNearBottom = useCallback(() => {

@@ -49,11 +49,11 @@
 
 **Interfaces:** Produces `parseResearchDeepLink(url)` in Electron and `consumePendingResearchHandoff()` in the renderer.
 
-- [ ] Write failing tests rejecting foreign schemes, extra path/query data, invalid token shapes, and accepting one opaque ticket.
-- [ ] Implement default-protocol registration, single-instance forwarding, pending ticket IPC, and renderer consumption after Connected authentication.
-- [ ] Route a consumed saved query to `/agent` with local session state; never persist the ticket or payload.
-- [ ] Run Node/Vitest tests and confirm pass.
-- [ ] Commit `feat(desktop): consume safe research handoffs`.
+- [x] Write failing tests rejecting foreign schemes, extra path/query data, invalid token shapes, and accepting one opaque ticket.
+- [x] Implement default-protocol registration, single-instance forwarding, pending ticket IPC, and renderer consumption after Connected authentication.
+- [x] Route a consumed saved query to `/agent` with local in-memory state; never persist the ticket or payload.
+- [x] Run Node/Vitest tests and confirm pass.
+- [x] Commit `feat(desktop): consume safe research handoffs`.
 
 ### Task 4: Explicit redacted report publishing
 

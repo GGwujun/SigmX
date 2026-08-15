@@ -70,4 +70,12 @@ contextBridge.exposeInMainWorld('sigmxDesktop', {
 
   /** Open a verification URL in the system browser. Returns boolean. */
   cloudAccountOpenAuthorization: (url) => ipcRenderer.invoke('cloud-account:open-authorization', url),
+
+  /** Consume one pending opaque Web→Desktop research ticket. */
+  researchHandoffTake: () => ipcRenderer.invoke('research-handoff:take'),
+  onResearchHandoffAvailable: (callback) => {
+    const handler = () => callback();
+    ipcRenderer.on('research-handoff:available', handler);
+    return () => ipcRenderer.removeListener('research-handoff:available', handler);
+  },
 });

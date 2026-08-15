@@ -19,6 +19,7 @@ import {
   type DeviceAuthorizeStart,
 } from "@/lib/productApi";
 import { setDataMode, setDesktopDataHubSessionKey } from "@/lib/dataMode";
+import { setDesktopCloudAccessToken } from "@/lib/desktopConnectedSession";
 
 export type FlowPhase = "idle" | "pending" | "approved" | "expired" | "error";
 
@@ -82,6 +83,7 @@ export function useDesktopDeviceFlow(onApproved?: () => void): DesktopDeviceFlow
             device_id: result.device_id,
           });
           const session = await createDesktopDataHubSession(result.device_id, result.access_token);
+          setDesktopCloudAccessToken(result.access_token);
           setDesktopDataHubSessionKey(session.plaintext);
           setDataMode("connected");
           setPhase("approved");

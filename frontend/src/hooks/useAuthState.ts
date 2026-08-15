@@ -5,6 +5,7 @@ import {
   isAuthenticated, setToken, setUser, type AuthUser,
 } from "@/lib/apiAuth";
 import { restoreDesktopConnectedSession } from "@/lib/desktopConnectedSession";
+import { activatePendingResearchHandoff } from "@/lib/researchHandoff";
 
 declare global {
   interface Window {
@@ -32,6 +33,8 @@ declare global {
       }) => Promise<boolean>;
       cloudAccountClear?: () => Promise<boolean>;
       cloudAccountOpenAuthorization?: (url: string) => Promise<boolean>;
+      researchHandoffTake?: () => Promise<string | null>;
+      onResearchHandoffAvailable?: (callback: () => void) => () => void;
     };
   }
 }
@@ -68,7 +71,7 @@ export function useAuthState() {
           if (cancelled) return;
           setUser(user);
           setAuthed(true);
-          if (isDesktopMode()) void restoreDesktopConnectedSession().catch(() => undefined);
+          if (isDesktopMode()) void restoreDesktopConnectedSession().then(() => activatePendingResearchHandoff()).catch(() => undefined);
         } catch {
           if (cancelled) return;
           clearAuth();
@@ -87,7 +90,7 @@ export function useAuthState() {
           setToken(res.token);
           setUser(res.user);
           setAuthed(true);
-          void restoreDesktopConnectedSession().catch(() => undefined);
+          void restoreDesktopConnectedSession().then(() => activatePendingResearchHandoff()).catch(() => undefined);
         } catch {
           if (cancelled) return;
           // Desktop session failed — fall through to login page.
@@ -103,6 +106,13 @@ export function useAuthState() {
       setLoading(false);
     })();
     return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!isDesktopMode()) return;
+    return window.sigmxDesktop?.onResearchHandoffAvailable?.(() => {
+      void activatePendingResearchHandoff().catch(() => undefined);
+    });
   }, []);
 
   const recheck = useCallback(() => {

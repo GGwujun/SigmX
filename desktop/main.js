@@ -17,6 +17,7 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const { autoUpdater } = require('electron-updater');
+const { parseResearchDeepLink } = require('./deep-link');
 
 const PORT = parseInt(process.env.SIGMX_PORT || '8899', 10);
 const HOST = '127.0.0.1';
@@ -112,6 +113,17 @@ function buildAppMenu() {
 
 let backendProc = null;
 let mainWindow = null;
+let pendingResearchHandoff = process.argv.map(parseResearchDeepLink).find(Boolean) || null;
+
+function deliverResearchHandoff(token) {
+  if (!token) return;
+  pendingResearchHandoff = token;
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('research-handoff:available');
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+}
 
 // Resolve the Python backend executable.
 //   dev:      python -m api_server   (from the repo's agent/ dir)
@@ -446,6 +458,21 @@ ipcMain.handle('cloud-account:open-authorization', async (_event, url) => {
   }
   return false;
 });
+ipcMain.handle('research-handoff:take', () => {
+  const token = pendingResearchHandoff;
+  pendingResearchHandoff = null;
+  return token;
+});
+
+if (process.defaultApp && process.argv[1]) {
+  app.setAsDefaultProtocolClient('sigmx', process.execPath, [path.resolve(process.argv[1])]);
+} else {
+  app.setAsDefaultProtocolClient('sigmx');
+}
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  deliverResearchHandoff(parseResearchDeepLink(url));
+});
 
 // ---- Single instance ----
 
@@ -453,7 +480,8 @@ const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (_event, argv) => {
+    deliverResearchHandoff(argv.map(parseResearchDeepLink).find(Boolean) || null);
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
