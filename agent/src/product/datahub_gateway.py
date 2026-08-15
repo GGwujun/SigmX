@@ -17,6 +17,7 @@ from src.product.commerce import CommerceService
 from src.product.credits import CreditLedger
 from src.product.data_credits import DataCreditLedger, InsufficientDataCredits
 from src.product.datahub_catalog import DataHubEndpointCatalog, EndpointPricing
+from src.product.datahub_budgets import DataHubBudgetService, DailyBudgetExceeded
 from src.product.datahub_contracts import RequestContract, ResponseContract
 from src.product.datahub_contracts import HistoryDepthExceeded, RequestRowsExceeded
 from src.product.datahub_credentials import (
@@ -79,6 +80,7 @@ class DataHubRequestGateway:
         self.limits = DataHubLimitService(store)
         self.data_credits = DataCreditLedger(store)
         self.commerce = CommerceService(store, CreditLedger(store))
+        self.budgets = DataHubBudgetService(store)
 
     def prepare(self, request: Any, method: str, path: str) -> PreparedDataHubRequest:
         endpoint = self.catalog.match(method, path)
@@ -120,6 +122,7 @@ class DataHubRequestGateway:
                 principal.user_id, snapshot.plan_code, datetime.now(timezone.utc).date()
             )
             authorized = self.catalog.estimate(endpoint, usage.requested_units)
+            self.budgets.check(principal.user_id, principal.credential_id, authorized)
             reservation_id = None
             if authorized > 0:
                 authorization = self.data_credits.authorize(
@@ -243,6 +246,8 @@ class DataHubRequestGateway:
                     datetime.now(timezone.utc).isoformat(),
                 ),
             )
+            if charged > 0:
+                self.budgets.record_events(conn, prepared.user_id, prepared.credential_id)
 
     def _safe_write_usage(self, *args) -> None:
         try:
@@ -311,6 +316,8 @@ class DataHubBillingRoute(APIRoute):
             status_code, code = 403, "scope_denied"
         elif isinstance(exc, InsufficientDataCredits):
             status_code, code = 402, "insufficient_data_credits"
+        elif isinstance(exc, DailyBudgetExceeded):
+            status_code, code = 429, "daily_budget_exceeded"
         elif isinstance(exc, RequestRowsExceeded):
             status_code, code = 422, "request_rows_exceeded"
         elif isinstance(exc, HistoryDepthExceeded):

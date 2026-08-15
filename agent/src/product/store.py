@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 9
+_SCHEMA_VERSION = 10
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -403,6 +403,25 @@ class ProductStore:
                 ON datahub_request_usage(user_id, created_at);
             CREATE INDEX IF NOT EXISTS idx_datahub_usage_credential_created
                 ON datahub_request_usage(credential_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS datahub_credential_budgets (
+                credential_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                daily_limit INTEGER NOT NULL CHECK (daily_limit > 0),
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS datahub_budget_events (
+                credential_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                utc_date TEXT NOT NULL,
+                threshold_percent INTEGER NOT NULL CHECK (threshold_percent IN (50,80,100)),
+                spent INTEGER NOT NULL,
+                daily_limit INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (credential_id, utc_date, threshold_percent)
+            );
+            CREATE INDEX IF NOT EXISTS idx_datahub_budget_events_user_created
+                ON datahub_budget_events(user_id, created_at);
 
             CREATE TABLE IF NOT EXISTS saved_queries (
                 id TEXT PRIMARY KEY,
