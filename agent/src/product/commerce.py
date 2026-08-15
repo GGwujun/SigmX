@@ -195,8 +195,17 @@ class CommerceService:
             )
 
             # 5. Grant the membership window.
-            valid_from = _now_iso()
-            valid_until = (_now() + timedelta(days=30 * months)).isoformat()
+            now = _now()
+            valid_from = now.isoformat()
+            current = conn.execute(
+                "SELECT MAX(valid_until) AS valid_until FROM entitlement_grants "
+                "WHERE user_id=? AND plan_code=? AND valid_until>?",
+                (user_id, plan_code, valid_from),
+            ).fetchone()
+            renewal_base = now
+            if current and current["valid_until"]:
+                renewal_base = datetime.fromisoformat(current["valid_until"])
+            valid_until = (renewal_base + timedelta(days=30 * months)).isoformat()
             conn.execute(
                 """
                 INSERT INTO entitlement_grants

@@ -72,6 +72,18 @@ def test_activation_extends_membership_by_months(product: ProductEnv) -> None:
     assert timedelta(days=89) < delta < timedelta(days=92)
 
 
+def test_same_plan_activation_renews_from_current_expiry(product: ProductEnv) -> None:
+    first_code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
+    product.commerce.activate_code("u1", first_code.plaintext, "renew-1")
+    first_expiry = datetime.fromisoformat(product.commerce.current_entitlements("u1").valid_until or "")
+
+    second_code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
+    product.commerce.activate_code("u1", second_code.plaintext, "renew-2")
+    renewed_expiry = datetime.fromisoformat(product.commerce.current_entitlements("u1").valid_until or "")
+
+    assert timedelta(days=89) < renewed_expiry - first_expiry < timedelta(days=91)
+
+
 def test_used_code_cannot_be_redeemed_by_another_user(product: ProductEnv) -> None:
     """A code is single-use globally (design §5.1)."""
     code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
