@@ -14,7 +14,7 @@ import logging
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 
 from src.product.credits import CreditLedger
@@ -94,7 +94,9 @@ class CommerceService:
         plaintext is shown here and never again (design §9). ``expires_at`` is
         the code's own lifetime (independent of the membership it grants).
         """
-        if plan not in {PlanCode.ADVANCED, PlanCode.PRO, PlanCode.ENTERPRISE}:
+        if plan == PlanCode.ENTERPRISE:
+            raise ValueError("enterprise is not available in the personal activation flow")
+        if plan not in {PlanCode.ADVANCED, PlanCode.PRO}:
             raise ValueError(f"cannot create activation code for plan {plan!r}")
         if months <= 0:
             raise ValueError("months must be positive")
@@ -216,7 +218,10 @@ class CommerceService:
                     idempotency_key=f"activation:{order_id}",
                 )
 
-            # 7. Audit.
+            # 7. Grant the current natural month's independent Data Credits.
+            self._grant_data_in_tx(conn, user_id, plan_code, _now().date())
+
+            # 8. Audit.
             conn.execute(
                 """
                 INSERT INTO audit_log (id, actor, action, target, reason, metadata_json, created_at)
@@ -236,6 +241,52 @@ class CommerceService:
             credits_granted=credits_granted,
             replayed=False,
         )
+
+    def ensure_monthly_data_grant(
+        self, user_id: str, plan_code: str, period: date
+    ):
+        """Grant the plan's personal Data Credits once per natural month."""
+        with self.store.transaction() as conn:
+            return self._grant_data_in_tx(conn, user_id, plan_code, period)
+
+    def _grant_data_in_tx(self, conn, user_id: str, plan_code: str, period: date):
+        from src.product.data_credits import DataGrantResult
+
+        plan = self.store.get_plan(plan_code)
+        if plan is None:
+            raise ValueError(f"unknown plan {plan_code}")
+        amount = int(plan["entitlements"].get("datahub.monthly_credits", 0))
+        if amount <= 0:
+            return None
+        key = f"data-plan-month:{user_id}:{plan_code}:{period:%Y-%m}"
+        prior = conn.execute(
+            "SELECT id FROM data_credit_lots WHERE owner_id = ? AND idempotency_key = ?",
+            (user_id, key),
+        ).fetchone()
+        if prior:
+            return DataGrantResult(prior["id"], True)
+        if period.month == 12:
+            next_month = date(period.year + 1, 1, 1)
+        else:
+            next_month = date(period.year, period.month + 1, 1)
+        expires_at = datetime(
+            next_month.year, next_month.month, next_month.day, tzinfo=timezone.utc
+        ).isoformat()
+        lot_id = uuid.uuid4().hex
+        created_at = _now_iso()
+        conn.execute(
+            "INSERT INTO data_credit_lots "
+            "(id, owner_id, amount_total, amount_remaining, source, expires_at, "
+            "idempotency_key, created_at) VALUES (?, ?, ?, ?, 'data_monthly', ?, ?, ?)",
+            (lot_id, user_id, amount, amount, expires_at, key, created_at),
+        )
+        conn.execute(
+            "INSERT INTO data_credit_ledger "
+            "(id, owner_id, lot_id, reservation_id, delta, operation, idempotency_key, "
+            "metadata_json, created_at) VALUES (?, ?, ?, NULL, ?, 'grant', ?, NULL, ?)",
+            (uuid.uuid4().hex, user_id, lot_id, amount, key, created_at),
+        )
+        return DataGrantResult(lot_id, False)
 
     def _grant_in_tx(self, conn, user_id: str, amount: int, *, idempotency_key: str) -> None:
         """Grant a permanent-ish monthly lot inside the caller's transaction.

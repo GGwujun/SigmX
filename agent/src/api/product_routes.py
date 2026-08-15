@@ -380,6 +380,12 @@ async def my_credits(user: dict = Depends(require_user)) -> CreditsBalanceRespon
 
 @_router.get("/api/data-credits/me", response_model=DataCreditsBalanceResponse)
 async def my_data_credits(user: dict = Depends(require_user)) -> DataCreditsBalanceResponse:
+    from datetime import datetime, timezone
+
+    plan = _get_commerce().current_entitlements(user["id"]).plan_code
+    _get_commerce().ensure_monthly_data_grant(
+        user["id"], plan, datetime.now(timezone.utc).date()
+    )
     balance = _get_data_ledger().balance(user["id"])
     return DataCreditsBalanceResponse(
         available=balance.available, expiring_soon=balance.expiring_soon
