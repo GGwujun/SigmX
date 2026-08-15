@@ -7,6 +7,7 @@ import { setToken, setUser } from "@/lib/apiAuth";
 import { isDesktopMode, postLoginTarget } from "@/lib/desktop";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import { cloudResearchApi } from "@/lib/cloudResearchApi";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -24,6 +25,7 @@ export function LoginPage() {
       const res = await api.login(email.trim(), password);
       setToken(res.token);
       setUser(res.user);
+      trackPersonalFunnel("login_completed");
       toast.success("登录成功");
       // RequireAuth will route to disclaimer modal if not yet accepted.
       // Desktop lands on the workbench, browsers on the light portal.

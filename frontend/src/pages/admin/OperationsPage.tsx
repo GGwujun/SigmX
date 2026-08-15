@@ -90,6 +90,13 @@ export function OperationsPage() {
         <Metric label="Data Hub 成功率" value={`${(metrics.datahub_success_rate * 100).toFixed(1)}%`} detail={`${metrics.datahub_requests} 次调用 · ${metrics.data_credits_charged} Data Credit`} />
       </section>}
 
+      {metrics && <section className="rounded-xl border bg-card p-5">
+        <h2 className="text-sm font-semibold">个人用户转化漏斗 · 近 30 日</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {(["landing_view", "search_submitted", "result_view", "register_completed", "download_clicked", "checkout_intent"] as const).map((stage) => <Metric key={stage} label={({ landing_view: "访问首页", search_submitted: "发起搜索", result_view: "查看结果", register_completed: "完成注册", download_clicked: "下载 Desktop", checkout_intent: "购买意向" })[stage]} value={(metrics.personal_funnel?.[stage] ?? 0).toLocaleString()} />)}
+        </div>
+      </section>}
+
       <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">生成激活码</h2>
         <form onSubmit={doCreate} className="mt-4 grid gap-3 sm:grid-cols-4">

@@ -4,6 +4,7 @@ import { Bookmark, Monitor } from "lucide-react";
 
 import { cloudResearchApi, type PublicSearchResult } from "@/lib/cloudResearchApi";
 import { isAuthenticated } from "@/lib/apiAuth";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 export function PublicSearchPage() {
   const { id = "" } = useParams();
@@ -13,8 +14,11 @@ export function PublicSearchPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    trackPersonalFunnel("search_submitted");
     void cloudResearchApi.search(query).then(setResult).catch((reason) => setError(reason instanceof Error ? reason.message : "查询失败"));
   }, [query]);
+
+  useEffect(() => { if (result) trackPersonalFunnel("result_view"); }, [result]);
 
   const save = async () => {
     const summary = { matches: result?.items.length ?? 0, interpretation: result?.interpretation ?? [] };

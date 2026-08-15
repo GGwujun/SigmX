@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 14
+_SCHEMA_VERSION = 15
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -484,6 +484,17 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_saved_query_subscriptions_due
                 ON saved_query_subscriptions(user_id, next_run_at);
+
+            CREATE TABLE IF NOT EXISTS personal_funnel_events (
+                id TEXT PRIMARY KEY,
+                anonymous_session_id TEXT NOT NULL,
+                event_name TEXT NOT NULL,
+                event_day TEXT NOT NULL,
+                occurred_at TEXT NOT NULL,
+                UNIQUE(anonymous_session_id, event_name, event_day)
+            );
+            CREATE INDEX IF NOT EXISTS idx_personal_funnel_events_occurred
+                ON personal_funnel_events(occurred_at, event_name);
 
             CREATE TABLE IF NOT EXISTS saved_queries (
                 id TEXT PRIMARY KEY,

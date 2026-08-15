@@ -35,6 +35,7 @@ from src.product.data_credits import DataCreditLedger
 from src.product.datahub_catalog import DataHubEndpointCatalog
 from src.product.datahub_budgets import DataHubBudgetService
 from src.product.notifications import PersonalNotificationService
+from src.product.funnel import PersonalFunnelService
 from src.product.subscriptions import SavedQuerySubscriptionService
 from src.product.datahub_credentials import (
     CredentialLimitReached,
@@ -69,6 +70,7 @@ _research_handoffs: ResearchHandoffService | None = None
 _budget_service: DataHubBudgetService | None = None
 _notification_service: PersonalNotificationService | None = None
 _subscription_service: SavedQuerySubscriptionService | None = None
+_funnel_service: PersonalFunnelService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -153,6 +155,13 @@ def _get_subscriptions() -> SavedQuerySubscriptionService:
     if _subscription_service is None:
         _subscription_service = SavedQuerySubscriptionService(_get_store())
     return _subscription_service
+
+
+def _get_funnel() -> PersonalFunnelService:
+    global _funnel_service
+    if _funnel_service is None:
+        _funnel_service = PersonalFunnelService(_get_store())
+    return _funnel_service
 
 
 # ---------------------------------------------------------------------------
@@ -286,6 +295,12 @@ class AdminProductMetricsResponse(BaseModel):
     datahub_success_rate: float
     data_credits_charged: int
     weekly_effective_research_users: int
+    personal_funnel: dict[str, int]
+
+
+class PersonalFunnelEventRequest(BaseModel):
+    anonymous_session_id: str = Field(..., min_length=16, max_length=64)
+    event_name: str = Field(..., min_length=1, max_length=40)
 
 
 class SavedQuerySubscriptionItem(BaseModel):
@@ -643,6 +658,15 @@ _router = APIRouter(tags=["product"])
 
 
 # --- Public catalog ---------------------------------------------------
+
+
+@_router.post("/api/public/funnel-events", status_code=status.HTTP_202_ACCEPTED)
+async def record_personal_funnel_event(body: PersonalFunnelEventRequest) -> dict:
+    try:
+        accepted = _get_funnel().record(body.anonymous_session_id, body.event_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"accepted": accepted}
 
 
 @_router.get("/api/catalog/plans", response_model=CatalogResponse)
@@ -1410,6 +1434,7 @@ async def admin_product_metrics(
         datahub_success_rate=round(successes / requests, 4) if requests else 0.0,
         data_credits_charged=int(usage["credits"] or 0),
         weekly_effective_research_users=len(effective_users),
+        personal_funnel=_get_funnel().aggregate(start),
     )
 
 

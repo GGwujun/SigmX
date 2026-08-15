@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, Loader2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
@@ -10,8 +10,10 @@ import {
   DISCLAIMER_AGREE_LABEL, DISCLAIMER_BODY, DISCLAIMER_NOTE,
   DISCLAIMER_NOTE_TITLE, DISCLAIMER_TITLE,
 } from "@/lib/disclaimer";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 export function RegisterPage() {
+  useEffect(() => trackPersonalFunnel("register_started"), []);
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -40,6 +42,7 @@ export function RegisterPage() {
       const res = await api.register(email.trim(), password, agree);
       setToken(res.token);
       setUser(res.user);
+      trackPersonalFunnel("register_completed");
       toast.success("注册成功");
       // New user has disclaimer_accepted_at = null → RequireAuth shows the modal.
       navigate(postLoginTarget());

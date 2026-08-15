@@ -139,6 +139,7 @@ export interface AdminProductMetrics {
   datahub_success_rate: number;
   data_credits_charged: number;
   weekly_effective_research_users: number;
+  personal_funnel: Record<string, number>;
 }
 
 export interface DeviceItem {

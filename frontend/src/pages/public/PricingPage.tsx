@@ -9,6 +9,7 @@ import { Check, Loader2 } from "lucide-react";
 import { ApiError } from "@/lib/api";
 import { formatPlanPrice, getPlans, type PlanView } from "@/lib/productApi";
 import { cn } from "@/lib/utils";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 // Human labels for the stable entitlement keys (design §6). Keys themselves are
 // stable; only the display label is localized here.
@@ -47,6 +48,7 @@ export function PricingPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    trackPersonalFunnel("pricing_view");
     let cancelled = false;
     (async () => {
       try {
@@ -142,6 +144,7 @@ export function PricingPage() {
 
               <Link
                 to="/register"
+                onClick={() => { if (plan.code !== "free") trackPersonalFunnel("checkout_intent"); }}
                 className={cn(
                   "mt-6 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90",
                 )}

@@ -3,9 +3,10 @@
  * shapes (website / Data Hub / desktop), and primary CTAs. Static content — no
  * API calls — so it renders fast and never breaks on a catalog outage.
  */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Search, Database, Monitor, ArrowRight, Globe2 } from "lucide-react";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 const PRODUCTS = [
   {
@@ -38,6 +39,7 @@ const HIGHLIGHTS = [
 ];
 
 export function LandingPage() {
+  useEffect(() => trackPersonalFunnel("landing_view"), []);
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const submit = (event: FormEvent) => {

@@ -8,6 +8,7 @@ import { Download, Loader2, AlertCircle } from "lucide-react";
 
 import { ApiError } from "@/lib/api";
 import { getStableRelease, type StableRelease } from "@/lib/productApi";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 export function DownloadPage() {
   const [release, setRelease] = useState<StableRelease | null>(null);
@@ -65,6 +66,7 @@ export function DownloadPage() {
           {release?.download_url ? (
             <a
               href={release.download_url}
+              onClick={() => trackPersonalFunnel("download_clicked")}
               className="mt-6 inline-flex h-11 items-center gap-2 rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
               <Download className="h-4 w-4" /> 下载 v{release.version}

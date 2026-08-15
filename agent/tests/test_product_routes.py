@@ -33,6 +33,7 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._commerce = CommerceService(store, pr._ledger)
     pr._devices = DeviceService(store)
     pr._notification_service = None
+    pr._funnel_service = None
 
     yield store
 
@@ -42,6 +43,20 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._commerce = None
     pr._devices = None
     pr._notification_service = None
+    pr._funnel_service = None
+
+
+def test_public_funnel_route_is_allowlisted_and_deduplicated() -> None:
+    body = pr.PersonalFunnelEventRequest(
+        anonymous_session_id="browser_session_1234", event_name="landing_view"
+    )
+    assert asyncio.run(pr.record_personal_funnel_event(body)) == {"accepted": True}
+    assert asyncio.run(pr.record_personal_funnel_event(body)) == {"accepted": False}
+    with pytest.raises(pr.HTTPException) as error:
+        asyncio.run(pr.record_personal_funnel_event(pr.PersonalFunnelEventRequest(
+            anonymous_session_id="browser_session_1234", event_name="enterprise_lead"
+        )))
+    assert error.value.status_code == 400
 
 
 def test_catalog_endpoint_serializes_personal_plans_only() -> None:
@@ -224,4 +239,5 @@ def test_admin_personal_metrics_deduplicate_effective_users() -> None:
     assert metrics.weekly_effective_research_users == 2
     assert metrics.plan_distribution["desktop_pro"] == 1
     assert metrics.datahub_requests == 1
+    assert "landing_view" in metrics.personal_funnel
 
