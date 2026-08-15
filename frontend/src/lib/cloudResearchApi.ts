@@ -29,6 +29,9 @@ export interface CloudReport {
   created_at: string; revoked_at: string | null;
 }
 
+export interface CloudSavedQuery { id: string; query: string; result_summary: Record<string, unknown>; created_at: string; }
+export interface CloudWatchlistItem { symbol: string; name: string; created_at: string; }
+
 async function request<T>(path: string, authenticated = false, options?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...options,
@@ -48,4 +51,9 @@ export const cloudResearchApi = {
   fund: (code: string) => request<PublicFundSummary>(`/api/public/funds/${encodeURIComponent(code)}`),
   publicReport: (slug: string) => request<CloudReport>(`/api/public/reports/${encodeURIComponent(slug)}`),
   saveQuery: (query: string, resultSummary: Record<string, unknown>) => request("/api/cloud/queries", true, { method: "POST", body: JSON.stringify({ query, result_summary: resultSummary }) }),
+  listQueries: async () => (await request<{ items: CloudSavedQuery[] }>("/api/cloud/queries", true)).items,
+  listWatchlist: async () => (await request<{ items: CloudWatchlistItem[] }>("/api/cloud/watchlist", true)).items,
+  listReports: async () => (await request<{ items: CloudReport[] }>("/api/cloud/reports", true)).items,
+  removeWatchlist: (symbol: string) => request(`/api/cloud/watchlist/${encodeURIComponent(symbol)}`, true, { method: "DELETE" }),
+  revokeReport: (id: string) => request(`/api/cloud/reports/${encodeURIComponent(id)}`, true, { method: "DELETE" }),
 };

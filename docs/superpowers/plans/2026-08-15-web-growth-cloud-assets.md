@@ -99,11 +99,11 @@ Then implement the public React pages:
 - Consumes: cloud queries, watchlist, and reports from Task 2.
 - Produces: actionable lists with empty states, remove actions, public report links, and Desktop continuation actions.
 
-- [ ] Write tests that reject the current “规划中” cards and assert real asset rows, empty states, and error isolation.
-- [ ] Run the focused test and confirm it fails against the current placeholder page.
-- [ ] Load assets with `Promise.allSettled`, render each independently, and remove all “规划中” copy.
-- [ ] Re-run the focused test and complete frontend suite.
-- [ ] Commit with `feat(web): connect personal cloud workspace`.
+- [x] Write tests that reject the current “规划中” cards and assert real asset rows, empty states, and error isolation.
+- [x] Run the focused test and confirm it fails against the current placeholder page.
+- [x] Load assets with `Promise.allSettled`, render each independently, and remove all “规划中” copy.
+- [x] Re-run the focused test and complete frontend suite.
+- [x] Commit with `feat(web): connect personal cloud workspace`.
 
 ### Task 5: Verification and architecture reconciliation
 

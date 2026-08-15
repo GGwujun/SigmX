@@ -24,6 +24,7 @@ import {
   type DeviceItem,
   type EntitlementsResponse,
 } from "@/lib/productApi";
+import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@/lib/cloudResearchApi";
 
 interface ProductState {
   entitlements: EntitlementsResponse | null;
@@ -31,6 +32,9 @@ interface ProductState {
   dataCredits: DataCreditBalance | null;
   usage: DataHubUsage | null;
   devices: DeviceItem[] | null;
+  queries: CloudSavedQuery[] | null;
+  watchlist: CloudWatchlistItem[] | null;
+  reports: CloudReport[] | null;
 }
 
 const EMPTY_STATE: ProductState = {
@@ -39,6 +43,9 @@ const EMPTY_STATE: ProductState = {
   dataCredits: null,
   usage: null,
   devices: null,
+  queries: null,
+  watchlist: null,
+  reports: null,
 };
 
 function formatNumber(value: number): string {
@@ -58,6 +65,9 @@ export function MePage() {
       getDataCreditBalance(),
       getDataHubUsage(),
       listDevices(),
+      cloudResearchApi.listQueries(),
+      cloudResearchApi.listWatchlist(),
+      cloudResearchApi.listReports(),
     ] as const);
 
     setState({
@@ -66,6 +76,9 @@ export function MePage() {
       dataCredits: results[2].status === "fulfilled" ? results[2].value : null,
       usage: results[3].status === "fulfilled" ? results[3].value : null,
       devices: results[4].status === "fulfilled" ? results[4].value : null,
+      queries: results[5].status === "fulfilled" ? results[5].value : null,
+      watchlist: results[6].status === "fulfilled" ? results[6].value : null,
+      reports: results[7].status === "fulfilled" ? results[7].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -149,9 +162,9 @@ export function MePage() {
       </section>
 
       <section className="grid gap-4 lg:grid-cols-3">
-        <AssetCard icon={BarChart3} title="我的自选" description="跨端自选将在研究闭环阶段接入，这里将只展示用户主动同步的云资产。" />
-        <AssetCard icon={RefreshCw} title="保存的查询" description="Web 自然语言选股上线后，可在这里继续查看条件变化和历史结果。" />
-        <AssetCard icon={Cloud} title="我的报告" description="本地完整报告默认不上云；用户主动生成的云报告或脱敏摘要会显示在这里。" />
+        <AssetList icon={BarChart3} title="我的自选" empty="尚未同步云自选。" items={(state.watchlist ?? []).map((item) => ({ key: item.symbol, title: item.name || item.symbol, detail: item.symbol, to: `/stock/${item.symbol}` }))} unavailable={state.watchlist === null && !loading} />
+        <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}` }))} unavailable={state.queries === null && !loading} />
+        <AssetList icon={Cloud} title="我的报告" empty="尚未发布脱敏报告快照。" items={(state.reports ?? []).filter((item) => !item.revoked_at).map((item) => ({ key: item.id, title: item.title, detail: "打开公开快照", to: `/research/${item.slug}` }))} unavailable={state.reports === null && !loading} />
       </section>
 
       <section className="grid gap-4 md:grid-cols-2">
@@ -205,15 +218,18 @@ function StatusCard({
   return to ? <Link to={to}>{body}</Link> : body;
 }
 
-function AssetCard({ icon: Icon, title, description }: { icon: ComponentType<{ className?: string }>; title: string; description: string }) {
+function AssetList({ icon: Icon, title, items, empty, unavailable }: { icon: ComponentType<{ className?: string }>; title: string; items: Array<{ key: string; title: string; detail: string; to: string }>; empty: string; unavailable: boolean }) {
   return (
-    <div className="rounded-md border border-dashed bg-muted/10 p-4">
+    <div className="rounded-md border bg-card p-4">
       <div className="flex items-center gap-2">
         <Icon className="h-4 w-4 text-primary" />
         <h2 className="text-sm font-semibold">{title}</h2>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">规划中</span>
       </div>
-      <p className="mt-2 text-xs leading-5 text-muted-foreground">{description}</p>
+      <div className="mt-3 space-y-2">
+        {unavailable && <p className="text-xs text-muted-foreground">暂时无法加载。</p>}
+        {!unavailable && items.length === 0 && <p className="text-xs text-muted-foreground">{empty}</p>}
+        {items.slice(0, 5).map((item) => <Link key={item.key} to={item.to} className="block rounded-md border px-3 py-2 hover:border-primary/40"><div className="truncate text-sm font-medium">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.detail}</div></Link>)}
+      </div>
     </div>
   );
 }
