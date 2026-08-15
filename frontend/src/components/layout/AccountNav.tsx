@@ -7,14 +7,15 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
-  { to: "/account", label: "个人中心", end: true },
+  { to: "/me", label: "返回我的 SigmX", end: true },
+  { to: "/account", label: "账户与安全", end: true },
   { to: "/account/subscription", label: "套餐与激活", end: false },
-  { to: "/account/credits", label: "积分", end: false },
+  { to: "/account/credits", label: "研究积分", end: false },
   { to: "/account/orders", label: "订单", end: false },
-  { to: "/account/usage", label: "用量", end: false },
+  { to: "/account/usage", label: "Data Hub 用量", end: false },
   { to: "/account/devices", label: "设备", end: false },
-  { to: "/account/devices/authorize", label: "云账户", end: false },
-];
+  { to: "/account/devices/authorize", label: "设备授权", end: false },
+] as const;
 
 export function AccountNav() {
   return (

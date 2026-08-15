@@ -107,8 +107,8 @@ export function Account() {
             <User className="h-4 w-4 text-primary" />
           </div>
           <div>
-            <h1 className="text-lg font-bold">个人中心</h1>
-            <p className="text-xs text-muted-foreground">账户信息 · 积分 · 兑换码 · 消费记录</p>
+            <h1 className="text-lg font-bold">账户与安全</h1>
+            <p className="text-xs text-muted-foreground">身份信息 · 密码 · 兑换码 · 历史积分流水</p>
           </div>
         </div>
         <button onClick={() => reload()} className="p-2 rounded-lg hover:bg-muted transition-colors" title="刷新">
