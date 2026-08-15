@@ -5,7 +5,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Architecture requirement | Current evidence | Status / remaining work |
 |---|---|---|
 | Three independent products and route shells | Public routes, `/me` account shell, Desktop `/app`, Data Hub catalog/gateway; router boundary tests | Complete |
-| Public acquisition funnel | Search, query, stock/fund, research snapshot, product, pricing, download and docs routes; public research tests | Complete for SPA; SSR/static rendering remains required by §9 |
+| Public acquisition funnel | Search, query, stock/fund, research snapshot, product, pricing, download and docs routes; public research tests; route-specific semantic HTML | Complete |
 | Logged-in cloud assets | Saved queries, watchlist, report snapshots, task handoffs and `/me` | Complete |
 | Desktop Financial Harness | Runtime context, tool contracts, governance states, run records, Connected sessions and UI status | Complete for the specified non-trading scope |
 | Secure cross-terminal research loop | Hashed one-time handoff, strict `sigmx://research/` parser, device-bound consumption, explicit redacted report publication | Complete |
@@ -20,7 +20,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; `/me` UI | Notification center complete; saved-query/report delivery subscriptions remain missing |
 | Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics | Partial: catalog editing, external-payment refund, credit adjustment, device/credential operations and content controls remain missing |
 | Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost and deduplicated weekly effective research users | Product/engagement metrics complete; anonymous conversion event funnel remains missing |
-| SSR/static public delivery | React public SPA exists | Missing production SSR/static generation and SEO artifact verification |
+| SSR/static public delivery | FastAPI public-route allowlist injects escaped semantic HTML, canonical/OG metadata and JSON-LD into built Vite shell; private routes excluded; artifact verified | Complete |
 | SDK and CLI delivery | Dependency-free `sigmx-datahub` wheel, typed response metadata, secure client, `sigmx-data` CLI and public docs | Complete |
 | Full verification | Product/Harness/Data Hub suites and frontend/build pass | Repository-wide backend suite has unrelated Windows/environment and legacy failures; completion requires scoped gates plus documented baseline |
 
@@ -29,5 +29,4 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 1. Finish personal billing summary and account bill view.
 2. Add saved-query/report subscriptions and cloud-task completion events.
 3. Expand operations and funnel metrics.
-4. Add public static/SSR output.
-5. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
+4. Integrate a real payment provider only with real merchant configuration and signed webhook verification.

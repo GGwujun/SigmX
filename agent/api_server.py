@@ -29,7 +29,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, Request, Security, UploadFile, status
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
@@ -544,7 +544,7 @@ app.add_middleware(
 # here would incorrectly hijack those when the browser sets ``Accept:
 # text/html`` (e.g. a user pasting the URL into the address bar).
 
-_FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+_FRONTEND_DIST = Path(os.getenv("SIGMX_FRONTEND_DIST", "")) if os.getenv("SIGMX_FRONTEND_DIST") else Path(__file__).resolve().parent.parent / "frontend" / "dist"
 _SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset({
     "/correlation",
     "/daily-recommendations",
@@ -591,6 +591,17 @@ async def _spa_html_deep_link_fallback(request: Request, call_next):
     """
     if request.method == "GET":
         accept = request.headers.get("accept", "")
+        if "text/html" in accept:
+            from src.product.public_html import is_public_html_path, render_public_html
+
+            if is_public_html_path(request.url.path):
+                index = _FRONTEND_DIST / "index.html"
+                if index.exists():
+                    site_url = os.getenv("SIGMX_PUBLIC_SITE_URL", str(request.base_url).rstrip("/"))
+                    response = HTMLResponse(
+                        render_public_html(index.read_text(encoding="utf-8"), request.url.path, site_url)
+                    )
+                    return _with_frontend_cache_headers(response, "index.html")
         if "text/html" in accept and _is_spa_html_route(request.url.path):
             index = _FRONTEND_DIST / "index.html"
             if index.exists():

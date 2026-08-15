@@ -250,6 +250,8 @@ AlphaForge 报告查看器已提供“发布 Web 快照”操作。对话框不�
 - Web 到 Desktop 使用白名单深链和一次性任务标识，不向网页暴露本地服务令牌；
 - 旧 `sx_` API Key 和旧请求次数配额直接失效；历史研究积分与新的 Data Credit 分账保留。
 
+公开 Web 已采用服务端语义 HTML + SPA 增强模式：FastAPI 只拦截明确白名单内的公开页面 HTML 请求，在 Vite 构建壳中注入逐路由标题、描述、canonical、Open Graph、JSON-LD 和可索引正文；股票、基金和查询路径值在进入 HTML 前强制转义。React 启动后替换服务端语义占位内容。`/me`、`/account` 和 Desktop 专业路由不进入该渲染器，JSON/API 请求也保持原行为。
+
 ## 10. 异常、降级和安全
 
 - Data Hub 上游失败时执行现有多源降级链；所有来源失败则不扣分；

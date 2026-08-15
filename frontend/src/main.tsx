@@ -8,7 +8,10 @@ import { router } from "./router";
 import "highlight.js/styles/github-dark-dimmed.min.css";
 import "./index.css";
 
-createRoot(document.getElementById("root")!).render(
+const root = document.getElementById("root")!;
+if (root.querySelector("[data-sigmx-server-rendered]")) root.replaceChildren();
+
+createRoot(root).render(
   <StrictMode>
     <ErrorBoundary>
       <SSEProvider>
