@@ -793,6 +793,565 @@ def ep_quotes_realtime(codes: str = Query(..., description="comma-separated code
               {"source": "realtime_quote_snapshot", "note": "5-minute snapshot granularity"})
 
 
+# ----- 10f. Fund-flow / capital-flow endpoints (A2)
+@router.get("/api/v1/stocks/fund-flow")
+def ep_stocks_fund_flow(code: str = Query(...), start: str = None, end: str = None,
+                        limit: int = Query(120, ge=1, le=2000)):
+    """Per-stock daily fund flow (main/super/large/mid/small net, sina source)."""
+    code = code.strip()
+    sql = """SELECT code, trade_date, main_net, super_net, large_net, mid_net, small_net,
+                    net_amount, turnover FROM fund_flow_daily WHERE code=?"""
+    params: list = [code]
+    if start:
+        sql += " AND trade_date>=?"
+        params.append(start)
+    if end:
+        sql += " AND trade_date<=?"
+        params.append(end)
+    sql += " ORDER BY trade_date DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No fund-flow for code={code}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("main_net", "super_net", "large_net", "mid_net", "small_net", "net_amount", "turnover"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "count": len(items), "items": items},
+              {"source": "fund_flow_daily", "order": "trade_date desc"})
+
+
+@router.get("/api/v1/stocks/capital-flow")
+def ep_stocks_capital_flow(trade_date: str = None,
+                           codes: str = Query(..., description="comma-separated codes, max 50"),
+                           period: int = None):
+    """Per-stock capital flow snapshots (period dimension, tushare-style)."""
+    if period is not None and period not in (1, 3, 5, 10):
+        return err("BAD_REQUEST", "period must be one of [1, 3, 5, 10]")
+    code_list = [c.strip() for c in codes.split(",") if c.strip()][:50]
+    if not code_list:
+        return err("BAD_REQUEST", "codes required")
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "stock_capital_flow")
+        if not td:
+            return err("DATA_NOT_FOUND", "No capital-flow data", 404)
+        sql = """SELECT code, trade_date, period, m_in, m_out, m_net, r_in, r_out, r_net
+                 FROM stock_capital_flow WHERE trade_date=? AND code IN
+                 ({placeholders})""".format(placeholders=",".join("?" for _ in code_list))
+        params: list = [td, *code_list]
+        if period is not None:
+            sql += " AND period=?"
+            params.append(period)
+        sql += " ORDER BY code, period"
+        rows = conn.execute(sql, params).fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("m_in", "m_out", "m_net", "r_in", "r_out", "r_net"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "stock_capital_flow", "unit": "100M CNY (亿元)"})
+
+
+@router.get("/api/v1/stocks/capital-rank")
+def ep_stocks_capital_rank(trade_date: str = None,
+                           rank_type: str = "inflow",
+                           order: str = "desc",
+                           limit: int = Query(50, ge=1, le=500)):
+    if rank_type not in ("inflow", "outflow"):
+        return err("BAD_REQUEST", "rank_type must be one of ['inflow', 'outflow']")
+    if order not in ("asc", "desc"):
+        return err("BAD_REQUEST", "order must be 'asc' or 'desc'")
+    with get_db() as conn:
+        td = trade_date or conn.execute(
+            "SELECT MAX(trade_date) AS d FROM stock_capital_rank WHERE rank_type=?",
+            (rank_type,)).fetchone()["d"]
+        if not td:
+            return err("DATA_NOT_FOUND", f"No {rank_type} rank data", 404)
+        direction = "DESC" if order == "desc" else "ASC"
+        rows = conn.execute(f"""
+            SELECT code, name, main_net, change_pct, extra_json
+            FROM stock_capital_rank
+            WHERE trade_date=? AND rank_type=?
+            ORDER BY main_net {direction} LIMIT ?
+        """, (td, rank_type, limit)).fetchall()
+    items = []
+    for i, r in enumerate(rows, 1):
+        d = load_extra(dict(r))
+        d["rank"] = i
+        d["main_net"] = to_float(d.get("main_net"))
+        d["change_pct"] = to_float(d.get("change_pct"))
+        items.append(d)
+    return ok({"trade_date": td, "rank_type": rank_type, "items": items},
+              {"source": "stock_capital_rank", "unit": "100M CNY (亿元)"})
+
+
+@router.get("/api/v1/northbound/flow")
+def ep_northbound_flow(trade_date: str = None):
+    """Northbound net-buy intraday series (minute granularity, unit 亿元)."""
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "northbound_flow")
+        if not td:
+            return err("DATA_NOT_FOUND", "No northbound data", 404)
+        rows = conn.execute("""
+            SELECT time, hgt_yi, sgt_yi FROM northbound_flow
+            WHERE trade_date=? ORDER BY time
+        """, (td,)).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No northbound rows for {td}", 404)
+    items = [{"time": r["time"], "hgt_yi": to_float(r["hgt_yi"]), "sgt_yi": to_float(r["sgt_yi"])}
+             for r in rows]
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "northbound_flow", "unit": "100M CNY (亿元)", "note": "minute granularity"})
+
+
+# ----- 10g. Limit pools / dragon-tiger / hot list / regime (A3)
+_LIMIT_POOL_TABLES = {
+    "zt": ("zt_pool", "limit_days"),
+    "dt": ("dt_pool", "dt_days"),
+    "zb": ("zb_pool", "break_times"),
+    "yzt": ("yzt_pool", "y_limit_days"),
+}
+
+
+@router.get("/api/v1/stocks/limit-pool")
+def ep_stocks_limit_pool(pool_type: str = "zt",
+                         trade_date: str = None,
+                         limit: int = Query(100, ge=1, le=500)):
+    """Detailed limit-up/down/broken/yesterday-limit pools (eastmoney source)."""
+    if pool_type not in _LIMIT_POOL_TABLES:
+        return err("BAD_REQUEST", f"pool_type must be one of {sorted(_LIMIT_POOL_TABLES)}")
+    table, order_col = _LIMIT_POOL_TABLES[pool_type]
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, table)
+        if not td:
+            return err("DATA_NOT_FOUND", f"No {pool_type} pool data", 404)
+        rows = conn.execute(f"""
+            SELECT * FROM {table} WHERE trade_date=?
+            ORDER BY {order_col} DESC LIMIT ?
+        """, (td, limit)).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No {pool_type} pool rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        d.pop("updated_at", None)
+        for k in list(d.keys()):
+            if k in ("code", "name", "industry", "zt_stat", "first_seal", "last_seal",
+                     "y_first_seal", "source", "trade_date"):
+                continue
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "pool_type": pool_type, "count": len(items), "items": items},
+              {"source": table})
+
+
+@router.get("/api/v1/dragon-tiger")
+def ep_dragon_tiger(trade_date: str = None, code: str = None,
+                    limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "dragon_tiger")
+        if not td:
+            return err("DATA_NOT_FOUND", "No dragon-tiger data", 404)
+        sql = """SELECT code, trade_date, name, close, rise_rate, net_amt, buy_amt,
+                        sell_amt, extra_json FROM dragon_tiger WHERE trade_date=?"""
+        params: list = [td]
+        if code:
+            sql += " AND code=?"
+            params.append(code.strip())
+        sql += " LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No dragon-tiger rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = load_extra(dict(r))
+        for k in ("close", "rise_rate", "net_amt", "buy_amt", "sell_amt"):
+            d[k] = to_float(d.get(k))
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "dragon_tiger", "unit": "100M CNY (亿元)"})
+
+
+@router.get("/api/v1/hot-list")
+def ep_hot_list(trade_date: str = None, source: str = None,
+                limit: int = Query(50, ge=1, le=200)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "hot_list")
+        if not td:
+            return err("DATA_NOT_FOUND", "No hot-list data", 404)
+        sql = """SELECT code, name, rank, hot_value, change_pct, tags, source
+                 FROM hot_list WHERE trade_date=?"""
+        params: list = [td]
+        if source:
+            sql += " AND source=?"
+            params.append(source)
+        sql += " ORDER BY rank LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No hot-list rows for {td}", 404)
+    items = [{"code": r["code"], "name": r["name"], "rank": r["rank"],
+              "hot_value": to_float(r["hot_value"]), "change_pct": to_float(r["change_pct"]),
+              "tags": r["tags"], "source": r["source"]} for r in rows]
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "hot_list"})
+
+
+@router.get("/api/v1/market/regime")
+def ep_market_regime(trade_date: str = None):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "market_regime")
+        if not td:
+            return err("DATA_NOT_FOUND", "No regime data", 404)
+        row = conn.execute("""
+            SELECT trade_date, regime, confidence, bull_score, bear_score,
+                   strong_trend, indicators_json
+            FROM market_regime WHERE trade_date=?
+        """, (td,)).fetchone()
+    if not row:
+        return err("DATA_NOT_FOUND", f"No regime for {td}", 404)
+    d = dict(row)
+    indicators = None
+    if d.get("indicators_json"):
+        try:
+            indicators = json.loads(d["indicators_json"])
+        except (json.JSONDecodeError, TypeError):
+            indicators = None
+    data = {
+        "trade_date": d["trade_date"], "regime": d["regime"],
+        "confidence": to_float(d["confidence"]),
+        "bull_score": to_float(d["bull_score"]), "bear_score": to_float(d["bear_score"]),
+        "strong_trend": d["strong_trend"], "indicators": indicators,
+    }
+    return ok(data, {"source": "market_regime"})
+
+
+# ----- 10h. Fundamentals endpoints (A4)
+@router.get("/api/v1/stocks/financial-snapshot")
+def ep_financial_snapshot(codes: str = Query(..., description="comma-separated codes, max 50")):
+    code_list = [c.strip() for c in codes.split(",") if c.strip()][:50]
+    if not code_list:
+        return err("BAD_REQUEST", "codes required")
+    with get_db() as conn:
+        placeholders = ",".join("?" for _ in code_list)
+        rows = conn.execute(f"""
+            SELECT code, trade_date, liutongguben, zongguben, eps, bvps, roe,
+                   profit, income, extra_json
+            FROM financial_snapshot WHERE code IN ({placeholders})
+        """, code_list).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", "No financial snapshots", 404)
+    items = []
+    for r in rows:
+        d = load_extra(dict(r))
+        for k in ("liutongguben", "zongguben", "eps", "bvps", "roe", "profit", "income"):
+            d[k] = to_float(d.get(k))
+        items.append(d)
+    return ok({"count": len(items), "items": items}, {"source": "financial_snapshot"})
+
+
+@router.get("/api/v1/stocks/financial-statement")
+def ep_financial_statement(code: str = Query(...), report_type: str = None,
+                           limit: int = Query(8, ge=1, le=20)):
+    """Financial statements (three reports). report_type: lrb/zcfzb/xjlb."""
+    if report_type is not None and report_type not in ("lrb", "zcfzb", "xjlb"):
+        return err("BAD_REQUEST", "report_type must be one of ['lrb', 'zcfzb', 'xjlb']")
+    code = code.strip()
+    sql = """SELECT code, report_date, report_type, payload_json
+             FROM financial_statement WHERE code=?"""
+    params: list = [code]
+    if report_type:
+        sql += " AND report_type=?"
+        params.append(report_type)
+    sql += " ORDER BY report_date DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No statements for code={code}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["payload"] = json.loads(d.pop("payload_json"))
+        except (json.JSONDecodeError, TypeError):
+            d["payload"] = None
+        items.append(d)
+    return ok({"code": code, "count": len(items), "items": items},
+              {"source": "financial_statement"})
+
+
+@router.get("/api/v1/stocks/eps-forecast")
+def ep_eps_forecast(code: str = Query(...), year: str = None):
+    code = code.strip()
+    sql = """SELECT code, trade_date, year, count, min_eps, mean_eps, max_eps, net_profit
+             FROM eps_forecast WHERE code=?"""
+    params: list = [code]
+    if year:
+        sql += " AND year=?"
+        params.append(year)
+    sql += " ORDER BY trade_date DESC, year"
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No EPS forecast for code={code}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("min_eps", "mean_eps", "max_eps", "net_profit"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "items": items}, {"source": "eps_forecast"})
+
+
+@router.get("/api/v1/stocks/margin")
+def ep_stocks_margin(trade_date: str = None, code: str = None,
+                     limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "margin_trading")
+        if not td:
+            return err("DATA_NOT_FOUND", "No margin data", 404)
+        sql = """SELECT code, trade_date, rzye, rzmre, rzche, rqye, rqmcl, rqchl, rzrqye
+                 FROM margin_trading WHERE trade_date=?"""
+        params: list = [td]
+        if code:
+            sql += " AND code=?"
+            params.append(code.strip())
+        sql += " ORDER BY rzrqye DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No margin rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("rzye", "rzmre", "rzche", "rqye", "rqmcl", "rqchl", "rzrqye"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "margin_trading", "unit": "CNY (元)"})
+
+
+@router.get("/api/v1/stocks/block-trade")
+def ep_block_trade(trade_date: str = None, code: str = None,
+                   limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "block_trade")
+        if not td:
+            return err("DATA_NOT_FOUND", "No block-trade data", 404)
+        sql = """SELECT code, trade_date, price, close, premium_pct, vol, amount,
+                        buyer, seller FROM block_trade WHERE trade_date=?"""
+        params: list = [td]
+        if code:
+            sql += " AND code=?"
+            params.append(code.strip())
+        sql += " ORDER BY amount DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No block-trade rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("price", "close", "premium_pct", "vol", "amount"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "block_trade"})
+
+
+@router.get("/api/v1/stocks/holder-num")
+def ep_holder_num(code: str = Query(...), start: str = None, end: str = None,
+                  limit: int = Query(20, ge=1, le=100)):
+    code = code.strip()
+    sql = """SELECT code, end_date, holder_num, change_num, change_ratio, avg_shares
+             FROM holder_num WHERE code=?"""
+    params: list = [code]
+    if start:
+        sql += " AND end_date>=?"
+        params.append(start)
+    if end:
+        sql += " AND end_date<=?"
+        params.append(end)
+    sql += " ORDER BY end_date DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No holder-num for code={code}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("holder_num", "change_num", "change_ratio", "avg_shares"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "items": items}, {"source": "holder_num"})
+
+
+@router.get("/api/v1/stocks/dividends")
+def ep_dividends(code: str = Query(...)):
+    code = code.strip()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT code, ex_date, bonus_rmb, transfer_ratio, bonus_ratio, plan
+            FROM dividend_history WHERE code=? ORDER BY ex_date DESC
+        """, (code,)).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No dividends for code={code}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("bonus_rmb", "transfer_ratio", "bonus_ratio"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "items": items}, {"source": "dividend_history"})
+
+
+# ----- 10i. Fund/ETF premium & market stats (A5/A6)
+@router.get("/api/v1/funds/premium")
+def ep_funds_premium(trade_date: str = None, type: str = None,
+                     limit: int = Query(50, ge=1, le=200)):
+    """LOF/ETF premium/discount snapshot, sorted by |premium_rate| desc."""
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "fund_premium_snapshot")
+        if not td:
+            return err("DATA_NOT_FOUND", "No premium data", 404)
+        sql = """SELECT code, name, type, price, nav, premium_rate, amount,
+                        change_pct, redeem_status, subscribe_status, signal, iopv, nav_date
+                 FROM fund_premium_snapshot WHERE trade_date=?"""
+        params: list = [td]
+        if type:
+            sql += " AND type=?"
+            params.append(type)
+        sql += " ORDER BY ABS(premium_rate) DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No premium rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("price", "nav", "premium_rate", "amount", "change_pct", "iopv"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "fund_premium_snapshot", "order": "|premium_rate| desc"})
+
+
+@router.get("/api/v1/funds/arbitrage-signals")
+def ep_arbitrage_signals(status: str = "ACTIVE",
+                         limit: int = Query(50, ge=1, le=200)):
+    if status not in ("ACTIVE", "EXPIRED", "EXECUTED"):
+        return err("BAD_REQUEST", "status must be one of ['ACTIVE', 'EXPIRED', 'EXECUTED']")
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT code, trade_date, name, type, signal_type, premium_rate, z_score,
+                   historical_mean, historical_std, n_history, cost_estimate, net_spread, status
+            FROM arbitrage_signal WHERE status=?
+            ORDER BY ABS(z_score) DESC LIMIT ?
+        """, (status, limit)).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No {status} signals", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("premium_rate", "z_score", "historical_mean", "historical_std",
+                  "cost_estimate", "net_spread"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"status": status, "count": len(items), "items": items},
+              {"source": "arbitrage_signal"})
+
+
+@router.get("/api/v1/etf/share-size")
+def ep_etf_share_size(trade_date: str = None,
+                      limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "etf_share_size")
+        if not td:
+            return err("DATA_NOT_FOUND", "No share-size data", 404)
+        rows = conn.execute("""
+            SELECT code, name, total_share, total_size, nav, close, exchange
+            FROM etf_share_size WHERE trade_date=?
+            ORDER BY total_size DESC LIMIT ?
+        """, (td, limit)).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No share-size rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("total_share", "total_size", "nav", "close"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "etf_share_size"})
+
+
+@router.get("/api/v1/option-chain")
+def ep_option_chain(underlying: str = "510050", trade_date: str = None,
+                    call_put: str = None,
+                    limit: int = Query(200, ge=1, le=1000)):
+    if call_put is not None and call_put not in ("C", "P", "call", "put"):
+        return err("BAD_REQUEST", "call_put must be one of ['C', 'P']")
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "option_chain")
+        if not td:
+            return err("DATA_NOT_FOUND", "No option data", 404)
+        sql = """SELECT code, underlying, month, call_put, bid, ask, last, strike,
+                        open_interest, volume, delta, gamma, theta, vega, iv
+                 FROM option_chain WHERE underlying=? AND trade_date=?"""
+        params: list = [underlying.strip(), td]
+        if call_put:
+            params.append(call_put[0].upper())
+            sql += " AND call_put=?"
+        sql += " ORDER BY strike LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No option rows for {underlying} @ {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("bid", "ask", "last", "strike", "open_interest", "volume",
+                  "delta", "gamma", "theta", "vega", "iv"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"underlying": underlying, "trade_date": td, "count": len(items), "items": items},
+              {"source": "option_chain"})
+
+
+@router.get("/api/v1/market/stage-snapshot")
+def ep_stage_snapshot(trade_date: str = None, stage: str = None):
+    """Per-stage market snapshots (premarket/intraday/...). stage optional."""
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "market_stage_snapshot")
+        if not td:
+            return err("DATA_NOT_FOUND", "No stage snapshot data", 404)
+        sql = "SELECT stage, payload_json, source_tables, updated_at FROM market_stage_snapshot WHERE trade_date=?"
+        params: list = [td]
+        if stage:
+            sql += " AND stage=?"
+            params.append(stage)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No stage snapshot for {td}", 404)
+    items = []
+    for r in rows:
+        try:
+            payload = json.loads(r["payload_json"])
+        except (json.JSONDecodeError, TypeError):
+            payload = None
+        items.append({"stage": r["stage"], "payload": payload,
+                      "source_tables": r["source_tables"]})
+    return ok({"trade_date": td, "items": items}, {"source": "market_stage_snapshot"})
+
+
 # ----- 11. Finance RSS Summary (含聚类)
 @router.get("/api/v1/news/finance/rss-summary")
 def ep_news_rss_summary(routes: str = None,
@@ -1218,6 +1777,26 @@ def _sigmx_endpoint_list():
         "/api/v1/boards/daily",
         "/api/v1/boards/members",
         "/api/v1/quotes/realtime",
+        "/api/v1/stocks/fund-flow",
+        "/api/v1/stocks/capital-flow",
+        "/api/v1/stocks/capital-rank",
+        "/api/v1/northbound/flow",
+        "/api/v1/stocks/limit-pool",
+        "/api/v1/dragon-tiger",
+        "/api/v1/hot-list",
+        "/api/v1/market/regime",
+        "/api/v1/stocks/financial-snapshot",
+        "/api/v1/stocks/financial-statement",
+        "/api/v1/stocks/eps-forecast",
+        "/api/v1/stocks/margin",
+        "/api/v1/stocks/block-trade",
+        "/api/v1/stocks/holder-num",
+        "/api/v1/stocks/dividends",
+        "/api/v1/funds/premium",
+        "/api/v1/funds/arbitrage-signals",
+        "/api/v1/etf/share-size",
+        "/api/v1/option-chain",
+        "/api/v1/market/stage-snapshot",
         "/api/v1/news/finance/rss-summary",
         "/api/v1/content/morning-briefing-triptych",
     ]
