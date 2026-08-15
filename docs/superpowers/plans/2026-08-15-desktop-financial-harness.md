@@ -30,9 +30,9 @@
 
 **Files:** Create `agent/src/harness/context.py`, `agent/src/harness/runs.py`; test `agent/tests/test_harness_context.py`, `agent/tests/test_harness_runs.py`.
 
-- [ ] Write tests for local-only file references, secret redaction, Session and Swarm normalization, partial adapter failure, evidence and cost mapping.
-- [ ] Confirm RED, implement pure manifest builder and read-only adapters, then confirm GREEN.
-- [ ] Commit `feat(harness): normalize research context and runs`.
+- [x] Write tests for local-only file references, secret redaction, Session and Swarm normalization, partial adapter failure, evidence and cost mapping.
+- [x] Confirm RED, implement pure manifest builder and read-only adapters, then confirm GREEN.
+- [x] Commit `feat(harness): normalize research context and runs`.
 
 ### Task 3: Desktop Harness API
 
