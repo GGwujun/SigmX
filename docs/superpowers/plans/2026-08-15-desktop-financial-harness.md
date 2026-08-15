@@ -38,9 +38,9 @@
 
 **Files:** Create `agent/src/api/harness_routes.py`; modify `agent/api_server.py`; test `agent/tests/test_harness_routes.py`.
 
-- [ ] Write API tests for status/tools/runs/context preview, authentication, local fallback, and no secret-bearing fields.
-- [ ] Confirm RED, implement routes and register them outside public/product routers, then confirm GREEN.
-- [ ] Commit `feat(harness): expose desktop runtime api`.
+- [x] Write API tests for status/tools/runs/context preview, authentication, local fallback, and no secret-bearing fields.
+- [x] Confirm RED, implement routes and register them outside public/product routers, then confirm GREEN.
+- [x] Commit `feat(harness): expose desktop runtime api`.
 
 ### Task 4: Automatic short-lived Connected credential
 

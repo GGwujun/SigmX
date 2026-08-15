@@ -3376,6 +3376,9 @@ register_product_routes(app)
 from src.api.public_research_routes import register_public_research_routes  # noqa: E402
 register_public_research_routes(app)
 
+from src.api.harness_routes import register_harness_routes  # noqa: E402
+register_harness_routes(app)
+
 
 # ============================================================================
 # Notify routes (Feishu/DingTalk/WeChat) — defined in src/api/notify_routes.py
