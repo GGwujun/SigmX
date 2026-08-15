@@ -83,9 +83,24 @@ export interface OrderItem {
   plan_code: string;
   status: string;
   channel: string;
+  price_cny_fen: number;
   months: number;
   created_at: string;
   paid_at: string | null;
+}
+
+export interface BillingSummary {
+  period_days: number;
+  paid_orders: number;
+  paid_cny_fen: number;
+  research_credits_consumed: number;
+  data_credits_consumed: number;
+  daily: Array<{
+    date: string;
+    research_credits_consumed: number;
+    data_credits_consumed: number;
+    paid_cny_fen: number;
+  }>;
 }
 
 export interface DeviceItem {
@@ -323,6 +338,10 @@ export async function activateCode(code: string, idempotencyKey: string): Promis
 export async function listOrders(): Promise<OrderItem[]> {
   const data = await productRequest<{ items: OrderItem[] }>("/api/orders");
   return data.items;
+}
+
+export async function getBillingSummary(days = 30): Promise<BillingSummary> {
+  return productRequest<BillingSummary>(`/api/billing/summary?days=${days}`);
 }
 
 export async function listDevices(): Promise<DeviceItem[]> {

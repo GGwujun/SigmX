@@ -160,3 +160,32 @@ def test_my_credits_ledger_records_grant_and_consume() -> None:
     assert "reserve" in operations     # the AlphaForge reservation
     assert "settle" in operations      # the settlement
 
+
+def test_billing_summary_is_personal_and_combines_orders_and_both_credit_types() -> None:
+    from src.product.data_credits import DataCreditLedger
+
+    store = pr._get_store()
+    commerce = pr._get_commerce()
+    code = commerce.admin_create_activation_code(plan="desktop_pro", months=3)
+    activated = commerce.activate_code("u1", code.plaintext, "bill-order")
+    store._get_conn().execute(
+        "UPDATE orders SET price_cny_fen=26800 WHERE id=?", (activated.order_id,)
+    )
+    store._get_conn().commit()
+
+    research = pr._get_ledger().reserve("u1", 20, operation="fund_arb", idempotency_key="bill-ai")
+    pr._get_ledger().settle(research.reservation_id, idempotency_key="bill-ai:settle")
+    data = DataCreditLedger(store)
+    data_auth = data.authorize("u1", "stocks.daily", 10, "bill-data")
+    data.settle(data_auth.reservation_id, 7, "bill-data:settle")
+
+    other = commerce.admin_create_activation_code(plan="desktop_pro", months=3)
+    commerce.activate_code("u2", other.plaintext, "other-order")
+
+    summary = asyncio.run(pr.billing_summary(days=30, user={"id": "u1"}))
+    assert summary.paid_orders == 1
+    assert summary.paid_cny_fen == 26800
+    assert summary.research_credits_consumed == 20
+    assert summary.data_credits_consumed == 7
+    assert summary.daily[-1].research_credits_consumed == 20
+

@@ -9,7 +9,9 @@ import { toast } from "sonner";
 
 import { AccountNav } from "@/components/layout/AccountNav";
 import { ApiError } from "@/lib/api";
-import { getPlans, listOrders, type OrderItem } from "@/lib/productApi";
+import {
+  getBillingSummary, getPlans, listOrders, type BillingSummary, type OrderItem,
+} from "@/lib/productApi";
 
 const STATUS_LABEL: Record<string, string> = {
   paid: "已支付",
@@ -23,16 +25,24 @@ function shortDateTime(value?: string | null): string {
   return value.slice(0, 16).replace("T", " ");
 }
 
+function cny(fen: number): string {
+  return `¥${(fen / 100).toFixed(2)}`;
+}
+
 export function OrdersPage() {
   const [orders, setOrders] = useState<OrderItem[]>([]);
   const [planNames, setPlanNames] = useState<Record<string, string>>({});
+  const [summary, setSummary] = useState<BillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   const reload = useCallback(async () => {
     try {
-      const [items, plans] = await Promise.all([listOrders(), getPlans()]);
+      const [items, plans, billing] = await Promise.all([
+        listOrders(), getPlans(), getBillingSummary(30),
+      ]);
       setOrders(items);
       setPlanNames(Object.fromEntries(plans.map((plan) => [plan.code, plan.name_zh])));
+      setSummary(billing);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "加载订单失败");
     } finally {
@@ -59,6 +69,14 @@ export function OrdersPage() {
         </button>
       </header>
 
+      {summary && (
+        <section className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">近 30 日实付</div><div className="mt-1 text-xl font-bold">{cny(summary.paid_cny_fen)}</div><div className="text-xs text-muted-foreground">{summary.paid_orders} 笔已支付订单</div></div>
+          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">AI 研究消费</div><div className="mt-1 text-xl font-bold">{summary.research_credits_consumed.toLocaleString()}</div><div className="text-xs text-muted-foreground">{summary.research_credits_consumed.toLocaleString()} 研究积分</div></div>
+          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">数据消费</div><div className="mt-1 text-xl font-bold">{summary.data_credits_consumed.toLocaleString()}</div><div className="text-xs text-muted-foreground">{summary.data_credits_consumed.toLocaleString()} Data Credit</div></div>
+        </section>
+      )}
+
       {loading ? (
         <div className="flex items-center py-10 text-muted-foreground">
           <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载订单…
@@ -75,6 +93,7 @@ export function OrdersPage() {
                 <th className="px-4 py-2 text-left font-medium">套餐</th>
                 <th className="px-4 py-2 text-left font-medium">状态</th>
                 <th className="px-4 py-2 text-left font-medium">时长</th>
+                <th className="px-4 py-2 text-right font-medium">金额</th>
                 <th className="px-4 py-2 text-left font-medium">创建时间</th>
               </tr>
             </thead>
@@ -84,6 +103,7 @@ export function OrdersPage() {
                   <td className="px-4 py-2">{planNames[o.plan_code] ?? o.plan_code}</td>
                   <td className="px-4 py-2">{STATUS_LABEL[o.status] ?? o.status}</td>
                   <td className="px-4 py-2">{o.months} 个月</td>
+                  <td className="px-4 py-2 text-right font-mono">{cny(o.price_cny_fen)}</td>
                   <td className="px-4 py-2 text-muted-foreground">{shortDateTime(o.created_at)}</td>
                 </tr>
               ))}

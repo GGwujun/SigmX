@@ -17,6 +17,7 @@ today; the welcome-credit grant is deferred until that reconciliation happens.
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
@@ -193,6 +194,7 @@ class OrderItem(BaseModel):
     plan_code: str
     status: str
     channel: str
+    price_cny_fen: int
     months: int
     created_at: str
     paid_at: str | None
@@ -200,6 +202,22 @@ class OrderItem(BaseModel):
 
 class OrdersResponse(BaseModel):
     items: list[OrderItem]
+
+
+class BillingDailyItem(BaseModel):
+    date: str
+    research_credits_consumed: int
+    data_credits_consumed: int
+    paid_cny_fen: int
+
+
+class BillingSummaryResponse(BaseModel):
+    period_days: int
+    paid_orders: int
+    paid_cny_fen: int
+    research_credits_consumed: int
+    data_credits_consumed: int
+    daily: list[BillingDailyItem]
 
 
 class CreateActivationCodeRequest(BaseModel):
@@ -998,11 +1016,56 @@ async def activate_order(
 @_router.get("/api/orders", response_model=OrdersResponse)
 async def list_orders(user: dict = Depends(require_user)) -> OrdersResponse:
     rows = _get_store()._get_conn().execute(
-        "SELECT id, plan_code, status, channel, months, created_at, paid_at "
+        "SELECT id, plan_code, status, channel, price_cny_fen, months, created_at, paid_at "
         "FROM orders WHERE user_id = ? ORDER BY created_at DESC",
         (user["id"],),
     ).fetchall()
     return OrdersResponse(items=[OrderItem(**dict(r)) for r in rows])
+
+
+@_router.get("/api/billing/summary", response_model=BillingSummaryResponse)
+async def billing_summary(
+    days: int = Query(30, ge=7, le=365),
+    user: dict = Depends(require_user),
+) -> BillingSummaryResponse:
+    start = (datetime.now(timezone.utc) - timedelta(days=days - 1)).date().isoformat()
+    conn = _get_store()._get_conn()
+    orders = conn.execute(
+        "SELECT paid_at, price_cny_fen FROM orders WHERE user_id=? AND status='paid' "
+        "AND paid_at IS NOT NULL AND paid_at>=?",
+        (user["id"], start),
+    ).fetchall()
+    research = conn.execute(
+        "SELECT created_at, amount FROM credit_reservations WHERE user_id=? "
+        "AND status='settled' AND created_at>=?",
+        (user["id"], start),
+    ).fetchall()
+    data = conn.execute(
+        "SELECT settled_at, amount_settled FROM data_credit_reservations "
+        "WHERE owner_id=? AND status='settled' AND settled_at IS NOT NULL AND settled_at>=?",
+        (user["id"], start),
+    ).fetchall()
+    daily: dict[str, dict[str, int]] = {}
+
+    def bucket(value: str) -> dict[str, int]:
+        return daily.setdefault(
+            value[:10], {"research_credits_consumed": 0, "data_credits_consumed": 0, "paid_cny_fen": 0}
+        )
+
+    for row in orders:
+        bucket(row["paid_at"])["paid_cny_fen"] += int(row["price_cny_fen"])
+    for row in research:
+        bucket(row["created_at"])["research_credits_consumed"] += int(row["amount"])
+    for row in data:
+        bucket(row["settled_at"])["data_credits_consumed"] += int(row["amount_settled"] or 0)
+    return BillingSummaryResponse(
+        period_days=days,
+        paid_orders=len(orders),
+        paid_cny_fen=sum(int(row["price_cny_fen"]) for row in orders),
+        research_credits_consumed=sum(int(row["amount"]) for row in research),
+        data_credits_consumed=sum(int(row["amount_settled"] or 0) for row in data),
+        daily=[BillingDailyItem(date=date, **values) for date, values in sorted(daily.items())],
+    )
 
 
 # --- Devices (require_user) ------------------------------------------
