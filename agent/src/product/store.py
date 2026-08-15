@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 3
+_SCHEMA_VERSION = 4
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -130,6 +130,7 @@ class ProductStore:
         conn = self._get_conn()
         with self._lock:
             self._create_tables(conn)
+            self._ensure_catalog_contract_columns(conn)
             self._seed_catalog(conn)
             self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
@@ -345,6 +346,10 @@ class ProductStore:
                 unit_cost INTEGER,
                 max_cost INTEGER,
                 enabled INTEGER NOT NULL DEFAULT 1,
+                request_limit_params_json TEXT NOT NULL DEFAULT '[]',
+                date_params_json TEXT NOT NULL DEFAULT 'null',
+                default_units INTEGER NOT NULL DEFAULT 0,
+                result_path_json TEXT NOT NULL DEFAULT 'null',
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (endpoint_code, catalog_version),
                 UNIQUE (http_method, path_pattern, catalog_version)
@@ -447,15 +452,16 @@ class ProductStore:
     def _seed_datahub_endpoint_catalog(conn: sqlite3.Connection) -> None:
         # Local import avoids a module cycle: the catalog service itself accepts
         # ProductStore while the store owns durable seed persistence.
-        from src.product.datahub_catalog import ENDPOINT_CATALOG_V1
+        from src.product.datahub_catalog import ENDPOINT_CATALOG_V1, ENDPOINT_CATALOG_V2
 
         conn.executemany(
             """
             INSERT OR IGNORE INTO datahub_endpoint_catalog
                 (endpoint_code, catalog_version, http_method, path_pattern,
                  dataset_group, pricing_mode, base_cost, unit_name, unit_size,
-                 unit_cost, max_cost, enabled, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 unit_cost, max_cost, enabled, request_limit_params_json,
+                 date_params_json, default_units, result_path_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -471,11 +477,32 @@ class ProductStore:
                     entry.unit_cost,
                     entry.max_cost,
                     int(entry.enabled),
+                    json.dumps(entry.request_limit_params),
+                    json.dumps(entry.date_params),
+                    entry.default_units,
+                    json.dumps(entry.result_path),
                     "2026-08-15T00:00:00+00:00",
                 )
-                for entry in ENDPOINT_CATALOG_V1
+                for entry in (*ENDPOINT_CATALOG_V1, *ENDPOINT_CATALOG_V2)
             ],
         )
+
+    @staticmethod
+    def _ensure_catalog_contract_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row[1] for row in conn.execute("PRAGMA table_info(datahub_endpoint_catalog)")
+        }
+        additions = {
+            "request_limit_params_json": "TEXT NOT NULL DEFAULT '[]'",
+            "date_params_json": "TEXT NOT NULL DEFAULT 'null'",
+            "default_units": "INTEGER NOT NULL DEFAULT 0",
+            "result_path_json": "TEXT NOT NULL DEFAULT 'null'",
+        }
+        for name, declaration in additions.items():
+            if name not in columns:
+                conn.execute(
+                    f"ALTER TABLE datahub_endpoint_catalog ADD COLUMN {name} {declaration}"
+                )
 
     @staticmethod
     def _migrate_v2_datahub_entitlements(conn: sqlite3.Connection) -> None:

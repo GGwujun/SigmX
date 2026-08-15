@@ -71,7 +71,7 @@ def test_schema_v2_tables_exist(tmp_path: Path) -> None:
             "SELECT version FROM product_migrations"
         )
     }
-    assert {1, 2, 3} <= versions
+    assert {1, 2, 3, 4} <= versions
 
 
 def test_schema_v2_replaces_old_datahub_keys_only(tmp_path: Path) -> None:

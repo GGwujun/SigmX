@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+import json
 from math import ceil
 from typing import Iterable
 
@@ -31,6 +32,10 @@ class EndpointPricing:
     unit_cost: int | None = None
     max_cost: int | None = None
     enabled: bool = True
+    request_limit_params: tuple[str, ...] = ()
+    date_params: tuple[str, str] | None = None
+    default_units: int = 0
+    result_path: tuple[str, ...] | None = None
 
 
 def _entry(code: str, path: str, group: str, mode: str, cost: int) -> EndpointPricing:
@@ -93,6 +98,31 @@ _V1 = [
 
 ENDPOINT_CATALOG_V1 = tuple(_entry(*values) for values in _V1)
 
+_PER_UNIT_CONTRACTS = {
+    "indices.daily": (1000, None),
+    "stocks.daily": (250, ("start", "end")),
+    "stocks.daily_basic": (100, None),
+    "etf.daily": (250, ("start", "end")),
+    "fund.daily": (250, ("start", "end")),
+    "boards.daily": (100, ("start", "end")),
+    "stocks.financial_statement": (8, None),
+    "stocks.fq_factors": (250, ("start", "end")),
+    "stocks.minute": (2000, ("start", "end")),
+    "stocks.ticks": (2000, None),
+}
+
+ENDPOINT_CATALOG_V2 = tuple(
+    replace(
+        entry,
+        catalog_version=2,
+        request_limit_params=("limit", "page_size", "count") if entry.pricing_mode == "per_unit" else (),
+        date_params=_PER_UNIT_CONTRACTS[entry.endpoint_code][1] if entry.pricing_mode == "per_unit" else None,
+        default_units=_PER_UNIT_CONTRACTS[entry.endpoint_code][0] if entry.pricing_mode == "per_unit" else 0,
+        result_path=("data",) if entry.pricing_mode == "per_unit" else None,
+    )
+    for entry in ENDPOINT_CATALOG_V1
+)
+
 
 class DataHubEndpointCatalog:
     def __init__(
@@ -150,10 +180,20 @@ class DataHubEndpointCatalog:
     def _load(self) -> list[EndpointPricing]:
         rows = self.store._get_conn().execute(
             "SELECT endpoint_code, catalog_version, http_method, path_pattern, dataset_group, "
-            "pricing_mode, base_cost, unit_name, unit_size, unit_cost, max_cost, enabled "
+            "pricing_mode, base_cost, unit_name, unit_size, unit_cost, max_cost, enabled, "
+            "request_limit_params_json, date_params_json, default_units, result_path_json "
             "FROM datahub_endpoint_catalog ORDER BY endpoint_code, catalog_version"
         ).fetchall()
-        entries = [EndpointPricing(**{**dict(row), "enabled": bool(row["enabled"])}) for row in rows]
+        entries = []
+        for row in rows:
+            values = dict(row)
+            values["enabled"] = bool(row["enabled"])
+            values["request_limit_params"] = tuple(json.loads(values.pop("request_limit_params_json")))
+            raw_dates = json.loads(values.pop("date_params_json"))
+            values["date_params"] = tuple(raw_dates) if raw_dates is not None else None
+            raw_result = json.loads(values.pop("result_path_json"))
+            values["result_path"] = tuple(raw_result) if raw_result is not None else None
+            entries.append(EndpointPricing(**values))
         for entry in entries:
             self._validate(entry)
         return entries
@@ -173,6 +213,7 @@ class DataHubEndpointCatalog:
                 and isinstance(entry.unit_size, int) and entry.unit_size > 0
                 and isinstance(entry.unit_cost, int) and entry.unit_cost > 0
                 and isinstance(entry.max_cost, int) and entry.max_cost >= entry.base_cost
+                and entry.default_units >= 0
             )
         else:
             valid = False
