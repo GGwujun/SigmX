@@ -337,6 +337,10 @@ class CreateDataHubCredentialRequest(BaseModel):
     expires_at: str | None = None
 
 
+class CreateDesktopDataHubSessionRequest(BaseModel):
+    device_id: str = Field(..., min_length=1, max_length=128)
+
+
 class DataHubCredentialItem(BaseModel):
     id: str
     key_prefix: str
@@ -560,6 +564,34 @@ async def create_datahub_credential(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return _created_credential(created)
+
+
+@_router.post(
+    "/api/datahub/desktop-session",
+    response_model=CreatedDataHubCredentialResponse,
+)
+async def create_desktop_datahub_session(
+    body: CreateDesktopDataHubSessionRequest,
+    user: dict = Depends(require_user),
+) -> CreatedDataHubCredentialResponse:
+    device = _get_store()._get_conn().execute(
+        "SELECT id FROM devices WHERE id = ? AND user_id = ? AND revoked_at IS NULL",
+        (body.device_id, user["id"]),
+    ).fetchone()
+    if device is None:
+        raise HTTPException(status_code=404, detail="active device not found")
+    snapshot = _get_commerce().current_entitlements(user["id"])
+    if not snapshot.entitlements.get("desktop.connected_mode", False):
+        raise HTTPException(status_code=403, detail="connected mode is not enabled")
+    groups = snapshot.entitlements.get("datahub.dataset_groups", [])
+    scopes = [f"group:{group}" for group in groups]
+    if not scopes:
+        raise HTTPException(status_code=403, detail="no Data Hub datasets are enabled")
+    return _created_credential(
+        _get_credential_service().create_desktop_session(
+            user["id"], body.device_id, scopes
+        )
+    )
 
 
 @_router.get("/api/datahub/credentials", response_model=DataHubCredentialsResponse)

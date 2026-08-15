@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 7
+_SCHEMA_VERSION = 8
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -132,6 +132,7 @@ class ProductStore:
             self._create_tables(conn)
             self._drop_legacy_datahub_tables(conn)
             self._ensure_catalog_contract_columns(conn)
+            self._ensure_datahub_credential_columns(conn)
             self._seed_catalog(conn)
             self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
@@ -359,7 +360,9 @@ class ProductStore:
                 expires_at TEXT,
                 last_used_at TEXT,
                 created_at TEXT NOT NULL,
-                revoked_at TEXT
+                revoked_at TEXT,
+                credential_kind TEXT NOT NULL DEFAULT 'personal',
+                device_id TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_datahub_credentials_user
                 ON datahub_credentials(user_id, created_at);
@@ -443,6 +446,20 @@ class ProductStore:
             );
             """
         )
+
+    @staticmethod
+    def _ensure_datahub_credential_columns(conn: sqlite3.Connection) -> None:
+        columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(datahub_credentials)").fetchall()
+        }
+        if "credential_kind" not in columns:
+            conn.execute(
+                "ALTER TABLE datahub_credentials ADD COLUMN "
+                "credential_kind TEXT NOT NULL DEFAULT 'personal'"
+            )
+        if "device_id" not in columns:
+            conn.execute("ALTER TABLE datahub_credentials ADD COLUMN device_id TEXT")
 
     @staticmethod
     def _seed_catalog(conn: sqlite3.Connection) -> None:

@@ -10,7 +10,7 @@ import re
 import secrets
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Callable
 
 from src.product.store import ProductStore
@@ -93,13 +93,32 @@ class DataHubCredentialService:
     ) -> CreatedCredential:
         config = self._validate(name, scopes, ip_allowlist, expires_at)
         with self.store.transaction() as conn:
-            return self._insert(conn, user_id, *config)
+            return self._insert(conn, user_id, *config, "personal", None)
+
+    def create_desktop_session(
+        self, user_id: str, device_id: str, scopes: list[str]
+    ) -> CreatedCredential:
+        if not device_id.strip():
+            raise ValueError("device_id is required")
+        expiry = (self._now() + timedelta(hours=24)).isoformat()
+        config = self._validate("Desktop connected session", scopes, [], expiry)
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE datahub_credentials SET revoked_at = ? "
+                "WHERE user_id = ? AND device_id = ? "
+                "AND credential_kind = 'desktop_session' AND revoked_at IS NULL",
+                (self._now().isoformat(), user_id, device_id),
+            )
+            return self._insert(
+                conn, user_id, *config, "desktop_session", device_id
+            )
 
     def list(self, user_id: str) -> list[CredentialView]:
         rows = self.store._get_conn().execute(
             "SELECT id, key_prefix, name, scopes_json, ip_allowlist_json, expires_at, "
             "last_used_at, created_at, revoked_at FROM datahub_credentials "
-            "WHERE user_id = ? ORDER BY created_at DESC, id DESC",
+            "WHERE user_id = ? AND credential_kind = 'personal' "
+            "ORDER BY created_at DESC, id DESC",
             (user_id,),
         ).fetchall()
         return [self._view(row) for row in rows]
@@ -168,15 +187,23 @@ class DataHubCredentialService:
                 tuple(json.loads(row["scopes_json"])),
                 tuple(json.loads(row["ip_allowlist_json"])),
                 row["expires_at"],
+                "personal",
+                None,
             )
 
-    def _insert(self, conn, user_id, name, scopes, ip_allowlist, expires_at) -> CreatedCredential:
-        active = conn.execute(
-            "SELECT COUNT(*) FROM datahub_credentials WHERE user_id = ? AND revoked_at IS NULL",
-            (user_id,),
-        ).fetchone()[0]
-        if active >= 10:
-            raise CredentialLimitReached("at most 10 active credentials are allowed")
+    def _insert(
+        self, conn, user_id, name, scopes, ip_allowlist, expires_at,
+        credential_kind, device_id,
+    ) -> CreatedCredential:
+        if credential_kind == "personal":
+            active = conn.execute(
+                "SELECT COUNT(*) FROM datahub_credentials WHERE user_id = ? "
+                "AND credential_kind = 'personal' AND revoked_at IS NULL "
+                "AND (expires_at IS NULL OR expires_at > ?)",
+                (user_id, self._now().isoformat()),
+            ).fetchone()[0]
+            if active >= 10:
+                raise CredentialLimitReached("at most 10 active credentials are allowed")
         plaintext = "sxd_live_" + secrets.token_hex(24)
         credential_id = uuid.uuid4().hex
         created_at = self._now().isoformat()
@@ -184,8 +211,8 @@ class DataHubCredentialService:
         conn.execute(
             "INSERT INTO datahub_credentials "
             "(id, user_id, name, key_hash, key_prefix, scopes_json, ip_allowlist_json, "
-            "expires_at, last_used_at, created_at, revoked_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)",
+            "expires_at, last_used_at, created_at, revoked_at, credential_kind, device_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)",
             (
                 credential_id,
                 user_id,
@@ -196,6 +223,8 @@ class DataHubCredentialService:
                 json.dumps(ip_allowlist, ensure_ascii=False),
                 expires_at,
                 created_at,
+                credential_kind,
+                device_id,
             ),
         )
         return CreatedCredential(
