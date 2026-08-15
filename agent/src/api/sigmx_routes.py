@@ -1352,6 +1352,126 @@ def ep_stage_snapshot(trade_date: str = None, stage: str = None):
     return ok({"trade_date": td, "items": items}, {"source": "market_stage_snapshot"})
 
 
+# ----- 10j. fq-factors + minute bars + wolf passthrough (B1-B3)
+@router.get("/api/v1/stocks/fq-factors")
+def ep_fq_factors(code: str = Query(...), start: str = None, end: str = None,
+                  limit: int = Query(250, ge=1, le=2000)):
+    code = code.strip()
+    sql = "SELECT code, trade_date, adj_factor, source FROM fq_factors WHERE code=?"
+    params: list = [code]
+    if start:
+        sql += " AND trade_date>=?"
+        params.append(start)
+    if end:
+        sql += " AND trade_date<=?"
+        params.append(end)
+    sql += " ORDER BY trade_date DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No fq factors for code={code}", 404)
+    items = [{"code": r["code"], "trade_date": r["trade_date"],
+              "adj_factor": to_float(r["adj_factor"]), "source": r["source"]} for r in rows]
+    return ok({"code": code, "count": len(items), "items": items},
+              {"source": "fq_factors", "order": "trade_date desc"})
+
+
+_MINUTE_BUCKET = {"5m": 1, "15m": 3, "30m": 6, "60m": 12}
+
+
+@router.get("/api/v1/stocks/minute")
+def ep_stocks_minute(code: str = Query(...), trade_date: str = None,
+                     start: str = None, end: str = None,
+                     period: str = "5m"):
+    """5m bars from the hot-pool universe; 15m/30m/60m aggregated in SQL."""
+    if period not in _MINUTE_BUCKET:
+        return err("BAD_REQUEST", f"period must be one of {sorted(_MINUTE_BUCKET)}")
+    code = code.strip()
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "minute_bars")
+        if not td:
+            return err("DATA_NOT_FOUND", "No minute bars yet (hot-pool sync starts tonight)", 404)
+        bucket = _MINUTE_BUCKET[period]
+        if bucket == 1:
+            sql = """SELECT code, trade_date, bar_time, open, high, low, close, volume, total_amt
+                     FROM minute_bars WHERE code=? AND trade_date=? ORDER BY bar_time"""
+            params: list = [code, td]
+        else:
+            # Aggregate 5m bars into the requested bucket. Bucket index =
+            # position of the bar in the session (09:35 is bar 1); bars beyond
+            # 11:30/13:00 lunch boundary are offset so afternoon maps after
+            # morning in a monotonic sequence.
+            sql = """
+                WITH seq AS (
+                    SELECT bar_time, open, high, low, close, volume, total_amt,
+                           (CAST(substr(bar_time, 1, 2) AS INTEGER) * 60
+                            + CAST(substr(bar_time, 4, 2) AS INTEGER)) AS tmin
+                    FROM minute_bars WHERE code=? AND trade_date=?
+                ),
+                bucketed AS (
+                    SELECT *,
+                           (ROW_NUMBER() OVER (ORDER BY tmin) - 1) / :bucket AS bidx
+                    FROM seq
+                )
+                SELECT ? AS code, ? AS trade_date,
+                       MAX(bar_time) AS bar_time,
+                       (SELECT open FROM bucketed b2 WHERE b2.bidx = b1.bidx
+                         ORDER BY tmin LIMIT 1) AS open,
+                       MAX(high) AS high, MIN(low) AS low,
+                       (SELECT close FROM bucketed b3 WHERE b3.bidx = b1.bidx
+                         ORDER BY tmin DESC LIMIT 1) AS close,
+                       SUM(volume) AS volume, SUM(total_amt) AS total_amt
+                FROM bucketed b1 GROUP BY bidx ORDER BY bidx
+            """
+            params = [code, td, code, td]
+            # sqlite3 named param mixed with positional is messy — inline bucket.
+            sql = sql.replace(":bucket", str(bucket))
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No minute bars for code={code} @ {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("open", "high", "low", "close", "volume", "total_amt"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "trade_date": td, "period": period,
+               "count": len(items), "items": items},
+              {"source": "minute_bars", "unit_note": "volume 手 / amount 元",
+               "coverage": "hot-pool universe only"})
+
+
+def _wolf_passthrough(path: str, **params):
+    """Shared wolf passthrough wrapper: 502 with a clear error when upstream is
+    unavailable (token missing / network), rows capped at ROWS_HARD_CAP."""
+    from src.data import wolf_client
+    from src.data.wolf_client import WolfError, WolfNotConfiguredError
+
+    try:
+        rows = wolf_client.call(path, **params)
+    except WolfNotConfiguredError as exc:
+        return err("UPSTREAM_UNAVAILABLE", str(exc), 502)
+    except (WolfError, Exception) as exc:  # noqa: BLE001
+        return err("UPSTREAM_UNAVAILABLE", f"wolf upstream failed: {exc}", 502)
+    truncated = len(rows) > ROWS_HARD_CAP
+    return ok({"count": min(len(rows), ROWS_HARD_CAP), "items": rows[:ROWS_HARD_CAP]},
+              {"passthrough": "wolf", "cached": False,
+               "truncated": truncated, "upstream": path})
+
+
+@router.get("/api/v1/stocks/ticks")
+def ep_stocks_ticks(code: str = Query(...), trade_date: str = None):
+    """Per-tick trades for one code (wolf /wolf/deal passthrough, not stored)."""
+    return _wolf_passthrough("wolf/deal", code=code.strip(), tradeDate=trade_date)
+
+
+@router.get("/api/v1/stocks/quote5")
+def ep_stocks_quote5(code: str = Query(...)):
+    """Level-5 order book for one code (wolf /wolf/time/five passthrough)."""
+    return _wolf_passthrough("wolf/time/five", symbol="stock", code=code.strip())
+
+
 # ----- 11. Finance RSS Summary (含聚类)
 @router.get("/api/v1/news/finance/rss-summary")
 def ep_news_rss_summary(routes: str = None,
@@ -1797,6 +1917,10 @@ def _sigmx_endpoint_list():
         "/api/v1/etf/share-size",
         "/api/v1/option-chain",
         "/api/v1/market/stage-snapshot",
+        "/api/v1/stocks/fq-factors",
+        "/api/v1/stocks/minute",
+        "/api/v1/stocks/ticks",
+        "/api/v1/stocks/quote5",
         "/api/v1/news/finance/rss-summary",
         "/api/v1/content/morning-briefing-triptych",
     ]

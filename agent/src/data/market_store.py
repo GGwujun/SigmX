@@ -460,6 +460,29 @@ CREATE TABLE IF NOT EXISTS fund_flow_daily (
 );
 CREATE INDEX IF NOT EXISTS idx_fund_flow_daily_date ON fund_flow_daily(trade_date);
 
+-- 基础数据: 复权因子（tushare adj_factor 按日全市场批量；累积表，非当日快照）
+CREATE TABLE IF NOT EXISTS fq_factors (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    adj_factor REAL,
+    source TEXT NOT NULL DEFAULT 'tushare',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date)
+);
+CREATE INDEX IF NOT EXISTS idx_fq_factors_date ON fq_factors(trade_date);
+
+-- 基础数据: 分钟K线（仅 5m 周期；热门池+自选股范围；其他周期由 API 层聚合）
+CREATE TABLE IF NOT EXISTS minute_bars (
+    code TEXT NOT NULL, trade_date TEXT NOT NULL,
+    bar_time TEXT NOT NULL,            -- bar 结束时间 'HH:MM'
+    period TEXT NOT NULL DEFAULT '5m',
+    open REAL, high REAL, low REAL, close REAL,
+    volume REAL, total_amt REAL,
+    source TEXT NOT NULL DEFAULT 'tpdog',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (code, trade_date, period, bar_time)
+);
+CREATE INDEX IF NOT EXISTS idx_minute_bars_date ON minute_bars(trade_date);
+
 -- 资金面: 融资融券
 CREATE TABLE IF NOT EXISTS margin_trading (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
@@ -3278,6 +3301,53 @@ class MarketStore:
                      r.get("source", "sina"), _now_iso()),
                 )
         return len(rows)
+
+    @_synchronized
+    def upsert_fq_factors(self, trade_date: str, rows: list[dict], *, source: str = "tushare") -> int:
+        """Batch upsert of a full-market adj_factor day (INSERT OR REPLACE)."""
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO fq_factors "
+                "(code, trade_date, adj_factor, source, updated_at) VALUES (?, ?, ?, ?, ?)",
+                [(r["code"], trade_date, _f(r.get("adj_factor")), source, _now_iso())
+                 for r in rows if r.get("code")],
+            )
+        return len(rows)
+
+    @_synchronized
+    def upsert_minute_bars(self, code: str, trade_date: str, rows: list[dict], *,
+                           source: str = "tpdog") -> int:
+        """Upsert one code's 5m bars for a day. `bar_time` is 'HH:MM' bar end."""
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO minute_bars "
+                "(code, trade_date, bar_time, period, open, high, low, close, "
+                "volume, total_amt, source, updated_at) "
+                "VALUES (?, ?, ?, '5m', ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(code, trade_date, r.get("bar_time", ""),
+                  _f(r.get("open")), _f(r.get("high")), _f(r.get("low")),
+                  _f(r.get("close")), _f(r.get("volume")), _f(r.get("total_amt")),
+                  source, _now_iso()) for r in rows],
+            )
+        return len(rows)
+
+    @_synchronized
+    def prune_minute_bars(self, keep_days: int) -> int:
+        """Delete 5m bars older than the latest `keep_days` distinct dates."""
+        dates = [r[0] for r in self._conn.execute(
+            "SELECT DISTINCT trade_date FROM minute_bars ORDER BY trade_date DESC"
+        ).fetchall()]
+        if len(dates) <= keep_days:
+            return 0
+        cutoff = dates[keep_days - 1]
+        with self._write_transaction():
+            cur = self._conn.execute(
+                "DELETE FROM minute_bars WHERE trade_date < ?", (cutoff,))
+        return cur.rowcount
 
     @_synchronized
     def upsert_financial_snapshot(self, code: str, data: dict) -> int:

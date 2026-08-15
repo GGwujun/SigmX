@@ -145,6 +145,8 @@ _POST_CLOSE_DATASETS = {
     "irm_qa",
     "stock_news",
     "lockup_expiry",
+    "fq_factors",
+    "minute_bars",
 }
 
 # Tier-1 datasets: the day's core snapshot. Validated and published FIRST so the
@@ -303,6 +305,8 @@ _DATE_KEYED_TABLES = (
     "holder_num",
     "dividend_history",
     "lockup_expiry",
+    "fq_factors",
+    "minute_bars",
     "option_chain",
     "northbound_flow",
     "eps_forecast",
@@ -452,6 +456,8 @@ _DATASET_TABLE = {
     "irm_qa": "irm_qa",
     "stock_news": "stock_news",
     "lockup_expiry": "lockup_expiry",
+    "fq_factors": "fq_factors",
+    "minute_bars": "minute_bars",
 }
 
 

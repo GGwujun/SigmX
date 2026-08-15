@@ -4988,6 +4988,100 @@ def _sync_announcements(store: MarketStore, trade_date: str) -> int:
     return total
 
 
+def _sync_fq_factors(store: MarketStore, trade_date: str) -> int:
+    """复权因子 — tushare adj_factor 按日全市场一次调用（~5500 行）。
+
+    TODO(wolf 兜底): tushare 失败日可用 wolf /wolf/fq（当日复权变更股）∪
+    昨日表对比 wolf kline cq=1/2 推算因子；首期只记错误，不做推算。
+    """
+    api = _tushare_api()
+    if api is None:
+        _set_sync_error(store, "fq_factors", "tushare", "TUSHARE_TOKEN 未配置")
+        return 0
+    try:
+        df = api.adj_factor(trade_date=trade_date)
+        rows = [
+            {"code": str(r.ts_code), "adj_factor": float(r.adj_factor)}
+            for r in df.itertuples()
+            if getattr(r, "adj_factor", None) is not None
+        ]
+    except Exception as exc:  # noqa: BLE001
+        _set_sync_error(store, "fq_factors", "tushare.adj_factor", exc)
+        return 0
+    if not rows:
+        return 0
+    return store.upsert_fq_factors(trade_date, rows, source="tushare")
+
+
+def _minute_bars_target_codes(store: MarketStore, trade_date: str, cap: int = 300) -> list[str]:
+    """5m bars universe: today's hot pools (deduped), capped."""
+    try:
+        rows = store._conn.execute(
+            "SELECT DISTINCT code FROM stock_pool WHERE trade_date = ?", (trade_date,)
+        ).fetchall()
+    except Exception:  # noqa: BLE001
+        return []
+    codes: list[str] = []
+    seen: set[str] = set()
+    for r in rows:
+        code = r[0]
+        if code and code not in seen:
+            seen.add(code)
+            codes.append(code)
+    return codes[:cap]
+
+
+def sync_minute_bars_for(store: MarketStore, trade_date: str, codes: list[str]) -> int:
+    """Pull 5m bars for explicit codes (shared by daily sync & backfill script).
+
+    Single-code failures are skipped (not fatal) so one bad code can't kill the
+    batch. Returns total rows written.
+    """
+    from src.data.tpdog_client import call as tpdog_call, TpdogError
+
+    total = 0
+    for stored_code in codes:
+        tpdog_code = _to_tpdog_code(stored_code)
+        if not tpdog_code:
+            continue
+        try:
+            content = tpdog_call("stock/5", code=tpdog_code, date=trade_date)
+        except (TpdogError, Exception):  # noqa: BLE001
+            continue
+        if not content:
+            continue
+        bars = []
+        for item in content:
+            dt = str(item.get("date") or item.get("time") or "")
+            if len(dt) >= 16:
+                bar_time = dt[11:16]
+            else:
+                continue
+            bars.append({
+                "bar_time": bar_time,
+                "open": item.get("open"), "high": item.get("high"),
+                "low": item.get("low"), "close": item.get("close"),
+                "volume": item.get("volume"), "total_amt": item.get("total_amt"),
+            })
+        if bars:
+            total += store.upsert_minute_bars(stored_code, trade_date, bars, source="tpdog")
+    return total
+
+
+def _sync_minute_bars(store: MarketStore, trade_date: str) -> int:
+    """5 分钟K线 — 首期只拉当日热门池（cap 300 只），滚动保留 N 个交易日。"""
+    codes = _minute_bars_target_codes(store, trade_date)
+    if not codes:
+        return 0
+    total = sync_minute_bars_for(store, trade_date, codes)
+    try:
+        keep_days = int(os.getenv("MARKET_SYNC_MINUTE_BARS_KEEP_DAYS", "60"))
+        store.prune_minute_bars(keep_days)
+    except Exception:  # noqa: BLE001
+        pass
+    return total
+
+
 def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
     """新浪资金流备胎 — 对 stock_capital_rank 中的股票拉日级资金流。
     新浪失败时 tpdog fund/stock 作终极兜底。
@@ -5693,6 +5787,8 @@ def run_daily_sync(
     _run("irm_qa", lambda: _sync_irm_qa(store, trade_date))
     _run("stock_news", lambda: _sync_stock_news(store, trade_date))
     _run("lockup_expiry", lambda: _sync_lockup_expiry(store, trade_date))
+    _run("fq_factors", lambda: _sync_fq_factors(store, trade_date))
+    _run("minute_bars", lambda: _sync_minute_bars(store, trade_date))
     # Quotes are intentionally refreshed last.  Recommendation generation is
     # gated on this published run, so an early quote would already be stale by
     # the time slower sentiment/fund-flow datasets finish.

@@ -80,3 +80,14 @@
 | `GET /option-chain` | `underlying`（默认510050）；`trade_date`；`call_put∈C,P`；`limit≤1000` | ETF 期权链（希腊字母/IV） | option_chain |
 | `GET /market/stage-snapshot` | `trade_date`；`stage` | 分时段市场快照（payload 解析后透出） | market_stage_snapshot |
 
+## 复权因子 / 分钟K线 / wolf 透传（B，2026-08-15 新增）
+
+| 端点 | 参数 | 说明 | 数据表 |
+|---|---|---|---|
+| `GET /stocks/fq-factors` | `code`*；`start/end`；`limit` | 复权因子历史（tushare 按日全市场批量同步） | fq_factors（新表） |
+| `GET /stocks/minute` | `code`*；`trade_date`；`period∈5m,15m,30m,60m` | 5 分钟K线（15/30/60m 由 5m SQL 聚合）。**覆盖范围：每日热门池**（cap 300 只，滚动保留 60 交易日） | minute_bars（新表） |
+| `GET /stocks/ticks` | `code`*；`trade_date` | 逐笔成交（wolf /wolf/deal 实时透传，不落库；cap 2000 行） | — |
+| `GET /stocks/quote5` | `code`* | 买卖五档（wolf /wolf/time/five 透传，不落库） | — |
+
+透传端点 meta 标注 `passthrough: wolf`；wolf 未配置或失败时返回 502 `UPSTREAM_UNAVAILABLE`。分钟线历史回补：`python agent/scripts/backfill_minute_bars.py --date <YYYY-MM-DD> --codes <逗号代码>`。
+

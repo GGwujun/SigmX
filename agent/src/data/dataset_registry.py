@@ -59,6 +59,12 @@ _ADVISORY: dict[str, int] = {
     "zt_pool": 1,
     "hot_list": 20,
     "cls_telegraph": 5,
+    # fq_factors: full-market tushare batch; degrade to PARTIAL (non-blocking)
+    # when tushare is down for the day.
+    "fq_factors": 3000,
+    # minute_bars: hot-pool universe only (~100-300 codes × 48 bars); 100 rows
+    # ≈ 2 codes — below that means the hot pool was empty or tpdog failed.
+    "minute_bars": 100,
 }
 
 _RECOMMENDATION_INPUTS = {
