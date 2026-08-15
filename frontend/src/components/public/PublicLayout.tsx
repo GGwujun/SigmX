@@ -26,9 +26,7 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
             <span>SigmX</span>
           </Link>
           <nav className="flex items-center gap-1">
-            <span className="hidden rounded-md px-3 py-1.5 text-sm text-muted-foreground md:inline-flex">
-              AI 选股 · 即将上线
-            </span>
+            <Link to="/query/%E4%BD%8E%E4%BC%B0%E5%80%BC%20%E9%AB%98%E8%82%A1%E6%81%AF" className="hidden rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground md:inline-flex">AI 选股</Link>
             {PUBLIC_PRODUCT_LINKS.map((item) => (
               <Link
                 key={item.to}

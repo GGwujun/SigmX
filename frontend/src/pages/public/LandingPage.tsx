@@ -3,16 +3,17 @@
  * shapes (website / Data Hub / desktop), and primary CTAs. Static content — no
  * API calls — so it renders fast and never breaks on a catalog outage.
  */
-import { Link } from "react-router-dom";
-import { BarChart3, Database, Monitor, ArrowRight } from "lucide-react";
+import { useState, type FormEvent } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Search, Database, Monitor, ArrowRight, Globe2 } from "lucide-react";
 
 const PRODUCTS = [
   {
-    icon: Database,
-    name: "Data Hub",
-    desc: "公共金融数据的采集、标准化、去重与质量校验。只读 API 供网站与客户端使用，按套餐配额计量。",
-    href: "/product/data-hub",
-    cta: "了解 Data Hub",
+    icon: Globe2,
+    name: "SigmX Web",
+    desc: "无需安装即可搜索股票、基金与自然语言条件，完成轻量验证并保存到个人云空间。",
+    href: "/query/%E4%BD%8E%E4%BC%B0%E5%80%BC%20%E9%AB%98%E8%82%A1%E6%81%AF",
+    cta: "体验 AI 选股",
   },
   {
     icon: Monitor,
@@ -22,11 +23,11 @@ const PRODUCTS = [
     cta: "了解桌面端",
   },
   {
-    icon: BarChart3,
-    name: "云端 AI",
-    desc: "多智能体研报（AlphaForge）、基金套利深度报告。提交时原子预扣积分，失败幂等退款。",
-    href: "/pricing",
-    cta: "查看套餐",
+    icon: Database,
+    name: "Data Hub",
+    desc: "标准化金融数据 API，可独立于 Desktop 使用；按接口权限和 Data Credit 精确计量。",
+    href: "/product/data-hub",
+    cta: "了解 Data Hub",
   },
 ];
 
@@ -37,6 +38,13 @@ const HIGHLIGHTS = [
 ];
 
 export function LandingPage() {
+  const navigate = useNavigate();
+  const [query, setQuery] = useState("");
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const value = query.trim();
+    if (value) navigate(`/query/${encodeURIComponent(value)}`);
+  };
   return (
     <div>
       {/* Hero */}
@@ -48,7 +56,13 @@ export function LandingPage() {
         <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
           多源降级采集的行情/基本面/资金流数据，可运营的套餐与积分体系，以及本地优先的桌面客户端。
         </p>
-        <div className="mt-8 flex items-center justify-center gap-3">
+        <form onSubmit={submit} className="mx-auto mt-8 flex max-w-2xl gap-2 rounded-xl border bg-card p-2 shadow-sm">
+          <label className="sr-only" htmlFor="public-search">统一搜索</label>
+          <Search className="ml-2 mt-2.5 h-5 w-5 text-muted-foreground" />
+          <input id="public-search" aria-label="统一搜索" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入代码、名称，或试试：低估值 高股息 小市值" className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
+          <button type="submit" className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground">开始查询</button>
+        </form>
+        <div className="mt-4 flex items-center justify-center gap-3">
           <Link
             to="/register"
             className="inline-flex h-11 items-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
@@ -105,7 +119,7 @@ export function LandingPage() {
         <div className="rounded-2xl border bg-card p-10 text-center shadow-sm">
           <h2 className="text-2xl font-bold">开始使用 SigmX</h2>
           <p className="mt-2 text-sm text-muted-foreground">
-            注册即获免费版，包含 50 积分与每日 100 次 Data Hub 请求。
+            注册即获免费版、50 研究积分和每月 1,000 Data Credit。
           </p>
           <Link
             to="/register"

@@ -83,11 +83,11 @@ Then implement the public React pages:
 **Interfaces:**
 - Produces: routes `/query/:id`, `/stock/:code`, `/fund/:code`, `/research/:slug`; homepage search classifies six-digit stock/fund codes and natural-language queries; authenticated users can save a query without losing anonymous input.
 
-- [ ] Write Vitest cases for route rendering, anonymous limited results, save-after-login intent persistence, and revoked report messaging.
-- [ ] Run the focused Vitest file and confirm it fails for missing pages/routes.
-- [ ] Implement typed API calls, pages, homepage search, and router entries; ensure all pages use `PublicLayout` only.
-- [ ] Re-run focused and router/navigation tests.
-- [ ] Commit with `feat(web): add public research discovery funnel`.
+- [x] Write Vitest cases for route rendering, anonymous limited results, save-after-login intent persistence, and revoked report messaging.
+- [x] Run the focused Vitest file and confirm it fails for missing pages/routes.
+- [x] Implement typed API calls, pages, homepage search, and router entries; ensure all pages use `PublicLayout` only.
+- [x] Re-run focused and router/navigation tests.
+- [x] Commit with `feat(web): add public research discovery funnel`.
 
 ### Task 4: Replace `/me` planning cards with real cloud assets
 

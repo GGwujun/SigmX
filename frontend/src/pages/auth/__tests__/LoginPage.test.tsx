@@ -29,13 +29,14 @@ function mockAuthFetch() {
   );
 }
 
-function renderPage() {
+function renderPage(initial = "/login") {
   return render(
-    <MemoryRouter initialEntries={["/login"]}>
+    <MemoryRouter initialEntries={[initial]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/me" element={<div>portal-home</div>} />
         <Route path="/app" element={<div>workbench-page</div>} />
+        <Route path="/query/:id" element={<div>query-result-page</div>} />
       </Routes>
     </MemoryRouter>,
   );
@@ -51,6 +52,7 @@ describe("LoginPage post-login routing", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it("sends browsers to the light portal", async () => {
@@ -69,5 +71,20 @@ describe("LoginPage post-login routing", () => {
     await submitLogin();
     await waitFor(() => expect(getToken()).toBe("jwt-abc"));
     expect(await screen.findByText("workbench-page")).toBeInTheDocument();
+  });
+
+  it("restores and saves an anonymous query after login", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url === "/auth/login") return Promise.resolve({ ok: true, status: 200, json: async () => AUTH_OK, text: async () => JSON.stringify(AUTH_OK) } as Response);
+      if (url === "/api/cloud/queries") return Promise.resolve({ ok: true, status: 200, json: async () => ({ id: "q1" }) } as Response);
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    window.sessionStorage.setItem("sigmx_pending_saved_query", JSON.stringify({ query: "低估值 高股息", result_summary: { matches: 2 } }));
+    renderPage("/login?next=%2Fquery%2Fsaved");
+    await submitLogin();
+    expect(await screen.findByText("query-result-page")).toBeInTheDocument();
+    expect(window.sessionStorage.getItem("sigmx_pending_saved_query")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledWith("/api/cloud/queries", expect.objectContaining({ method: "POST" }));
   });
 });

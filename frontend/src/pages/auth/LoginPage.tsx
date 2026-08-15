@@ -1,14 +1,16 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, LogIn, Monitor } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/lib/api";
 import { setToken, setUser } from "@/lib/apiAuth";
 import { isDesktopMode, postLoginTarget } from "@/lib/desktop";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { cloudResearchApi } from "@/lib/cloudResearchApi";
 
 export function LoginPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -25,11 +27,27 @@ export function LoginPage() {
       toast.success("登录成功");
       // RequireAuth will route to disclaimer modal if not yet accepted.
       // Desktop lands on the workbench, browsers on the light portal.
-      navigate(postLoginTarget());
+      if (!desktop) await restorePendingResearchIntent();
+      const requested = searchParams.get("next") || "";
+      navigate(!desktop && requested.startsWith("/") && !requested.startsWith("//") ? requested : postLoginTarget());
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "登录失败");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const restorePendingResearchIntent = async () => {
+    const raw = window.sessionStorage.getItem("sigmx_pending_saved_query");
+    if (!raw) return;
+    try {
+      const pending = JSON.parse(raw) as { query?: string; result_summary?: Record<string, unknown> };
+      if (!pending.query) return;
+      await cloudResearchApi.saveQuery(pending.query, pending.result_summary || {});
+      window.sessionStorage.removeItem("sigmx_pending_saved_query");
+      toast.success("查询已保存到我的 SigmX");
+    } catch {
+      // Keep the pending intent for a later retry; login itself remains successful.
     }
   };
 
