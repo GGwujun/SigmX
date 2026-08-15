@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
 from src.product.credits import CreditLedger
-from src.product.data_credits import DataCreditLedger, grant_monthly_data_credits
+from src.product.data_credits import (
+    DataCreditLedger,
+    InsufficientDataCredits,
+    InvalidDataCreditSettlement,
+    grant_monthly_data_credits,
+)
 from src.product.store import ProductStore
 
 
@@ -73,3 +80,98 @@ def test_monthly_data_credit_grant_skips_zero_credit_plan(store: ProductStore) -
     assert grant_monthly_data_credits(
         DataCreditLedger(store), "org1", "enterprise", date(2026, 8, 15)
     ) is None
+
+
+def test_authorize_consumes_expiring_lots_first_and_is_idempotent(store: ProductStore) -> None:
+    ledger = DataCreditLedger(store)
+    soon = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    first_lot = ledger.grant("u1", 30, source="monthly", expires_at=soon, idempotency_key="soon")
+    second_lot = ledger.grant("u1", 50, source="purchase", expires_at=None, idempotency_key="forever")
+
+    first = ledger.authorize("u1", "daily-bars", 40, "request-1")
+    replay = ledger.authorize("u1", "daily-bars", 40, "request-1")
+
+    assert first.allocations == ((first_lot.lot_id, 30), (second_lot.lot_id, 10))
+    assert replay == first
+    assert ledger.balance("u1").available == 40
+
+
+def test_authorize_is_atomic_when_balance_is_insufficient(store: ProductStore) -> None:
+    ledger = DataCreditLedger(store)
+    ledger.grant("u1", 10, source="purchase", expires_at=None, idempotency_key="lot")
+
+    with pytest.raises(InsufficientDataCredits):
+        ledger.authorize("u1", "daily-bars", 11, "request-1")
+
+    assert ledger.balance("u1").available == 10
+    assert not [entry for entry in ledger.list_entries("u1") if entry["operation"] == "authorize"]
+
+
+def test_settle_releases_unused_allocations_back_to_original_lots(store: ProductStore) -> None:
+    ledger = DataCreditLedger(store)
+    soon = (datetime.now(timezone.utc) + timedelta(days=2)).isoformat()
+    soon_lot = ledger.grant("u1", 30, source="monthly", expires_at=soon, idempotency_key="soon")
+    permanent_lot = ledger.grant("u1", 50, source="purchase", expires_at=None, idempotency_key="forever")
+    authorization = ledger.authorize("u1", "daily-bars", 40, "request-1")
+
+    settled = ledger.settle(authorization.reservation_id, 25, "settle-1")
+    replay = ledger.settle(authorization.reservation_id, 25, "settle-1")
+
+    assert settled.amount_authorized == 40
+    assert settled.amount_settled == 25
+    assert settled.amount_released == 15
+    assert settled.status == "settled"
+    assert replay == settled
+    lots = {lot["id"]: lot["amount_remaining"] for lot in ledger.list_lots("u1")}
+    assert lots[soon_lot.lot_id] == 5
+    assert lots[permanent_lot.lot_id] == 50
+    assert ledger.balance("u1").available == 55
+
+
+def test_release_returns_entire_authorization_and_is_idempotent(store: ProductStore) -> None:
+    ledger = DataCreditLedger(store)
+    ledger.grant("u1", 50, source="purchase", expires_at=None, idempotency_key="lot")
+    authorization = ledger.authorize("u1", "daily-bars", 40, "request-1")
+
+    released = ledger.release(authorization.reservation_id, "release-1")
+    replay = ledger.release(authorization.reservation_id, "release-1")
+
+    assert released.amount_settled == 0
+    assert released.amount_released == 40
+    assert released.status == "released"
+    assert replay == released
+    assert ledger.balance("u1").available == 50
+
+
+def test_settlement_rejects_overcharge_and_conflicting_replay(store: ProductStore) -> None:
+    ledger = DataCreditLedger(store)
+    ledger.grant("u1", 50, source="purchase", expires_at=None, idempotency_key="lot")
+    authorization = ledger.authorize("u1", "daily-bars", 40, "request-1")
+
+    with pytest.raises(InvalidDataCreditSettlement):
+        ledger.settle(authorization.reservation_id, 41, "settle-over")
+    ledger.settle(authorization.reservation_id, 20, "settle-1")
+    with pytest.raises(InvalidDataCreditSettlement):
+        ledger.settle(authorization.reservation_id, 19, "settle-2")
+
+
+def test_concurrent_authorizations_cannot_overdraw_same_database(tmp_path: Path) -> None:
+    db_path = tmp_path / "shared.db"
+    first = DataCreditLedger(ProductStore(db_path))
+    second = DataCreditLedger(ProductStore(db_path))
+    first.grant("u1", 100, source="purchase", expires_at=None, idempotency_key="lot")
+    gate = Barrier(2)
+
+    def attempt(ledger: DataCreditLedger, key: str) -> str:
+        gate.wait()
+        try:
+            ledger.authorize("u1", "daily-bars", 80, key)
+            return "authorized"
+        except InsufficientDataCredits:
+            return "insufficient"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda args: attempt(*args), ((first, "r1"), (second, "r2"))))
+
+    assert sorted(outcomes) == ["authorized", "insufficient"]
+    assert first.balance("u1").available == 20
