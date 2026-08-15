@@ -65,6 +65,9 @@ _ADVISORY: dict[str, int] = {
     # minute_bars: hot-pool universe only (~100-300 codes × 48 bars); 100 rows
     # ≈ 2 codes — below that means the hot pool was empty or tpdog failed.
     "minute_bars": 100,
+    # C-batch 打板专题. unusual: quiet days legitimately have few moves.
+    "unusual": 5,
+    "hot_money": 10,
 }
 
 _RECOMMENDATION_INPUTS = {

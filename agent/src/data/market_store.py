@@ -483,6 +483,48 @@ CREATE TABLE IF NOT EXISTS minute_bars (
 );
 CREATE INDEX IF NOT EXISTS idx_minute_bars_date ON minute_bars(trade_date);
 
+-- 打板专题: 个股异动（盘中 tpdog 00902 实时 + 盘后 00903 历史回补）
+CREATE TABLE IF NOT EXISTS unusual_event (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL, time TEXT NOT NULL,  -- 'HH:MM:SS'
+    name TEXT, type INTEGER NOT NULL, type_name TEXT,
+    price REAL, volume REAL, rise_rate REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code, time, type)
+);
+CREATE INDEX IF NOT EXISTS idx_unusual_event_date ON unusual_event(trade_date);
+
+-- 打板专题: 集合竞价快照（wolf 全市场主源 / tpdog 热门池降级）
+CREATE TABLE IF NOT EXISTS call_auction_snapshot (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL, time TEXT NOT NULL,  -- 'HH:MM'
+    price REAL, pre_close REAL, change_pct REAL,
+    auction_volume REAL, auction_amount REAL,
+    unmatched_volume REAL, unmatched_amount REAL,
+    buy_sell_side INTEGER,
+    source TEXT NOT NULL DEFAULT 'wolf',
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code, time)
+);
+CREATE INDEX IF NOT EXISTS idx_call_auction_date ON call_auction_snapshot(trade_date);
+CREATE INDEX IF NOT EXISTS idx_call_auction_code ON call_auction_snapshot(code, trade_date DESC);
+
+-- 打板专题: 游资每日榜单（tpdog 01302）
+CREATE TABLE IF NOT EXISTS hot_money_daily (
+    trade_date TEXT NOT NULL, code TEXT NOT NULL, hot_code TEXT NOT NULL,
+    name TEXT, hot_name TEXT, reason TEXT,
+    rise_rate REAL, buy_amt REAL, sell_amt REAL, net REAL,
+    buy_ratio REAL, sell_ratio REAL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, code, hot_code)
+);
+CREATE INDEX IF NOT EXISTS idx_hot_money_daily_date ON hot_money_daily(trade_date);
+CREATE INDEX IF NOT EXISTS idx_hot_money_daily_name ON hot_money_daily(hot_name);
+
+-- 打板专题: 游资名录（tpdog 01301，静态小表）
+CREATE TABLE IF NOT EXISTS hot_money_list (
+    hot_code TEXT PRIMARY KEY, hot_name TEXT, description TEXT,
+    updated_at TEXT NOT NULL
+);
+
 -- 资金面: 融资融券
 CREATE TABLE IF NOT EXISTS margin_trading (
     code TEXT NOT NULL, trade_date TEXT NOT NULL,
@@ -3348,6 +3390,105 @@ class MarketStore:
             cur = self._conn.execute(
                 "DELETE FROM minute_bars WHERE trade_date < ?", (cutoff,))
         return cur.rowcount
+
+    @_synchronized
+    def upsert_unusual_events(self, trade_date: str, rows: list[dict]) -> int:
+        """Batch upsert intraday unusual-move events (PK dedups same code/time/type)."""
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO unusual_event "
+                "(trade_date, code, time, name, type, type_name, price, volume, "
+                "rise_rate, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(trade_date, r.get("code", ""), r.get("time", ""), r.get("name"),
+                  int(r.get("type") or 0), r.get("type_name"),
+                  _f(r.get("price")), _f(r.get("volume")), _f(r.get("rise_rate")),
+                  _now_iso()) for r in rows if r.get("code") and r.get("time")],
+            )
+        return len(rows)
+
+    @_synchronized
+    def prune_unusual_events(self, keep_days: int) -> int:
+        """Delete unusual events older than the latest `keep_days` distinct dates."""
+        dates = [r[0] for r in self._conn.execute(
+            "SELECT DISTINCT trade_date FROM unusual_event ORDER BY trade_date DESC"
+        ).fetchall()]
+        if len(dates) <= keep_days:
+            return 0
+        cutoff = dates[keep_days - 1]
+        with self._write_transaction():
+            cur = self._conn.execute(
+                "DELETE FROM unusual_event WHERE trade_date < ?", (cutoff,))
+        return cur.rowcount
+
+    @_synchronized
+    def upsert_call_auction(self, trade_date: str, rows: list[dict], *,
+                            source: str = "wolf") -> int:
+        """Upsert call-auction snapshots (per code per 'HH:MM' observation)."""
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO call_auction_snapshot "
+                "(trade_date, code, time, price, pre_close, change_pct, "
+                "auction_volume, auction_amount, unmatched_volume, unmatched_amount, "
+                "buy_sell_side, source, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(trade_date, r.get("code", ""), r.get("time", ""),
+                  _f(r.get("price")), _f(r.get("pre_close")), _f(r.get("change_pct")),
+                  _f(r.get("auction_volume")), _f(r.get("auction_amount")),
+                  _f(r.get("unmatched_volume")), _f(r.get("unmatched_amount")),
+                  r.get("buy_sell_side"), source, _now_iso())
+                 for r in rows if r.get("code") and r.get("time")],
+            )
+        return len(rows)
+
+    @_synchronized
+    def prune_call_auction(self, keep_days: int) -> int:
+        """Delete call-auction snapshots older than the latest `keep_days` dates."""
+        dates = [r[0] for r in self._conn.execute(
+            "SELECT DISTINCT trade_date FROM call_auction_snapshot ORDER BY trade_date DESC"
+        ).fetchall()]
+        if len(dates) <= keep_days:
+            return 0
+        cutoff = dates[keep_days - 1]
+        with self._write_transaction():
+            cur = self._conn.execute(
+                "DELETE FROM call_auction_snapshot WHERE trade_date < ?", (cutoff,))
+        return cur.rowcount
+
+    @_synchronized
+    def upsert_hot_money_daily(self, trade_date: str, rows: list[dict]) -> int:
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO hot_money_daily "
+                "(trade_date, code, hot_code, name, hot_name, reason, rise_rate, "
+                "buy_amt, sell_amt, net, buy_ratio, sell_ratio, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [(trade_date, r.get("code", ""), r.get("hot_code", ""),
+                  r.get("name"), r.get("hot_name"), r.get("reason"),
+                  _f(r.get("rise_rate")), _f(r.get("buy_amt")), _f(r.get("sell_amt")),
+                  _f(r.get("net")), _f(r.get("buy_ratio")), _f(r.get("sell_ratio")),
+                  _now_iso()) for r in rows if r.get("code") and r.get("hot_code")],
+            )
+        return len(rows)
+
+    @_synchronized
+    def upsert_hot_money_list(self, rows: list[dict]) -> int:
+        """Upsert the static hot-money roster (01301)."""
+        if not rows:
+            return 0
+        with self._write_transaction():
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO hot_money_list "
+                "(hot_code, hot_name, description, updated_at) VALUES (?, ?, ?, ?)",
+                [(r.get("hot_code", ""), r.get("hot_name"), r.get("description"),
+                  _now_iso()) for r in rows if r.get("hot_code")],
+            )
+        return len(rows)
 
     @_synchronized
     def upsert_financial_snapshot(self, code: str, data: dict) -> int:

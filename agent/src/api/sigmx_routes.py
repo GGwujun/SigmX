@@ -1472,6 +1472,164 @@ def ep_stocks_quote5(code: str = Query(...)):
     return _wolf_passthrough("wolf/time/five", symbol="stock", code=code.strip())
 
 
+# ----- 10k. Unusual moves / call auction / hot money / hot history (C-batch)
+_UNUSUAL_TYPES = {
+    1: "封涨停板", 2: "封跌停板", 3: "打开涨停板", 4: "打开跌停板",
+    5: "60日新高", 6: "60日新低", 7: "向上缺口", 8: "向下缺口",
+    9: "有大买盘", 10: "有大卖盘", 11: "大笔买入", 12: "大笔卖出",
+    13: "火箭发射", 14: "高台跳水", 15: "快速反弹", 16: "加速下跌",
+    17: "60日大幅上涨", 18: "60日大幅下跌", 19: "高开5日线", 20: "低开5日线",
+    21: "竞价上涨", 22: "竞价下跌",
+}
+
+
+@router.get("/api/v1/stocks/unusual/types")
+def ep_unusual_types():
+    items = [{"type": k, "type_name": v} for k, v in _UNUSUAL_TYPES.items()]
+    return ok({"items": items}, {"source": "tpdog 00901 enum"})
+
+
+@router.get("/api/v1/stocks/unusual")
+def ep_stocks_unusual(trade_date: str = None, type: int = None, code: str = None,
+                      limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "unusual_event")
+        if not td:
+            return err("DATA_NOT_FOUND", "No unusual-event data", 404)
+        sql = """SELECT code, name, time, type, type_name, price, volume, rise_rate
+                 FROM unusual_event WHERE trade_date=?"""
+        params: list = [td]
+        if type is not None:
+            sql += " AND type=?"
+            params.append(type)
+        if code:
+            sql += " AND code=?"
+            params.append(code.strip())
+        sql += " ORDER BY time DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No unusual events for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("price", "volume", "rise_rate"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "unusual_event", "order": "time desc"})
+
+
+@router.get("/api/v1/stocks/call-auction")
+def ep_call_auction(trade_date: str = None, code: str = None, latest: str = None,
+                    limit: int = Query(100, ge=1, le=500)):
+    """Per-code auction evolution, or the whole market's final snapshot
+    (?latest=1) sorted by auction amount."""
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "call_auction_snapshot")
+        if not td:
+            return err("DATA_NOT_FOUND", "No call-auction data", 404)
+        if code:
+            rows = conn.execute("""
+                SELECT code, time, price, pre_close, change_pct, auction_volume,
+                       auction_amount, unmatched_volume, unmatched_amount,
+                       buy_sell_side, source
+                FROM call_auction_snapshot WHERE trade_date=? AND code=?
+                ORDER BY time
+            """, (td, code.strip())).fetchall()
+        elif latest:
+            rows = conn.execute("""
+                SELECT code, time, price, pre_close, change_pct, auction_volume,
+                       auction_amount, unmatched_volume, unmatched_amount,
+                       buy_sell_side, source
+                FROM call_auction_snapshot
+                WHERE trade_date=? AND time=
+                    (SELECT MAX(time) FROM call_auction_snapshot WHERE trade_date=?)
+                ORDER BY auction_amount DESC LIMIT ?
+            """, (td, td, limit)).fetchall()
+        else:
+            return err("BAD_REQUEST", "code or latest=1 required")
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No call-auction rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("price", "pre_close", "change_pct", "auction_volume",
+                  "auction_amount", "unmatched_volume", "unmatched_amount"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "call_auction_snapshot"})
+
+
+@router.get("/api/v1/hot-money/daily")
+def ep_hot_money_daily(trade_date: str = None, hot_name: str = None,
+                       limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "hot_money_daily")
+        if not td:
+            return err("DATA_NOT_FOUND", "No hot-money data", 404)
+        sql = """SELECT code, name, hot_code, hot_name, reason, rise_rate,
+                        buy_amt, sell_amt, net, buy_ratio, sell_ratio
+                 FROM hot_money_daily WHERE trade_date=?"""
+        params: list = [td]
+        if hot_name:
+            sql += " AND hot_name LIKE ?"
+            params.append(f"%{hot_name.strip()}%")
+        sql += " ORDER BY ABS(net) DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No hot-money rows for {td}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("rise_rate", "buy_amt", "sell_amt", "net", "buy_ratio", "sell_ratio"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "hot_money_daily"})
+
+
+@router.get("/api/v1/hot-money/list")
+def ep_hot_money_list():
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT hot_code, hot_name, description FROM hot_money_list
+            ORDER BY hot_code
+        """).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", "No hot-money roster", 404)
+    return ok({"count": len(rows), "items": rows_to_dicts(rows)},
+              {"source": "hot_money_list"})
+
+
+@router.get("/api/v1/stocks/hot-history")
+def ep_stocks_hot_history(code: str = Query(...), days: int = Query(30, ge=1, le=250),
+                          source: str = None):
+    """Per-code hot-list rank/hot_value curve across days (hot_list retains
+    one row per trade_date — no new table needed)."""
+    code = code.strip()
+    sql = """SELECT trade_date, rank, hot_value, change_pct, tags, source
+             FROM hot_list WHERE code=?"""
+    params: list = [code]
+    if source:
+        sql += " AND source=?"
+        params.append(source)
+    sql += " ORDER BY trade_date DESC LIMIT ?"
+    params.append(days)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No hot-list history for code={code}", 404)
+    items = [{"trade_date": r["trade_date"], "rank": r["rank"],
+              "hot_value": to_float(r["hot_value"]),
+              "change_pct": to_float(r["change_pct"]), "tags": r["tags"],
+              "source": r["source"]} for r in rows]
+    return ok({"code": code, "count": len(items), "items": items},
+              {"source": "hot_list", "order": "trade_date desc"})
+
+
 # ----- 11. Finance RSS Summary (含聚类)
 @router.get("/api/v1/news/finance/rss-summary")
 def ep_news_rss_summary(routes: str = None,
@@ -1921,6 +2079,12 @@ def _sigmx_endpoint_list():
         "/api/v1/stocks/minute",
         "/api/v1/stocks/ticks",
         "/api/v1/stocks/quote5",
+        "/api/v1/stocks/unusual",
+        "/api/v1/stocks/unusual/types",
+        "/api/v1/stocks/call-auction",
+        "/api/v1/hot-money/daily",
+        "/api/v1/hot-money/list",
+        "/api/v1/stocks/hot-history",
         "/api/v1/news/finance/rss-summary",
         "/api/v1/content/morning-briefing-triptych",
     ]

@@ -30,10 +30,12 @@ from src.data.market_quality import (
 from src.data.market_sync import (
     _all_a_share_codes,
     _data_integrity_check,
+    _maybe_run_call_auction_sync,
     _maybe_run_fund_premium_sync,
     _maybe_run_index_history_sync,
     _maybe_run_intraday_sync,
     _maybe_run_premarket_sync,
+    _maybe_run_unusual_sync,
     _now_cst,
     _today_cst_str,
     fetch_daily_reference_closes,
@@ -147,6 +149,9 @@ _POST_CLOSE_DATASETS = {
     "lockup_expiry",
     "fq_factors",
     "minute_bars",
+    "unusual",
+    "hot_money",
+    "hot_money_list",
 }
 
 # Tier-1 datasets: the day's core snapshot. Validated and published FIRST so the
@@ -307,6 +312,9 @@ _DATE_KEYED_TABLES = (
     "lockup_expiry",
     "fq_factors",
     "minute_bars",
+    "unusual_event",
+    "call_auction_snapshot",
+    "hot_money_daily",
     "option_chain",
     "northbound_flow",
     "eps_forecast",
@@ -320,7 +328,7 @@ _DATE_KEYED_TABLES = (
 # run_id, PUBLISHED) on LIVE. Without merging them, live has no such run_id
 # and finish_sync_run raises KeyError → the run never reaches PUBLISHED →
 # data-sync never ships the day (the post_close freeze regression).
-_WHOLE_TABLES = ("security_master", "trade_calendar", "sync_runs", "sync_dataset_runs")
+_WHOLE_TABLES = ("security_master", "trade_calendar", "sync_runs", "sync_dataset_runs", "hot_money_list")
 
 
 def _merge_shadow_to_live(shadow_db: Path, live_db: Path, trade_date: str) -> None:
@@ -458,6 +466,10 @@ _DATASET_TABLE = {
     "lockup_expiry": "lockup_expiry",
     "fq_factors": "fq_factors",
     "minute_bars": "minute_bars",
+    "unusual": "unusual_event",
+    "call_auction": "call_auction_snapshot",
+    "hot_money": "hot_money_daily",
+    "hot_money_list": "hot_money_list",
 }
 
 
@@ -470,7 +482,7 @@ def _dataset_db_row_count(store: MarketStore, dataset: str, trade_date: str) -> 
     if not table:
         return 0
     try:
-        if table in ("security_master", "trade_calendar", "index_master", "board_master"):
+        if table in ("security_master", "trade_calendar", "index_master", "board_master", "hot_money_list"):
             row = store._conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         else:
             row = store._conn.execute(
@@ -993,6 +1005,8 @@ def run_worker(interval_seconds: int = 60) -> None:
                 _maybe_run_premarket_sync(live_store)
                 _maybe_run_intraday_sync(live_store)
                 _maybe_run_fund_premium_sync(live_store)
+                _maybe_run_unusual_sync(live_store)
+                _maybe_run_call_auction_sync(live_store)
 
                 from src.data.trade_calendar import cn_market_phase
 

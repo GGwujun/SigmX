@@ -91,3 +91,14 @@
 
 透传端点 meta 标注 `passthrough: wolf`；wolf 未配置或失败时返回 502 `UPSTREAM_UNAVAILABLE`。分钟线历史回补：`python agent/scripts/backfill_minute_bars.py --date <YYYY-MM-DD> --codes <逗号代码>`。
 
+## 打板专题：异动/竞价/游资/热度（C，2026-08-15 新增）
+
+| 端点 | 参数 | 说明 | 数据表 |
+|---|---|---|---|
+| `GET /stocks/unusual` | `trade_date`；`type`(1-22)；`code`；`limit≤500` | 盘中个股异动（封板/炸板/火箭发射/大笔买入等，按时间倒序） | unusual_event（新表，盘中5分钟+盘后回补，保留120交易日） |
+| `GET /stocks/unusual/types` | — | 22 种异动类型字典 | — |
+| `GET /stocks/call-auction` | `code`（单股竞价演变）或 `latest=1`（全市场终态，按竞价金额降序）；`trade_date` | 集合竞价快照（价格/量额/未匹配量/买卖方向） | call_auction_snapshot（新表，9:15-9:30 窗口，wolf 全市场主源/tpdog 热门池降级，保留60交易日） |
+| `GET /hot-money/daily` | `trade_date`；`hot_name` 模糊；`limit≤500` | 游资每日榜单（买卖净额/上榜理由，按净额绝对值降序） | hot_money_daily（新表，盘后 01302） |
+| `GET /hot-money/list` | — | 游资名录 | hot_money_list（新表，01301） |
+| `GET /stocks/hot-history` | `code`*；`days≤250`；`source` | 个股热度历史曲线（rank/hot_value 逐日） | hot_list（已有数据直查） |
+

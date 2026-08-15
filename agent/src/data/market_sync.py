@@ -5082,6 +5082,163 @@ def _sync_minute_bars(store: MarketStore, trade_date: str) -> int:
     return total
 
 
+def _sync_unusual(store: MarketStore, trade_date: str) -> int:
+    """个股异动 — 盘中 tpdog 00902 实时（每 5 分钟全量），盘后 00903 历史回补覆盖。"""
+    from src.data.tpdog_client import call as tpdog_call, TpdogError
+    from src.data.trade_calendar import cn_market_phase
+
+    phase = cn_market_phase()
+    try:
+        if phase in ("in_session", "lunch_break"):
+            content = tpdog_call("unusual/get", sort=2)
+        else:
+            content = tpdog_call("unusual/his", date=trade_date)
+    except (TpdogError, Exception) as exc:  # noqa: BLE001
+        _set_sync_error(store, "unusual", "tpdog.unusual", exc)
+        return 0
+    if not content:
+        return 0
+    rows = []
+    for item in content:
+        dt = str(item.get("time") or "")
+        rows.append({
+            "code": str(item.get("code") or ""),
+            "time": dt[11:19] if len(dt) >= 19 else "",
+            "name": item.get("name"),
+            "type": item.get("type"),
+            "type_name": item.get("type_name"),
+            "price": item.get("price"),
+            "volume": item.get("volume"),
+            "rise_rate": item.get("rise_rate"),
+        })
+    written = store.upsert_unusual_events(trade_date, rows)
+    if phase not in ("in_session", "lunch_break"):
+        try:
+            keep = int(os.getenv("MARKET_SYNC_UNUSUAL_KEEP_DAYS", "120"))
+            store.prune_unusual_events(keep)
+        except Exception:  # noqa: BLE001
+            pass
+    return written
+
+
+def _sync_call_auction(store: MarketStore, trade_date: str) -> int:
+    """集合竞价 — wolf 全市场主源（/wolf/time/bid 不传 code）；tpdog 热门池降级。"""
+    from src.data import wolf_client
+    from src.data.tpdog_client import call as tpdog_call, TpdogError
+
+    if wolf_client.is_configured():
+        try:
+            content = wolf_client.call("wolf/time/bid")
+        except Exception as exc:  # noqa: BLE001
+            _set_sync_error(store, "call_auction", "wolf.time/bid", exc)
+            return 0
+        # TODO(first-day): wolf docs label zf "竞价涨幅（元）" but the sample
+        # (p=11.05, pc=11.09, zf=-0.36) implies percent. Verify with live data.
+        rows = []
+        for item in content:
+            t = str(item.get("t") or "")
+            rows.append({
+                "code": str(item.get("code") or ""),
+                "time": t[11:16] if len(t) >= 16 else "",
+                "price": item.get("p"), "pre_close": item.get("pc"),
+                "change_pct": item.get("zf"),
+                "auction_volume": item.get("jv"), "auction_amount": item.get("je"),
+                "unmatched_volume": item.get("nv"), "unmatched_amount": item.get("ne"),
+                "buy_sell_side": item.get("bs"),
+            })
+        written = store.upsert_call_auction(trade_date, rows, source="wolf")
+    else:
+        # Degraded path: yesterday's hot pool only (call-auction window opens
+        # before today's pools sync), cap 30, single-code failures skipped.
+        try:
+            latest = store._conn.execute(
+                "SELECT MAX(trade_date) FROM stock_pool").fetchone()[0]
+            codes = [r[0] for r in store._conn.execute(
+                "SELECT DISTINCT code FROM stock_pool WHERE trade_date=?",
+                (latest,)).fetchall()][:30]
+        except Exception:  # noqa: BLE001
+            return 0
+        rows = []
+        for stored_code in codes:
+            tpdog_code = _to_tpdog_code(stored_code)
+            if not tpdog_code:
+                continue
+            try:
+                items = tpdog_call("current/call_auction", code=tpdog_code, sort=2)
+            except (TpdogError, Exception):  # noqa: BLE001
+                continue
+            for item in items or []:
+                t = str(item.get("time") or "")
+                rows.append({
+                    "code": str(item.get("code") or stored_code.split(".")[0]),
+                    "time": t[11:16] if len(t) >= 16 else "",
+                    "price": item.get("price"), "change_pct": item.get("rise_rate"),
+                    "auction_volume": item.get("volume"),
+                    "buy_sell_side": item.get("buy_sell"),
+                })
+        written = store.upsert_call_auction(trade_date, rows, source="tpdog")
+        # One-shot locked-at-open (00211) full-market supplement on the final slot.
+        try:
+            locked = tpdog_call("current/locked_limit")
+        except (TpdogError, Exception):  # noqa: BLE001
+            locked = []
+        for item in locked or []:
+            rows.append({
+                "code": str(item.get("code") or ""),
+                "time": str(item.get("time") or "")[:5] or "09:25",
+                "price": item.get("close"), "change_pct": item.get("rise_rate"),
+                "auction_amount": item.get("total_amt"),
+            })
+        if locked:
+            written += store.upsert_call_auction(trade_date, [
+                r for r in rows if r.get("code")], source="tpdog_locked")
+    try:
+        keep = int(os.getenv("MARKET_SYNC_CALL_AUCTION_KEEP_DAYS", "60"))
+        store.prune_call_auction(keep)
+    except Exception:  # noqa: BLE001
+        pass
+    return written
+
+
+def _sync_hot_money(store: MarketStore, trade_date: str) -> int:
+    """游资每日榜单 — tpdog 01302 交易日收盘后全量。"""
+    from src.data.tpdog_client import call as tpdog_call, TpdogError
+
+    try:
+        content = tpdog_call("hot_money/daily/list_date", date=trade_date)
+    except (TpdogError, Exception) as exc:  # noqa: BLE001
+        _set_sync_error(store, "hot_money", "tpdog.01302", exc)
+        return 0
+    if not content:
+        return 0
+    rows = [{
+        "code": str(i.get("code") or ""), "hot_code": str(i.get("hot_code") or ""),
+        "name": i.get("name"), "hot_name": i.get("hot_name"), "reason": i.get("reason"),
+        "rise_rate": i.get("rise_rate"), "buy_amt": i.get("buy_amt"),
+        "sell_amt": i.get("sell_amt"), "net": i.get("net"),
+        "buy_ratio": i.get("buy_ratio"), "sell_ratio": i.get("sell_ratio"),
+    } for i in content]
+    return store.upsert_hot_money_daily(trade_date, rows)
+
+
+def _sync_hot_money_list(store: MarketStore, trade_date: str) -> int:
+    """游资名录 — tpdog 01301 静态小表，每日刷新。"""
+    from src.data.tpdog_client import call as tpdog_call, TpdogError
+
+    try:
+        content = tpdog_call("hot_money/list")
+    except (TpdogError, Exception) as exc:  # noqa: BLE001
+        _set_sync_error(store, "hot_money_list", "tpdog.01301", exc)
+        return 0
+    if not content:
+        return 0
+    rows = [{
+        "hot_code": str(i.get("hot_code") or ""), "hot_name": i.get("hot_name"),
+        "description": i.get("desc"),
+    } for i in content]
+    return store.upsert_hot_money_list(rows)
+
+
 def _sync_fund_flow_daily(store: MarketStore, trade_date: str) -> int:
     """新浪资金流备胎 — 对 stock_capital_rank 中的股票拉日级资金流。
     新浪失败时 tpdog fund/stock 作终极兜底。
@@ -5789,6 +5946,10 @@ def run_daily_sync(
     _run("lockup_expiry", lambda: _sync_lockup_expiry(store, trade_date))
     _run("fq_factors", lambda: _sync_fq_factors(store, trade_date))
     _run("minute_bars", lambda: _sync_minute_bars(store, trade_date))
+    _run("unusual", lambda: _sync_unusual(store, trade_date))
+    _run("call_auction", lambda: _sync_call_auction(store, trade_date))
+    _run("hot_money", lambda: _sync_hot_money(store, trade_date))
+    _run("hot_money_list", lambda: _sync_hot_money_list(store, trade_date))
     # Quotes are intentionally refreshed last.  Recommendation generation is
     # gated on this published run, so an early quote would already be stale by
     # the time slower sentiment/fund-flow datasets finish.
@@ -6080,6 +6241,69 @@ def _maybe_run_fund_premium_sync(store: MarketStore) -> None:
         logger.info("market-sync daemon: fund-premium done for %s slot=%s", today, slot)
     except Exception:  # noqa: BLE001
         logger.exception("market-sync daemon fund-premium tick failed")
+
+
+def _maybe_run_unusual_sync(store: MarketStore) -> None:
+    """Pull the full unusual-move feed (tpdog 00902, ~5 credits/call) every ~5
+    min during trading — same isolated-tick pattern as fund-premium. ~48 calls
+    ≈ 240 credits/day; the post-close run replaces the day with 00903 history.
+    """
+    from src.data.trade_calendar import cn_market_phase, is_trading_day
+
+    now = _now_cst()
+    today = now.strftime("%Y-%m-%d")
+    if not is_trading_day(today):
+        return
+    phase = cn_market_phase(now)
+    if phase not in {"in_session", "lunch_break"}:
+        return
+    minute_of_day = now.hour * 60 + now.minute
+    slot = minute_of_day // _INTRADAY_SYNC_INTERVAL_MINUTES
+    meta_key = f"daemon:unusual:{today}:{slot}"
+    if store.get_meta(meta_key):
+        return
+    try:
+        logger.info("market-sync daemon: starting unusual sync for %s slot=%s", today, slot)
+        run_daily_sync(today, store=store, datasets={"unusual"}, deadline_seconds=90)
+        store.set_meta(meta_key, _now_cst().isoformat())
+        logger.info("market-sync daemon: unusual done for %s slot=%s", today, slot)
+    except Exception:  # noqa: BLE001
+        logger.exception("market-sync daemon unusual tick failed")
+
+
+def _maybe_run_call_auction_sync(store: MarketStore) -> None:
+    """Call-auction snapshots in the 09:15-09:30 window.
+
+    ``cn_market_phase`` has no 9:15/9:25 sub-phases, so the window check is
+    local: two ~5-min slots during matching (09:15-09:25), then one "final"
+    slot (09:25-09:30) capturing the auction result + locked-at-open list.
+    The final slot is the most valuable snapshot — a failure simply doesn't
+    write its meta_key and retries on the next worker tick.
+    """
+    from datetime import time as dtime
+    from src.data.trade_calendar import cn_market_phase, is_trading_day
+
+    now = _now_cst()
+    today = now.strftime("%Y-%m-%d")
+    if not is_trading_day(today):
+        return
+    if cn_market_phase(now) != "pre_open":
+        return
+    t = now.time()
+    if not (dtime(9, 15) <= t < dtime(9, 30)):
+        return
+    minute_of_day = now.hour * 60 + now.minute
+    slot = f"bid-{minute_of_day // _INTRADAY_SYNC_INTERVAL_MINUTES}" if t < dtime(9, 25) else "final"
+    meta_key = f"daemon:call_auction:{today}:{slot}"
+    if store.get_meta(meta_key):
+        return
+    try:
+        logger.info("market-sync daemon: starting call-auction sync for %s slot=%s", today, slot)
+        run_daily_sync(today, store=store, datasets={"call_auction"}, deadline_seconds=90)
+        store.set_meta(meta_key, _now_cst().isoformat())
+        logger.info("market-sync daemon: call-auction done for %s slot=%s", today, slot)
+    except Exception:  # noqa: BLE001
+        logger.exception("market-sync daemon call-auction tick failed")
 
 
 # ---------------------------------------------------------------------------
