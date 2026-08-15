@@ -200,9 +200,17 @@ export interface CreatedDataHubCredential extends DataHubCredential {
 
 export interface DataHubEndpoint {
   endpoint_code: string;
+  catalog_version: number;
+  http_method: string;
+  path_pattern: string;
   dataset_group: string;
   pricing_mode: "free" | "fixed" | "per_unit";
   base_cost: number;
+  unit_name: string | null;
+  unit_size: number | null;
+  unit_cost: number | null;
+  max_cost: number | null;
+  enabled: boolean;
 }
 
 export interface DataHubUsage {

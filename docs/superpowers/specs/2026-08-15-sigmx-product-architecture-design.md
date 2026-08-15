@@ -51,6 +51,8 @@ SigmX 是面向个人投资者、进阶研究者和个人量化开发者的 AI �
 - `/product/desktop`、`/product/data-hub`、`/pricing`、`/download`；
 - `/docs/data-hub/*`：Data Hub 数据集、接口和 SDK 文档。
 
+上述路由已形成公开 Web 漏斗：统一搜索由匿名 Public Research API 提供最多 10 条延迟结果；保存查询、云自选和报告快照进入个人云资产，完整专业研究继续交给 Desktop。
+
 统一搜索支持代码/名称搜索、自然语言选股、ETF/LOF 查询、市场问题和 API 文档搜索。匿名用户可获得有限但真实的结果，不得在提供任何价值前强制注册；完整结果、保存、订阅和后续研究需要登录。
 
 ### 3.2 登录后的轻量研究空间
@@ -115,10 +117,10 @@ Data Hub 可独立于 Desktop 销售，服务两条主路径：Desktop 用户获
 
 数据产品按权限组组织：
 
-- `datahub.basic.v1`：交易日历、证券列表、行业和指数成分；
-- `datahub.market.v1`：股票、指数、基金行情和复权数据；
-- `datahub.finance.v1`：财务、估值、分红和公司行动；
-- `datahub.pro.v1`：资金、事件、批量数据和 SigmX 加工数据。
+- `basic.v1`：交易日历、证券列表、行业和指数成分；
+- `market.v1`：股票、指数、基金行情和复权数据；
+- `finance.v1`：财务、估值、分红和公司行动；
+- `pro.v1`：资金、事件、批量数据和 SigmX 加工数据。
 
 具体接口归属和积分价格由服务端版本化目录管理，前端与 SDK 不得硬编码套餐中文名或价格。
 
@@ -150,18 +152,18 @@ Data Hub 的销售价值不是简单转售上游原始数据，而是多源降�
 ### 6.2 稳定权益键
 
 ```text
-desktop.enabled
 desktop.device_limit
-desktop.alpha_forge
-desktop.factor_lab
-research.monthly_credits
+desktop.connected_mode
+cloud_ai.enabled
+cloud_ai.concurrent_jobs
+reports.cloud_history
 datahub.enabled
 datahub.dataset_groups
 datahub.monthly_credits
-datahub.rate_limit
+datahub.rate_limit_per_minute
 datahub.concurrent_limit
-datahub.max_rows
-datahub.history_depth
+datahub.max_rows_per_request
+datahub.history_depth_days
 datahub.commercial_use
 ```
 
@@ -190,7 +192,7 @@ datahub.commercial_use
 
 ## 7. 统一云平台与数据归属
 
-共享领域对象包括 `User`、`Organization`、`Membership`、`Plan`、`Subscription`、`Entitlement`、`CreditBatch`、`CreditTransaction`、`Order`、`Device`、`ApiCredential`、`UsageRecord`、`CloudTask`、`Watchlist`、`SavedQuery` 和 `Report`。
+共享领域对象包括 `User`、`Plan`、`EntitlementGrant`、`CreditLot`、`CreditTransaction`、`Order`、`Device`、`ApiCredential`、`UsageRecord`、`CloudWatchlist`、`SavedQuery` 和 `ReportSnapshot`。所有对象直接归属个人 `user_id`，不引入组织或成员层。
 
 数据归属：
 

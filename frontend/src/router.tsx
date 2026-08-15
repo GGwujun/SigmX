@@ -111,6 +111,7 @@ const SampleReportPage = lazy(() =>
 const PublicSearchPage = lazy(() => import("@/pages/public/PublicSearchPage").then((m) => ({ default: m.PublicSearchPage })));
 const PublicInstrumentPage = lazy(() => import("@/pages/public/PublicInstrumentPage").then((m) => ({ default: m.PublicInstrumentPage })));
 const PublicReportPage = lazy(() => import("@/pages/public/PublicReportPage").then((m) => ({ default: m.PublicReportPage })));
+const DataHubDocsPage = lazy(() => import("@/pages/public/DataHubDocsPage").then((m) => ({ default: m.DataHubDocsPage })));
 const OperationsPage = lazy(() =>
   import("@/pages/admin/OperationsPage").then((m) => ({ default: m.OperationsPage })),
 );
@@ -224,6 +225,7 @@ export const router = createBrowserRouter([
       { path: "/stock/:code", element: wrap(() => <PublicInstrumentPage kind="stock" />) },
       { path: "/fund/:code", element: wrap(() => <PublicInstrumentPage kind="fund" />) },
       { path: "/research/:slug", element: wrap(PublicReportPage) },
+      { path: "/docs/data-hub/*", element: wrap(DataHubDocsPage) },
     ],
   },
   // Public auth routes — own minimal layout (no PublicLayout chrome).

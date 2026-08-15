@@ -110,8 +110,8 @@ Then implement the public React pages:
 **Files:**
 - Modify: `docs/superpowers/specs/2026-08-15-sigmx-product-architecture-design.md`
 
-- [ ] Run backend cloud/product tests and the full frontend Vitest suite.
-- [ ] Run the frontend production build and `git diff --check`.
-- [ ] Update the total architecture shared-object list to personal-only objects and record the implemented Web routes without changing non-goals.
-- [ ] Scan for “规划中” in `/me` and missing required public paths in `router.tsx`.
-- [ ] Commit with `docs(product): record web growth completion`.
+- [x] Run backend cloud/product tests and the full frontend Vitest suite.
+- [x] Run the frontend production build and `git diff --check`.
+- [x] Update the total architecture shared-object list to personal-only objects and record the implemented Web routes without changing non-goals.
+- [x] Scan for “规划中” in `/me` and missing required public paths in `router.tsx`.
+- [x] Commit with `docs(product): record web growth completion`.
