@@ -16,10 +16,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
+from fastapi.responses import JSONResponse
 
 import src.api.product_routes as pr
 from src.product.credits import CreditLedger
-from src.product.datahub_auth import acquire_product_quota, resolve_product_principal
+from src.product.datahub_credentials import DataHubCredentialService
+from src.product.datahub_gateway import DataHubRequestGateway
 from src.product.store import ProductStore
 
 
@@ -50,14 +52,18 @@ def env(tmp_path: Path):
     pr._ledger = ledger
     pr._commerce = commerce
     pr._devices = devices
+    credentials = DataHubCredentialService(store)
+    gateway = DataHubRequestGateway(store)
     yield type("E", (), dict(store=store, ledger=ledger, commerce=commerce,
-                             devices=devices, clock=clock))
+                             devices=devices, credentials=credentials,
+                             gateway=gateway, clock=clock))
     pr._store = pr._ledger = pr._commerce = pr._devices = None
 
 
 class FakeRequest:
     def __init__(self, auth: str | None = None) -> None:
         self.headers = {"authorization": auth} if auth else {}
+        self.query_params = {}
         self.client = type("C", (), {"host": "203.0.113.9"})()
 
 
@@ -84,16 +90,15 @@ def test_full_product_closure_loop(env):
     access_token = poll.access_token
     assert access_token
 
-    # 4. The token still resolves while request charging awaits the dedicated
-    # credential/middleware batch. Removed plan quota keys are not synthesized;
-    # the legacy principal therefore retains only its neutral fallback.
-    principal = resolve_product_principal(FakeRequest(auth=f"Bearer {access_token}"), env.store)
-    assert principal is not None
-    assert principal.plan == "advanced"
-    assert principal.quota_daily == 100
-
-    # 5. Data Hub quota is metered atomically.
-    assert acquire_product_quota(env.store, principal) is True
+    # 4. Desktop identity and distributable Data Hub credentials are separate.
+    credential = env.credentials.create("u-closure", "script", ["stocks.metadata"], [], None)
+    prepared = env.gateway.prepare(
+        FakeRequest(auth=f"Bearer {credential.plaintext}"), "GET", "/api/v1/stocks/metadata"
+    )
+    response = env.gateway.complete(
+        prepared, JSONResponse({"ok": True, "data": [{"code": "000001"}]})
+    )
+    assert response.headers["X-DataHub-Credits-Charged"] == "1"
 
     # 6. Metered AlphaForge: reserve 50 → settle on success.
     res = env.ledger.reserve(user_id, 50, operation="alphaforge", idempotency_key="run-e2e")
@@ -122,15 +127,13 @@ def test_failed_task_refunds_exactly_once(env):
     assert env.ledger.balance("u1").available == 50  # restored, not doubled
 
 
-def test_device_revocation_blocks_data_hub(env):
-    """Revoking a device kills its Data Hub access immediately."""
+def test_device_revocation_does_not_revoke_personal_datahub_key(env):
+    """Desktop device sessions and personal Data Hub credentials are separate."""
     env.commerce.ensure_welcome_grant("u1")
     started = env.devices.start(device_name="d", fingerprint_hash="fp")
     env.devices.approve(user_id="u1", user_code=started.user_code)
     token = env.devices.poll(device_code=started.device_code).access_token
-
-    # Before revoke: resolves.
-    assert resolve_product_principal(FakeRequest(auth=f"Bearer {token}"), env.store) is not None
+    credential = env.credentials.create("u1", "script", ["health"], [], None)
 
     # After revoke: rejected.
     claims = pr.verify_product_token(token) if hasattr(pr, "verify_product_token") else None
@@ -138,7 +141,7 @@ def test_device_revocation_blocks_data_hub(env):
     from src.product.tokens import verify_product_token
     device_id = verify_product_token(token)["device_id"]
     env.devices.revoke(user_id="u1", device_id=device_id)
-    assert resolve_product_principal(FakeRequest(auth=f"Bearer {token}"), env.store) is None
+    assert env.credentials.authenticate(credential.plaintext, "203.0.113.9").user_id == "u1"
 
 
 def test_legacy_balance_migration_then_activation_stacks(env):
@@ -159,13 +162,10 @@ def test_legacy_balance_migration_then_activation_stacks(env):
     assert env.ledger.balance("u1").available == 375  # 75 legacy + 300 monthly
 
 
-def test_free_quota_smaller_than_paid(env):
-    """A free user's Data Hub quota (100/day) is enforced separately from paid."""
-    env.commerce.ensure_welcome_grant("u-free")
-    started = env.devices.start(device_name="d", fingerprint_hash="fp")
-    env.devices.approve(user_id="u-free", user_code=started.user_code)
-    token = env.devices.poll(device_code=started.device_code).access_token
-    principal = resolve_product_principal(FakeRequest(auth=f"Bearer {token}"), env.store)
-    assert principal is not None
-    assert principal.quota_daily == 100  # free tier
-    assert principal.featured is False
+def test_free_plan_uses_personal_rate_limit_and_data_credits(env):
+    credential = env.credentials.create("u-free", "health", ["health"], [], None)
+    prepared = env.gateway.prepare(
+        FakeRequest(auth=f"Bearer {credential.plaintext}"), "GET", "/api/v1/health"
+    )
+    assert prepared.rate_limit == 30
+    env.gateway.complete(prepared, JSONResponse({"status": "healthy"}))

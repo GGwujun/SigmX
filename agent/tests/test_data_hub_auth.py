@@ -1,97 +1,60 @@
-"""Data Hub API-key auth + atomic quota tests.
-
-Covers the four-way gate in ``_data_hub_auth`` (non-Data-Hub passthrough,
-loopback passthrough, no-key-remote 401, invalid-key 401) and the atomic
-``acquire_quota`` that replaces the TOCTOU check-then-record pair.
-"""
+"""Destructive Data Hub credential cutover tests."""
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from unittest import mock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from src.api.sigmx_routes import register_sigmx_routes
-from src.data.subscription_store import SubscriptionStore
+import src.api.sigmx_routes as routes
+from src.product.datahub_credentials import DataHubCredentialService
+from src.product.datahub_gateway import DataHubBillingRoute, DataHubRequestGateway
+from src.product.store import ProductStore
 
 
-def _app() -> FastAPI:
+@pytest.fixture
+def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    store = ProductStore(tmp_path / "product.db")
+    routes._gateway = DataHubRequestGateway(store)
+    monkeypatch.setenv("VIBE_TRADING_DATA_HUB_MODE", "1")
     app = FastAPI()
-    register_sigmx_routes(app)
-    return app
+    routes.register_sigmx_routes(app)
+    yield TestClient(app), DataHubCredentialService(store), app
+    routes._gateway = None
 
 
-def test_non_data_hub_mode_passthrough(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """When VIBE_TRADING_DATA_HUB_MODE is unset, no auth is required."""
+def test_data_hub_requires_sxd_bearer_even_on_loopback(client) -> None:
+    http, _, _ = client
+    assert http.get("/api/v1/health").status_code == 401
+    assert http.get("/api/v1/health", headers={"X-API-Key": "sx_dead"}).status_code == 401
+    assert http.get("/api/v1/health?api_key=sx_dead").status_code == 401
+    assert http.get("/api/v1/health", headers={"Authorization": "Bearer desktop.jwt"}).status_code == 401
+
+
+def test_valid_personal_key_reaches_handler(client) -> None:
+    http, credentials, _ = client
+    created = credentials.create("u1", "health", ["health"], [], None)
+    response = http.get(
+        "/api/v1/health", headers={"Authorization": f"Bearer {created.plaintext}"}
+    )
+    assert response.status_code == 200
+    assert response.headers["X-DataHub-Endpoint"] == "health"
+
+
+def test_every_v1_route_uses_billing_route(client) -> None:
+    _, _, app = client
+    data_routes = [route for route in app.routes if getattr(route, "path", "").startswith("/api/v1/")]
+    assert len(data_routes) == 49
+    assert all(isinstance(route, DataHubBillingRoute) for route in data_routes)
+
+
+def test_non_data_hub_mode_is_explicit_bypass(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("VIBE_TRADING_DATA_HUB_MODE", raising=False)
-    # Point the market DB at an empty file so endpoints return 404 (not 500).
-    empty = tmp_path / "market.db"
-    empty.touch()
-    monkeypatch.setenv("VIBE_TRADING_MARKET_DB_PATH", str(empty))
-    with mock.patch("src.api.sigmx_routes.get_db"):  # avoid real DB hits
-        client = TestClient(_app())
-        # No API key, simulated remote client — still allowed (mode off).
-        res = client.get("/api/v1/market/latest-trade-date")
-        # 404 from DATA_NOT_FOUND is fine; 401 would mean the gate wrongly fired.
-        assert res.status_code != 401
-
-
-def test_data_hub_mode_rejects_remote_no_key(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Data Hub mode + non-loopback + no key → 401."""
-    monkeypatch.setenv("VIBE_TRADING_DATA_HUB_MODE", "1")
-    client = TestClient(_app())
-    res = client.get("/api/v1/market/latest-trade-date")  # TestClient is loopback
-    # TestClient appears as 127.0.0.1 → loopback passes. Force a non-loopback
-    # client host to simulate a public request.
-    with mock.patch("src.api.sigmx_routes._is_loopback", return_value=False):
-        res = client.get("/api/v1/market/latest-trade-date")
-    assert res.status_code == 401
-    assert "API key required" in res.json()["detail"]
-
-
-def test_data_hub_mode_loopback_passes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Data Hub mode + loopback (server's own healthcheck) → no key needed."""
-    monkeypatch.setenv("VIBE_TRADING_DATA_HUB_MODE", "1")
-    with mock.patch("src.api.sigmx_routes.get_db"):
-        client = TestClient(_app())
-        res = client.get("/api/v1/market/latest-trade-date")
-    assert res.status_code != 401  # loopback passthrough
-
-
-def test_invalid_key_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VIBE_TRADING_DATA_HUB_MODE", "1")
-    client = TestClient(_app())
-    with mock.patch("src.api.sigmx_routes._is_loopback", return_value=False):
-        res = client.get(
-            "/api/v1/market/latest-trade-date",
-            headers={"X-API-Key": "sx_deadbeef"},
-        )
-    assert res.status_code == 401
-
-
-def test_acquire_quota_atomic_and_bounded(tmp_path: Path) -> None:
-    """acquire_quota reserves exactly quota slots, then refuses (no TOCTOU)."""
-    store = SubscriptionStore(tmp_path / "subs.db")
-    created = store.create("u@x.com", tier="free", quota_daily=3)
-    sub_id = created["id"]
-    key = created["api_key"]
-
-    # First 3 succeed.
-    assert store.acquire_quota(sub_id) is True
-    assert store.acquire_quota(sub_id) is True
-    assert store.acquire_quota(sub_id) is True
-    # 4th refused — even though check_quota + record_usage would have raced.
-    assert store.acquire_quota(sub_id) is False
-    assert store.acquire_quota(sub_id) is False
-
-    # Usage recorded exactly 3 (no over-count).
-    allowed, used, quota = store.check_quota(sub_id)
-    assert (used, quota) == (3, 3)
-    assert allowed is False
-
-    # Key still validates (quota refusal does not revoke the key).
-    assert store.validate_api_key(key) is not None
+    routes._gateway = DataHubRequestGateway(ProductStore(tmp_path / "product.db"))
+    app = FastAPI()
+    routes.register_sigmx_routes(app)
+    response = TestClient(app).get("/api/v1/health")
+    assert response.status_code == 200
+    routes._gateway = None

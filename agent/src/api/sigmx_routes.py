@@ -2,9 +2,8 @@
 SigmX Market Data API（并入 vibe-trading）
 Base: /api/v1   Timezone: Asia/Shanghai   Unit: 100M CNY (亿元)
 只读访问 market.db；新闻走 RSSHub。
-鉴权：Data Hub 模式下远程请求需 X-API-Key / 产品令牌（_data_hub_auth）。
+鉴权：Data Hub 模式只接受个人 ``sxd_live_`` Bearer Credential。
 """
-import ipaddress
 import json
 import logging
 import math
@@ -17,7 +16,7 @@ from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -30,103 +29,18 @@ RSSHUB_URL = os.environ.get("RSSHUB_URL", "http://rsshub:1200").rstrip("/")
 TZ_SH = timezone(timedelta(hours=8))
 ROWS_HARD_CAP = 2000
 
-router = APIRouter(tags=["sigmx"])
+from src.product.datahub_gateway import DataHubBillingRoute, DataHubRequestGateway
+from src.product.store import ProductStore
 
-# ---- API key auth (Data Hub) ----
-
-def _is_loopback(request: Request) -> bool:
-    """Check if the request originates from loopback.
-
-    Also recognizes starlette's TestClient (``client=None`` scope with a
-    ``testclient`` user-agent) so the auth gate stays testable across
-    starlette/httpx versions that stopped populating ``request.client``.
-    """
-    host = request.client.host if request.client else ""
-    if host in ("127.0.0.1", "::1", "localhost", "testclient"):
-        return True
-    if not host and (request.headers.get("user-agent") or "").lower() == "testclient":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+router = APIRouter(tags=["sigmx"], route_class=DataHubBillingRoute)
+_gateway: DataHubRequestGateway | None = None
 
 
-async def _data_hub_auth(
-    request: Request,
-    x_api_key: str | None = Header(None, alias="X-API-Key"),
-    api_key: str | None = Query(None, alias="api_key"),
-) -> dict[str, object] | None:
-    """API key authentication for /api/v1/* endpoints (Data Hub mode).
-
-    - Non-Data-Hub deployments: always pass through (mode guard).
-    - Loopback requests: pass through (no key needed).
-    - Data Hub mode + non-loopback + no key: 401 (the public API requires a key).
-    - Invalid key: 401.
-    - Quota exhausted: 429.
-    - Valid key with quota remaining: reserve one slot atomically, return sub.
-
-    ``request.client.host`` reflects the real remote IP only when uvicorn runs
-    with ``--proxy-headers`` and nginx forwards ``X-Forwarded-For``; otherwise a
-    reverse proxy makes every request look loopback and this gate is bypassable.
-    """
-    if not _is_data_hub_enabled():
-        return None
-
-    if _is_loopback(request):
-        return None
-
-    # Product-token path (Task 6): accept a Bearer product access token before
-    # the legacy X-API-Key path. If present and valid, enforce the plan's
-    # datahub.daily_quota against product.db.usage_daily. If absent or invalid,
-    # fall through to the legacy sx_ key logic unchanged.
-    from src.product.datahub_auth import (
-        acquire_product_quota,
-        resolve_product_principal,
-    )
-    from src.product.store import ProductStore
-
-    _product_store = ProductStore()
-    principal = resolve_product_principal(request, _product_store)
-    if principal is not None:
-        if not acquire_product_quota(_product_store, principal):
-            quota = principal.quota_daily
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=f"Daily quota exceeded ({quota}/{quota}). Resets at midnight UTC.",
-                headers={"X-RateLimit-Limit": str(quota), "X-RateLimit-Remaining": "0"},
-            )
-        return {"subscription_id": principal.subject, "tier": principal.plan, "source": "product_token"}
-
-    key = (x_api_key or "").strip() or (api_key or "").strip()
-    if not key:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="API key required (X-API-Key header or api_key query)",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-    from src.data.subscription_store import get_subscription_store
-
-    store = get_subscription_store()
-    sub = store.validate_api_key(key)
-    if sub is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired API key",
-            headers={"WWW-Authenticate": "ApiKey"},
-        )
-
-    # Atomically reserve one request against the daily quota (no TOCTOU).
-    if not store.acquire_quota(sub["id"]):
-        quota = sub.get("quota_daily", 0)
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail=f"Daily quota exceeded ({quota}/{quota}). Resets at midnight UTC.",
-            headers={"X-RateLimit-Limit": str(quota), "X-RateLimit-Remaining": "0"},
-        )
-
-    return {"subscription_id": sub["id"], "tier": sub["tier"]}
+def _get_gateway() -> DataHubRequestGateway:
+    global _gateway
+    if _gateway is None:
+        _gateway = DataHubRequestGateway(ProductStore())
+    return _gateway
 
 # 默认财经 RSS 路由
 DEFAULT_FINANCE_ROUTES = [
@@ -2100,29 +2014,19 @@ def health(request: Request):
         "endpoints": _sigmx_endpoint_list(),
         "data_hub": _is_data_hub_enabled(),
     }
-    if _is_data_hub_enabled():
-        try:
-            from src.data.subscription_store import get_subscription_store
-            store = get_subscription_store()
-            subs = store.list_all()
-            active = sum(1 for s in subs if s.get("active"))
-            info["subscriptions"] = active
-        except Exception:
-            pass
     return info
 
 
 def _is_data_hub_enabled() -> bool:
-    """Return whether Data Hub mode is enabled (API key auth required for remote)."""
+    """Return whether the personal Data Hub billing gateway is enabled."""
     return os.getenv("VIBE_TRADING_DATA_HUB_MODE", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def register_sigmx_routes(app: FastAPI) -> None:
     """Mount all /api/v1/* SigmX market-data routes onto the app.
 
-    All /api/v1/* endpoints go through ``_data_hub_auth``: in Data Hub mode,
-    remote (non-loopback) requests require a valid API key; loopback and
-    non-Data-Hub deployments pass through. See ``_data_hub_auth`` for details.
+    In Data Hub mode every route is wrapped by ``DataHubBillingRoute`` and
+    requires a personal ``sxd_live_`` Bearer credential. Non-Data-Hub mode is
+    the only explicit bypass.
     """
-    app.include_router(router, dependencies=[Depends(_data_hub_auth)])
-
+    app.include_router(router)
