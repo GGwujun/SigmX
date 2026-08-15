@@ -8,6 +8,7 @@ import { LogOut, Settings2 } from "lucide-react";
 
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import { clearAuth, getUser, isAdmin } from "@/lib/apiAuth";
+import { PortalNav } from "./PortalNav";
 
 export function PortalLayout() {
   const navigate = useNavigate();
@@ -22,11 +23,12 @@ export function PortalLayout() {
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
-          <Link to="/portal" className="flex items-center gap-2 font-bold">
+        <div className="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center justify-between gap-2 px-4 py-2">
+          <Link to="/me" aria-label="SigmX" className="flex items-center gap-2 font-bold">
             <SigmXLogo className="h-6 w-6" />
             <span>SigmX</span>
           </Link>
+          <PortalNav />
           <div className="flex items-center gap-2">
             {user && <span className="hidden text-xs text-muted-foreground sm:inline">{user.email}</span>}
             {admin && (

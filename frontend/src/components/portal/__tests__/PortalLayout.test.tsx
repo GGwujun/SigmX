@@ -38,7 +38,8 @@ describe("PortalLayout", () => {
   it("renders the header and the outlet content for regular users", () => {
     setStoredUser(false);
     renderLayout();
-    expect(screen.getByText("SigmX")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "SigmX" })).toHaveAttribute("href", "/me");
+    expect(screen.getByRole("link", { name: "我的 SigmX" })).toBeInTheDocument();
     expect(screen.getByText("user@test.com")).toBeInTheDocument();
     expect(screen.getByText("portal-body")).toBeInTheDocument();
     expect(screen.queryByText("运营后台")).not.toBeInTheDocument();

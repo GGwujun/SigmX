@@ -7,13 +7,7 @@ import { type ReactNode } from "react";
 import { Link, Outlet } from "react-router-dom";
 
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
-
-const NAV = [
-  { to: "/product/data-hub", label: "Data Hub" },
-  { to: "/product/desktop", label: "桌面端" },
-  { to: "/pricing", label: "套餐" },
-  { to: "/download", label: "下载" },
-];
+import { PUBLIC_PRODUCT_LINKS } from "@/components/navigation/productNavigation";
 
 export interface PublicLayoutProps {
   /** Optional override of the primary call-to-action (defaults to 注册体验). */
@@ -32,10 +26,14 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
             <span>SigmX</span>
           </Link>
           <nav className="flex items-center gap-1">
-            {NAV.map((item) => (
+            <span className="hidden rounded-md px-3 py-1.5 text-sm text-muted-foreground md:inline-flex">
+              AI 选股 · 即将上线
+            </span>
+            {PUBLIC_PRODUCT_LINKS.map((item) => (
               <Link
                 key={item.to}
                 to={item.to}
+                title={item.description}
                 className="rounded-md px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
               >
                 {item.label}
