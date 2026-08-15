@@ -27,6 +27,12 @@ from src.product.commerce import ActivationError, CommerceService
 from src.product.credits import CreditLedger
 from src.product.data_credits import DataCreditLedger
 from src.product.datahub_catalog import DataHubEndpointCatalog
+from src.product.datahub_credentials import (
+    CredentialLimitReached,
+    CredentialNotFound,
+    CredentialRevoked,
+    DataHubCredentialService,
+)
 from src.product.devices import DeviceLimitReached, DeviceService
 from src.product.store import ProductStore
 
@@ -42,6 +48,7 @@ _commerce: CommerceService | None = None
 _devices: DeviceService | None = None
 _data_ledger: DataCreditLedger | None = None
 _endpoint_catalog: DataHubEndpointCatalog | None = None
+_credential_service: DataHubCredentialService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -84,6 +91,13 @@ def _get_endpoint_catalog() -> DataHubEndpointCatalog:
     if _endpoint_catalog is None:
         _endpoint_catalog = DataHubEndpointCatalog(_get_store())
     return _endpoint_catalog
+
+
+def _get_credential_service() -> DataHubCredentialService:
+    global _credential_service
+    if _credential_service is None:
+        _credential_service = DataHubCredentialService(_get_store())
+    return _credential_service
 
 
 # ---------------------------------------------------------------------------
@@ -252,14 +266,6 @@ class LedgerResponse(BaseModel):
     entries: list[LedgerEntryItem]
 
 
-class UsageResponse(BaseModel):
-    metric: str
-    day: str
-    consumed: int
-    quota_daily: int
-    remaining: int
-
-
 class DataCreditsBalanceResponse(BaseModel):
     available: int
     expiring_soon: int
@@ -311,6 +317,47 @@ class DataHubCatalogResponse(BaseModel):
     items: list[DataHubEndpointItem]
 
 
+class CreateDataHubCredentialRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=128)
+    scopes: list[str] = Field(..., min_length=1)
+    ip_allowlist: list[str] = Field(default_factory=list)
+    expires_at: str | None = None
+
+
+class DataHubCredentialItem(BaseModel):
+    id: str
+    key_prefix: str
+    name: str
+    scopes: list[str]
+    ip_allowlist: list[str]
+    expires_at: str | None
+    last_used_at: str | None
+    created_at: str
+    revoked_at: str | None
+
+
+class CreatedDataHubCredentialResponse(DataHubCredentialItem):
+    plaintext: str
+
+
+class DataHubCredentialsResponse(BaseModel):
+    items: list[DataHubCredentialItem]
+
+
+class DataHubUsageByEndpointItem(BaseModel):
+    endpoint_code: str
+    requests: int
+    successful_requests: int
+    credits_charged: int
+
+
+class DataHubUsageResponse(BaseModel):
+    total_requests: int
+    successful_requests: int
+    credits_charged: int
+    by_endpoint: list[DataHubUsageByEndpointItem]
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -340,6 +387,112 @@ async def datahub_catalog() -> DataHubCatalogResponse:
     """Public, enabled latest-version Data Hub endpoint price list."""
     return DataHubCatalogResponse(
         items=[DataHubEndpointItem(**vars(entry)) for entry in _get_endpoint_catalog().list()]
+    )
+
+
+def _credential_item(value) -> DataHubCredentialItem:
+    return DataHubCredentialItem(
+        id=value.id,
+        key_prefix=value.key_prefix,
+        name=value.name,
+        scopes=list(value.scopes),
+        ip_allowlist=list(value.ip_allowlist),
+        expires_at=value.expires_at,
+        last_used_at=getattr(value, "last_used_at", None),
+        created_at=value.created_at,
+        revoked_at=getattr(value, "revoked_at", None),
+    )
+
+
+def _created_credential(value) -> CreatedDataHubCredentialResponse:
+    return CreatedDataHubCredentialResponse(
+        **_credential_item(value).model_dump(), plaintext=value.plaintext
+    )
+
+
+@_router.post("/api/datahub/credentials", response_model=CreatedDataHubCredentialResponse)
+async def create_datahub_credential(
+    body: CreateDataHubCredentialRequest, user: dict = Depends(require_user)
+) -> CreatedDataHubCredentialResponse:
+    try:
+        created = _get_credential_service().create(
+            user["id"], body.name, body.scopes, body.ip_allowlist, body.expires_at
+        )
+    except CredentialLimitReached as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _created_credential(created)
+
+
+@_router.get("/api/datahub/credentials", response_model=DataHubCredentialsResponse)
+async def list_datahub_credentials(
+    user: dict = Depends(require_user),
+) -> DataHubCredentialsResponse:
+    return DataHubCredentialsResponse(
+        items=[_credential_item(item) for item in _get_credential_service().list(user["id"])]
+    )
+
+
+@_router.post(
+    "/api/datahub/credentials/{credential_id}/rotate",
+    response_model=CreatedDataHubCredentialResponse,
+)
+async def rotate_datahub_credential(
+    credential_id: str, user: dict = Depends(require_user)
+) -> CreatedDataHubCredentialResponse:
+    try:
+        return _created_credential(
+            _get_credential_service().rotate(user["id"], credential_id)
+        )
+    except CredentialNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except CredentialRevoked as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@_router.delete("/api/datahub/credentials/{credential_id}")
+async def revoke_datahub_credential(
+    credential_id: str, user: dict = Depends(require_user)
+) -> dict:
+    try:
+        _get_credential_service().revoke(user["id"], credential_id)
+    except CredentialNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    return {"ok": True}
+
+
+@_router.get("/api/datahub/usage", response_model=DataHubUsageResponse)
+async def datahub_usage(user: dict = Depends(require_user)) -> DataHubUsageResponse:
+    conn = _get_store()._get_conn()
+    totals = conn.execute(
+        "SELECT COUNT(*) AS requests, "
+        "SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS successes, "
+        "COALESCE(SUM(credits_charged), 0) AS credits "
+        "FROM datahub_request_usage WHERE user_id = ?",
+        (user["id"],),
+    ).fetchone()
+    groups = conn.execute(
+        "SELECT endpoint_code, COUNT(*) AS requests, "
+        "SUM(CASE WHEN status_code BETWEEN 200 AND 299 THEN 1 ELSE 0 END) AS successes, "
+        "COALESCE(SUM(credits_charged), 0) AS credits "
+        "FROM datahub_request_usage WHERE user_id = ? GROUP BY endpoint_code "
+        "ORDER BY endpoint_code",
+        (user["id"],),
+    ).fetchall()
+    return DataHubUsageResponse(
+        total_requests=int(totals["requests"] or 0),
+        successful_requests=int(totals["successes"] or 0),
+        credits_charged=int(totals["credits"] or 0),
+        by_endpoint=[
+            DataHubUsageByEndpointItem(
+                endpoint_code=row["endpoint_code"],
+                requests=int(row["requests"]),
+                successful_requests=int(row["successes"] or 0),
+                credits_charged=int(row["credits"] or 0),
+            )
+            for row in groups
+        ],
     )
 
 
@@ -453,30 +606,6 @@ async def my_credits_ledger(user: dict = Depends(require_user)) -> LedgerRespons
             )
             for r in rows
         ]
-    )
-
-
-@_router.get("/api/usage/me", response_model=UsageResponse)
-async def my_usage(user: dict = Depends(require_user)) -> UsageResponse:
-    """Today's Data Hub request usage against the plan's daily quota (design §7.2)."""
-    from datetime import datetime, timezone
-
-    metric = "datahub.request"
-    today = datetime.now(timezone.utc).date().isoformat()
-    snap = _get_commerce().current_entitlements(user["id"])
-    quota = int(snap.entitlements.get("datahub.daily_quota", 0))
-    conn = _get_store()._get_conn()
-    row = conn.execute(
-        "SELECT consumed FROM usage_daily WHERE user_id = ? AND metric = ? AND day = ?",
-        (user["id"], metric, today),
-    ).fetchone()
-    consumed = int(row["consumed"]) if row else 0
-    return UsageResponse(
-        metric=metric,
-        day=today,
-        consumed=consumed,
-        quota_daily=quota,
-        remaining=max(0, quota - consumed),
     )
 
 

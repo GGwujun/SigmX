@@ -112,43 +112,6 @@ def test_activate_rejects_bad_code_with_400() -> None:
     assert exc.value.status_code == 400
 
 
-def test_my_usage_reports_consumed_against_quota() -> None:
-    """GET /api/usage/me returns today's consumed requests vs the plan quota."""
-    from datetime import datetime, timezone
-
-    from src.product.commerce import CommerceService
-    from src.product.credits import CreditLedger
-
-    store = pr._get_store()
-    commerce = CommerceService(store, CreditLedger(store))
-    # Activate advanced and record legacy request-count telemetry. The removed
-    # daily-quota entitlement must not be synthesized from the new credit plan.
-    code = commerce.admin_create_activation_code(plan="advanced", months=3)
-    asyncio.run(pr.activate_order(
-        body=pr.ActivateRequest(code=code.plaintext, idempotency_key="k-usage"),
-        user={"id": "u1"},
-    ))
-    today = datetime.now(timezone.utc).date().isoformat()
-    store._get_conn().execute(
-        "INSERT INTO usage_daily (user_id, metric, day, consumed) VALUES (?, ?, ?, 3)",
-        ("u1", "datahub.request", today),
-    )
-    store._get_conn().commit()
-
-    usage = asyncio.run(pr.my_usage(user={"id": "u1"}))
-    assert usage.metric == "datahub.request"
-    assert usage.consumed == 3
-    assert usage.quota_daily == 0
-    assert usage.remaining == 0
-
-
-def test_my_usage_zero_for_new_user() -> None:
-    """A user with no usage reads 0/0 (no plan yet → free default)."""
-    usage = asyncio.run(pr.my_usage(user={"id": "nobody"}))
-    assert usage.consumed == 0
-    assert usage.metric == "datahub.request"
-
-
 def test_my_credits_lots_lists_batches_after_activation() -> None:
     """GET /api/credits/lots returns the user's credit lots with expiry info."""
     from src.product.commerce import CommerceService
