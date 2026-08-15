@@ -60,6 +60,10 @@ def test_schema_v2_tables_exist(tmp_path: Path) -> None:
         "data_credit_allocations",
         "data_credit_ledger",
         "datahub_endpoint_catalog",
+        "datahub_credentials",
+        "datahub_rate_buckets",
+        "datahub_concurrency_leases",
+        "datahub_request_usage",
     } <= names
     versions = {
         row[0]
@@ -67,7 +71,7 @@ def test_schema_v2_tables_exist(tmp_path: Path) -> None:
             "SELECT version FROM product_migrations"
         )
     }
-    assert 2 in versions
+    assert {1, 2, 3} <= versions
 
 
 def test_schema_v2_replaces_old_datahub_keys_only(tmp_path: Path) -> None:

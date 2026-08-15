@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 2
+_SCHEMA_VERSION = 3
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -350,6 +350,59 @@ class ProductStore:
                 UNIQUE (http_method, path_pattern, catalog_version)
             );
 
+            CREATE TABLE IF NOT EXISTS datahub_credentials (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                key_hash TEXT NOT NULL UNIQUE,
+                key_prefix TEXT NOT NULL,
+                scopes_json TEXT NOT NULL,
+                ip_allowlist_json TEXT NOT NULL,
+                expires_at TEXT,
+                last_used_at TEXT,
+                created_at TEXT NOT NULL,
+                revoked_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_datahub_credentials_user
+                ON datahub_credentials(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS datahub_rate_buckets (
+                user_id TEXT NOT NULL,
+                minute TEXT NOT NULL,
+                consumed INTEGER NOT NULL CHECK (consumed >= 0),
+                PRIMARY KEY (user_id, minute)
+            );
+
+            CREATE TABLE IF NOT EXISTS datahub_concurrency_leases (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                credential_id TEXT NOT NULL,
+                request_id TEXT NOT NULL UNIQUE,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_datahub_leases_user_expiry
+                ON datahub_concurrency_leases(user_id, expires_at);
+
+            CREATE TABLE IF NOT EXISTS datahub_request_usage (
+                request_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                credential_id TEXT NOT NULL,
+                endpoint_code TEXT NOT NULL,
+                status_code INTEGER NOT NULL,
+                requested_units INTEGER NOT NULL,
+                actual_units INTEGER NOT NULL,
+                credits_authorized INTEGER NOT NULL,
+                credits_charged INTEGER NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                error_code TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_datahub_usage_user_created
+                ON datahub_request_usage(user_id, created_at);
+            CREATE INDEX IF NOT EXISTS idx_datahub_usage_credential_created
+                ON datahub_request_usage(credential_id, created_at);
+
             -- Operator audit log (design §9).
             CREATE TABLE IF NOT EXISTS audit_log (
                 id TEXT PRIMARY KEY,
@@ -451,7 +504,8 @@ class ProductStore:
     def _stamp_version(conn: sqlite3.Connection) -> None:
         from datetime import datetime, timezone
 
-        conn.execute(
+        applied_at = datetime.now(timezone.utc).isoformat()
+        conn.executemany(
             "INSERT OR IGNORE INTO product_migrations (version, applied_at) VALUES (?, ?)",
-            (_SCHEMA_VERSION, datetime.now(timezone.utc).isoformat()),
+            [(version, applied_at) for version in range(1, _SCHEMA_VERSION + 1)],
         )

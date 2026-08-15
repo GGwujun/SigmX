@@ -39,6 +39,17 @@ from src.product.datahub_catalog import (
     InvalidPricingRule,
     UnknownDataHubEndpoint,
 )
+from src.product.datahub_credentials import (
+    CreatedCredential,
+    CredentialExpired,
+    CredentialIpNotAllowed,
+    CredentialLimitReached,
+    CredentialNotFound,
+    CredentialPrincipal,
+    CredentialRevoked,
+    CredentialView,
+    DataHubCredentialService,
+)
 from src.product.devices import (
     DeviceLimitReached,
     DeviceService,
@@ -104,4 +115,13 @@ __all__ = [
     "UnknownDataHubEndpoint",
     "InvalidPricingRule",
     "ENDPOINT_CATALOG_V1",
+    "DataHubCredentialService",
+    "CreatedCredential",
+    "CredentialView",
+    "CredentialPrincipal",
+    "CredentialNotFound",
+    "CredentialRevoked",
+    "CredentialExpired",
+    "CredentialIpNotAllowed",
+    "CredentialLimitReached",
 ]
