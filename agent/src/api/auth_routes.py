@@ -91,6 +91,22 @@ async def require_user(
     token = cred.credentials if cred and cred.credentials else ""
     user_id = user_id_from_token(token)
     if not user_id:
+        # Connected Desktop uses a distinct audience and remains valid only
+        # while its server-side device registration is active.
+        from src.product.tokens import verify_product_token
+        product_claims = verify_product_token(token)
+        if product_claims:
+            candidate_user = str(product_claims.get("sub") or "")
+            device_id = str(product_claims.get("device_id") or "")
+            if candidate_user and device_id:
+                from src.api import product_routes
+                active = product_routes._get_store()._get_conn().execute(
+                    "SELECT 1 FROM devices WHERE id=? AND user_id=? AND revoked_at IS NULL",
+                    (device_id, candidate_user),
+                ).fetchone()
+                if active is not None:
+                    user_id = candidate_user
+    if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="未登录或登录已过期")
     user = _get_store().get_by_id(user_id)
     if not user:
