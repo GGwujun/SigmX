@@ -43,11 +43,11 @@
 **Interfaces:**
 - Produces: `GET/POST /api/cloud/queries`, `GET/POST/DELETE /api/cloud/watchlist`, `GET/POST/DELETE /api/cloud/reports`, and public `GET /api/public/reports/{slug}`.
 
-- [ ] Write route tests proving authentication, per-user isolation, validation, report publication, and explicit 410 for revoked snapshots.
-- [ ] Run `python -m pytest agent/tests/test_cloud_research_routes.py -q` and confirm the new endpoints are absent.
-- [ ] Add typed request/response models and route handlers delegating all persistence to `CloudResearchService`.
-- [ ] Re-run route tests and existing `test_product_routes.py`.
-- [ ] Commit with `feat(api): expose personal cloud research assets`.
+- [x] Write route tests proving authentication, per-user isolation, validation, report publication, and explicit 410 for revoked snapshots.
+- [x] Run `python -m pytest agent/tests/test_cloud_research_routes.py -q` and confirm the new endpoints are absent.
+- [x] Add typed request/response models and route handlers delegating all persistence to `CloudResearchService`.
+- [x] Re-run route tests and existing `test_product_routes.py`.
+- [x] Commit with `feat(api): expose personal cloud research assets`.
 
 ### Task 3: Public discovery pages and unified search
 

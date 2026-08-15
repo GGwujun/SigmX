@@ -24,6 +24,11 @@ from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_admin, require_user
 from src.product.commerce import ActivationError, CommerceService
+from src.product.cloud_research import (
+    CloudResearchService,
+    ReportNotFound,
+    ReportRevoked,
+)
 from src.product.credits import CreditLedger
 from src.product.data_credits import DataCreditLedger
 from src.product.datahub_catalog import DataHubEndpointCatalog
@@ -49,6 +54,7 @@ _devices: DeviceService | None = None
 _data_ledger: DataCreditLedger | None = None
 _endpoint_catalog: DataHubEndpointCatalog | None = None
 _credential_service: DataHubCredentialService | None = None
+_cloud_research: CloudResearchService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -98,6 +104,13 @@ def _get_credential_service() -> DataHubCredentialService:
     if _credential_service is None:
         _credential_service = DataHubCredentialService(_get_store())
     return _credential_service
+
+
+def _get_cloud_research() -> CloudResearchService:
+    global _cloud_research
+    if _cloud_research is None:
+        _cloud_research = CloudResearchService(_get_store())
+    return _cloud_research
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +371,55 @@ class DataHubUsageResponse(BaseModel):
     by_endpoint: list[DataHubUsageByEndpointItem]
 
 
+class SaveCloudQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=1000)
+    result_summary: dict[str, Any] = Field(default_factory=dict)
+
+
+class CloudQueryItem(BaseModel):
+    id: str
+    query: str
+    result_summary: dict[str, Any]
+    created_at: str
+
+
+class CloudQueriesResponse(BaseModel):
+    items: list[CloudQueryItem]
+
+
+class AddCloudWatchlistRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=32)
+    name: str = Field("", max_length=128)
+
+
+class CloudWatchlistItemResponse(BaseModel):
+    symbol: str
+    name: str
+    created_at: str
+
+
+class CloudWatchlistResponse(BaseModel):
+    items: list[CloudWatchlistItemResponse]
+
+
+class PublishCloudReportRequest(BaseModel):
+    title: str = Field(..., min_length=1, max_length=200)
+    summary: str = Field(..., min_length=1, max_length=20_000)
+
+
+class CloudReportResponse(BaseModel):
+    id: str
+    slug: str
+    title: str
+    summary: str
+    created_at: str
+    revoked_at: str | None
+
+
+class CloudReportsResponse(BaseModel):
+    items: list[CloudReportResponse]
+
+
 # ---------------------------------------------------------------------------
 # Registration
 # ---------------------------------------------------------------------------
@@ -388,6 +450,81 @@ async def datahub_catalog() -> DataHubCatalogResponse:
     return DataHubCatalogResponse(
         items=[DataHubEndpointItem(**vars(entry)) for entry in _get_endpoint_catalog().list()]
     )
+
+
+def _query_item(item) -> CloudQueryItem:
+    return CloudQueryItem(id=item.id, query=item.query, result_summary=item.result_summary, created_at=item.created_at)
+
+
+def _watchlist_item(item) -> CloudWatchlistItemResponse:
+    return CloudWatchlistItemResponse(symbol=item.symbol, name=item.name, created_at=item.created_at)
+
+
+def _report_item(item) -> CloudReportResponse:
+    return CloudReportResponse(id=item.id, slug=item.slug, title=item.title, summary=item.summary, created_at=item.created_at, revoked_at=item.revoked_at)
+
+
+@_router.post("/api/cloud/queries", response_model=CloudQueryItem)
+async def save_cloud_query(body: SaveCloudQueryRequest, user: dict = Depends(require_user)) -> CloudQueryItem:
+    try:
+        return _query_item(_get_cloud_research().save_query(user["id"], body.query, body.result_summary))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@_router.get("/api/cloud/queries", response_model=CloudQueriesResponse)
+async def list_cloud_queries(user: dict = Depends(require_user)) -> CloudQueriesResponse:
+    return CloudQueriesResponse(items=[_query_item(item) for item in _get_cloud_research().list_saved_queries(user["id"])])
+
+
+@_router.post("/api/cloud/watchlist", response_model=CloudWatchlistItemResponse)
+async def add_cloud_watchlist(body: AddCloudWatchlistRequest, user: dict = Depends(require_user)) -> CloudWatchlistItemResponse:
+    try:
+        return _watchlist_item(_get_cloud_research().add_watchlist(user["id"], body.symbol, body.name))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@_router.get("/api/cloud/watchlist", response_model=CloudWatchlistResponse)
+async def list_cloud_watchlist(user: dict = Depends(require_user)) -> CloudWatchlistResponse:
+    return CloudWatchlistResponse(items=[_watchlist_item(item) for item in _get_cloud_research().list_watchlist(user["id"])])
+
+
+@_router.delete("/api/cloud/watchlist/{symbol}")
+async def remove_cloud_watchlist(symbol: str, user: dict = Depends(require_user)) -> dict:
+    if not _get_cloud_research().remove_watchlist(user["id"], symbol):
+        raise HTTPException(status_code=404, detail="watchlist item not found")
+    return {"ok": True}
+
+
+@_router.post("/api/cloud/reports", response_model=CloudReportResponse)
+async def publish_cloud_report(body: PublishCloudReportRequest, user: dict = Depends(require_user)) -> CloudReportResponse:
+    try:
+        return _report_item(_get_cloud_research().publish_report(user["id"], body.title, body.summary))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@_router.get("/api/cloud/reports", response_model=CloudReportsResponse)
+async def list_cloud_reports(user: dict = Depends(require_user)) -> CloudReportsResponse:
+    return CloudReportsResponse(items=[_report_item(item) for item in _get_cloud_research().list_reports(user["id"])])
+
+
+@_router.delete("/api/cloud/reports/{report_id}")
+async def revoke_cloud_report(report_id: str, user: dict = Depends(require_user)) -> dict:
+    if not _get_cloud_research().revoke_report(user["id"], report_id):
+        raise HTTPException(status_code=404, detail="report not found")
+    return {"ok": True}
+
+
+@_router.get("/api/public/reports/{slug}", response_model=CloudReportResponse)
+async def public_cloud_report(slug: str) -> CloudReportResponse:
+    try:
+        return _report_item(_get_cloud_research().get_public_report(slug))
+    except ReportRevoked as exc:
+        raise HTTPException(status_code=410, detail="report has been revoked") from exc
+    except ReportNotFound as exc:
+        raise HTTPException(status_code=404, detail="report not found") from exc
 
 
 def _credential_item(value) -> DataHubCredentialItem:
