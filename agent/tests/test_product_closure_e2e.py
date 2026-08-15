@@ -76,9 +76,9 @@ def test_full_product_closure_loop(env):
     assert env.ledger.balance(user_id).available == 50
 
     # 2. Admin creates an activation code; user activates advanced.
-    code = env.commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = env.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     result = env.commerce.activate_code(user_id, code.plaintext, "e2e-activate")
-    assert result.plan_code == "advanced"
+    assert result.plan_code == "desktop_pro"
     # 50 welcome (permanent) + 300 advanced monthly.
     assert env.ledger.balance(user_id).available == 350
 
@@ -109,7 +109,7 @@ def test_full_product_closure_loop(env):
 
 def test_activation_idempotent_no_double_grant(env):
     """Replaying the same activation does not duplicate entitlements or credits."""
-    code = env.commerce.admin_create_activation_code(plan="pro", months=3)
+    code = env.commerce.admin_create_activation_code(plan="pro_bundle", months=3)
     first = env.commerce.activate_code("u1", code.plaintext, "k-1")
     second = env.commerce.activate_code("u1", code.plaintext, "k-1")
     assert second.order_id == first.order_id
@@ -157,7 +157,7 @@ def test_legacy_balance_migration_then_activation_stacks(env):
     assert env.ledger.balance("u1").available == 75  # permanent migrated lot
 
     # Now activate advanced on top.
-    code = env.commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = env.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     env.commerce.activate_code("u1", code.plaintext, "k-1")
     assert env.ledger.balance("u1").available == 375  # 75 legacy + 300 monthly
 
@@ -169,3 +169,4 @@ def test_free_plan_uses_personal_rate_limit_and_data_credits(env):
     )
     assert prepared.rate_limit == 30
     env.gateway.complete(prepared, JSONResponse({"status": "healthy"}))
+

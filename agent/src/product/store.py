@@ -136,7 +136,7 @@ class ProductStore:
             self._seed_catalog(conn)
             self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
-            self._remove_enterprise_product(conn)
+            self._remove_legacy_products(conn)
             self._stamp_version(conn)
             conn.commit()
 
@@ -581,10 +581,12 @@ class ProductStore:
         conn.execute("DROP TABLE IF EXISTS usage_daily")
 
     @staticmethod
-    def _remove_enterprise_product(conn: sqlite3.Connection) -> None:
-        conn.execute("DELETE FROM activation_codes WHERE plan_code = 'enterprise'")
-        conn.execute("DELETE FROM entitlement_grants WHERE plan_code = 'enterprise'")
-        conn.execute("DELETE FROM plans WHERE code = 'enterprise'")
+    def _remove_legacy_products(conn: sqlite3.Connection) -> None:
+        legacy = ("advanced", "pro", "enterprise")
+        placeholders = ",".join("?" for _ in legacy)
+        conn.execute(f"DELETE FROM activation_codes WHERE plan_code IN ({placeholders})", legacy)
+        conn.execute(f"DELETE FROM entitlement_grants WHERE plan_code IN ({placeholders})", legacy)
+        conn.execute(f"DELETE FROM plans WHERE code IN ({placeholders})", legacy)
 
     @staticmethod
     def _migrate_v2_datahub_entitlements(conn: sqlite3.Connection) -> None:

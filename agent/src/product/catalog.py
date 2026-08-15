@@ -60,19 +60,19 @@ FREE: PlanSeed = {
     "sort_order": 1,
 }
 
-# Advanced: 268 CNY/quarter, market data, 300 monthly research credits.
-ADVANCED: PlanSeed = {
-    "code": "advanced",
-    "name_zh": "进阶版",
+# Desktop Pro: the professional harness, with a basic Data Hub allowance.
+DESKTOP_PRO: PlanSeed = {
+    "code": "desktop_pro",
+    "name_zh": "Desktop Pro",
     "price_cny_fen": 26800,
     "billing_period": "quarter",
     "monthly_credits": 300,
     "welcome_credits": 0,
-    "description": "普通个人投资者",
+    "description": "完整金融研究工作台，附赠基础数据额度",
     "entitlements": {
         "datahub.enabled": True,
-        "datahub.dataset_groups": ["basic.v1", "market.v1"],
-        "datahub.monthly_credits": 30_000,
+        "datahub.dataset_groups": ["basic.v1"],
+        "datahub.monthly_credits": 10_000,
         "datahub.rate_limit_per_minute": 120,
         "datahub.concurrent_limit": 3,
         "datahub.max_rows_per_request": 10_000,
@@ -89,10 +89,37 @@ ADVANCED: PlanSeed = {
     "sort_order": 2,
 }
 
-# Pro: 518 CNY/quarter, complete datasets, 1200 monthly research credits.
-PRO: PlanSeed = {
-    "code": "pro",
-    "name_zh": "专业版",
+# Data Developer: an independent API product that does not unlock Desktop.
+DATA_DEVELOPER: PlanSeed = {
+    "code": "data_developer",
+    "name_zh": "Data Developer",
+    "price_cny_fen": 19800,
+    "billing_period": "quarter",
+    "monthly_credits": 0,
+    "welcome_credits": 0,
+    "description": "面向个人量化开发者的标准数据接口与额度",
+    "entitlements": {
+        "datahub.enabled": True,
+        "datahub.dataset_groups": ["basic.v1", "market.v1", "finance.v1"],
+        "datahub.monthly_credits": 100_000,
+        "datahub.rate_limit_per_minute": 300,
+        "datahub.concurrent_limit": 5,
+        "datahub.max_rows_per_request": 50_000,
+        "datahub.history_depth_days": 3_650,
+        "datahub.commercial_use": False,
+        "desktop.connected_mode": False,
+        "desktop.device_limit": 0,
+        "cloud_ai.enabled": False,
+        "cloud_ai.concurrent_jobs": 0,
+        "reports.cloud_history": False,
+    },
+    "sort_order": 3,
+}
+
+# Pro Bundle: full Desktop and the broadest personal Data Hub access.
+PRO_BUNDLE: PlanSeed = {
+    "code": "pro_bundle",
+    "name_zh": "Pro Bundle",
     "price_cny_fen": 51800,
     "billing_period": "quarter",
     "monthly_credits": 1200,
@@ -115,10 +142,10 @@ PRO: PlanSeed = {
         "cloud_ai.credit_per_fund_arb": 20,
         "reports.cloud_history": True,
     },
-    "sort_order": 3,
+    "sort_order": 4,
 }
 
-DEFAULT_CATALOG: list[PlanSeed] = [FREE, ADVANCED, PRO]
+DEFAULT_CATALOG: list[PlanSeed] = [FREE, DESKTOP_PRO, DATA_DEVELOPER, PRO_BUNDLE]
 
 
 def to_seed_row(seed: PlanSeed) -> tuple:

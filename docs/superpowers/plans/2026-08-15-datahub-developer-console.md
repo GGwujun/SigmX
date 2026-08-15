@@ -39,9 +39,9 @@
 
 **Files:** Modify `frontend/src/lib/productApi.ts`, `frontend/src/pages/account/DataHubConsolePage.tsx`; test `frontend/src/pages/account/__tests__/DataHubConsolePage.test.tsx`.
 
-- [ ] Write failing UI tests for logs/errors, daily budget, threshold alert, enabled endpoint selection, in-memory Credential, response status/cost headers, and no persistence.
-- [ ] Implement the console tabs and allowlisted GET debugger.
-- [ ] Run focused and full frontend tests; commit `feat(web): complete data hub developer console`.
+- [x] Write failing UI tests for logs/errors, daily budget, threshold alert, enabled endpoint selection, in-memory Credential, response status/cost headers, and no persistence.
+- [x] Implement the console tabs and allowlisted GET debugger.
+- [x] Run focused tests and TypeScript checks; commit `feat(web): complete data hub developer console`.
 
 ### Task 4: Verification and documentation
 

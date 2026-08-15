@@ -26,15 +26,18 @@ def test_catalog_is_seeded_and_server_driven(tmp_path: Path) -> None:
 
     # Prices come from the server catalog, not from frontend hard-coding.
     assert plans["free"]["price_cny_fen"] == 0
-    assert plans["advanced"]["price_cny_fen"] == 26800
-    assert plans["pro"]["price_cny_fen"] == 51800
+    assert plans["desktop_pro"]["price_cny_fen"] == 26800
+    assert plans["data_developer"]["price_cny_fen"] == 19800
+    assert plans["pro_bundle"]["price_cny_fen"] == 51800
 
     assert plans["free"]["entitlements"]["datahub.monthly_credits"] == 1_000
-    assert plans["advanced"]["entitlements"]["datahub.dataset_groups"] == ["basic.v1", "market.v1"]
-    assert plans["pro"]["entitlements"]["datahub.monthly_credits"] == 150_000
+    assert plans["desktop_pro"]["entitlements"]["datahub.dataset_groups"] == ["basic.v1"]
+    assert plans["data_developer"]["entitlements"]["desktop.connected_mode"] is False
+    assert plans["data_developer"]["entitlements"]["datahub.monthly_credits"] == 100_000
+    assert plans["pro_bundle"]["entitlements"]["datahub.monthly_credits"] == 150_000
     for plan in plans.values():
         assert OLD_DATAHUB_KEYS.isdisjoint(plan["entitlements"])
-    assert plans["pro"]["entitlements"]["desktop.device_limit"] == 3
+    assert plans["pro_bundle"]["entitlements"]["desktop.device_limit"] == 3
 
 
 def test_enterprise_plan_is_removed_from_personal_catalog(tmp_path: Path) -> None:
@@ -77,17 +80,17 @@ def test_schema_v2_replaces_old_datahub_keys_only(tmp_path: Path) -> None:
     conn = first._get_conn()
     conn.execute("DELETE FROM product_migrations WHERE version = 2")
     conn.execute(
-        "UPDATE plans SET entitlements_json = ? WHERE code = 'advanced'",
+        "UPDATE plans SET entitlements_json = ? WHERE code = 'desktop_pro'",
         ('{"datahub.basic":true,"datahub.daily_quota":999,"desktop.device_limit":7}',),
     )
     conn.commit()
     conn.close()
     first._conn = None
 
-    migrated = ProductStore(db_path).get_plan("advanced")
+    migrated = ProductStore(db_path).get_plan("desktop_pro")
     assert migrated is not None
     assert OLD_DATAHUB_KEYS.isdisjoint(migrated["entitlements"])
-    assert migrated["entitlements"]["datahub.monthly_credits"] == 30_000
+    assert migrated["entitlements"]["datahub.monthly_credits"] == 10_000
     assert migrated["entitlements"]["desktop.device_limit"] == 7
 
 
@@ -102,17 +105,17 @@ def test_migration_is_idempotent_when_reopened(tmp_path: Path) -> None:
 
     first = ProductStore(db_path)
     first_codes = {p["code"] for p in first.list_plans()}
-    assert first_codes == {"free", "advanced", "pro"}
+    assert first_codes == {"free", "desktop_pro", "data_developer", "pro_bundle"}
 
     second = ProductStore(db_path)  # re-open against the populated db
     second_codes = {p["code"] for p in second.list_plans()}
     assert second_codes == first_codes
 
     # The advanced plan was seeded exactly once — no duplicated rows.
-    assert len(second.list_plans()) == 3
-    advanced = second.get_plan("advanced")
-    assert advanced is not None
-    assert advanced["price_cny_fen"] == 26800
+    assert len(second.list_plans()) == 4
+    desktop = second.get_plan("desktop_pro")
+    assert desktop is not None
+    assert desktop["price_cny_fen"] == 26800
 
 
 def test_transaction_commits_atomically(tmp_path: Path) -> None:
@@ -125,3 +128,4 @@ def test_transaction_commits_atomically(tmp_path: Path) -> None:
     rows = store._get_conn().execute("SELECT v FROM scratch WHERE k = ?", ("a",)).fetchone()
     assert rows is not None
     assert rows[0] == 1
+

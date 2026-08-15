@@ -14,8 +14,9 @@ class PlanCode(StrEnum):
     """Canonical plan codes — the only plan identifier business code may use."""
 
     FREE = "free"
-    ADVANCED = "advanced"
-    PRO = "pro"
+    DESKTOP_PRO = "desktop_pro"
+    DATA_DEVELOPER = "data_developer"
+    PRO_BUNDLE = "pro_bundle"
 
 
 class OrderStatus(StrEnum):

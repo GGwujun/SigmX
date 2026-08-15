@@ -30,8 +30,8 @@ describe("OperationsPage", () => {
   it("generates codes and shows plaintext exactly once", async () => {
     const fetchMock = mockFetch({
       codes: [
-        { plaintext: "SX-AAAA-111111", code_hash: "h1", plan_code: "advanced", months: 3 },
-        { plaintext: "SX-BBBB-222222", code_hash: "h2", plan_code: "advanced", months: 3 },
+        { plaintext: "SX-AAAA-111111", code_hash: "h1", plan_code: "desktop_pro", months: 3 },
+        { plaintext: "SX-BBBB-222222", code_hash: "h2", plan_code: "desktop_pro", months: 3 },
       ],
     });
     renderPage();

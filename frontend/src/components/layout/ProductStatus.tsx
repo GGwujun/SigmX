@@ -12,8 +12,9 @@ import { cn } from "@/lib/utils";
 
 const PLAN_NAME_ZH: Record<string, string> = {
   free: "免费版",
-  advanced: "进阶版",
-  pro: "专业版",
+  desktop_pro: "Desktop Pro",
+  data_developer: "Data Developer",
+  pro_bundle: "Pro Bundle",
 };
 
 function shortDate(value?: string | null): string {

@@ -33,9 +33,9 @@ def activate(commerce: CommerceService, user_id: str, plan: str) -> None:
     commerce.activate_code(user_id, code.plaintext, f"activate-{user_id}")
 
 
-def test_advanced_can_use_market_but_not_pro_dataset(env) -> None:
+def test_data_developer_can_use_market_but_not_pro_dataset(env) -> None:
     _, commerce, credentials, gateway = env
-    activate(commerce, "u1", "advanced")
+    activate(commerce, "u1", "data_developer")
     key = credentials.create("u1", "all", ["group:market.v1", "group:pro.v1"], [], None)
     prepared = gateway.prepare(
         Request(key.plaintext, {"limit": "100"}), "GET", "/api/v1/stocks/daily"
@@ -47,7 +47,7 @@ def test_advanced_can_use_market_but_not_pro_dataset(env) -> None:
 
 def test_pro_plan_still_requires_credential_scope(env) -> None:
     _, commerce, credentials, gateway = env
-    activate(commerce, "u1", "pro")
+    activate(commerce, "u1", "pro_bundle")
     key = credentials.create("u1", "market-only", ["group:market.v1"], [], None)
     with pytest.raises(ScopeDenied):
         gateway.prepare(Request(key.plaintext), "GET", "/api/v1/quotes/realtime")
@@ -55,7 +55,8 @@ def test_pro_plan_still_requires_credential_scope(env) -> None:
 
 def test_group_scope_allows_endpoint_in_that_group(env) -> None:
     _, commerce, credentials, gateway = env
-    activate(commerce, "u1", "pro")
-    key = credentials.create("u1", "pro", ["group:pro.v1"], [], None)
+    activate(commerce, "u1", "pro_bundle")
+    key = credentials.create("u1", "pro_bundle", ["group:pro.v1"], [], None)
     prepared = gateway.prepare(Request(key.plaintext), "GET", "/api/v1/quotes/realtime")
     gateway.fail(prepared, "test_cleanup")
+

@@ -31,7 +31,7 @@ function renderPage() {
 describe("MePage", () => {
   beforeEach(() => {
     productApi.getMyEntitlements.mockReset().mockResolvedValue({
-      plan_code: "pro",
+      plan_code: "pro_bundle",
       valid_from: "2026-08-01",
       valid_until: "2026-11-01",
       entitlements: {
@@ -88,7 +88,7 @@ describe("MePage", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "我的 SigmX" })).toBeInTheDocument();
-    expect(screen.getByText("pro")).toBeInTheDocument();
+    expect(screen.getByText("pro_bundle")).toBeInTheDocument();
     expect(screen.getByText("900")).toBeInTheDocument();
     expect(screen.getByText("149,880")).toBeInTheDocument();
     expect(screen.getByText(/120 次调用，已扣 120/)).toBeInTheDocument();
@@ -103,7 +103,7 @@ describe("MePage", () => {
     renderPage();
 
     expect(await screen.findByText("部分产品状态暂时不可用")).toBeInTheDocument();
-    expect(screen.getByText("pro")).toBeInTheDocument();
+    expect(screen.getByText("pro_bundle")).toBeInTheDocument();
     expect(screen.getByText("900")).toBeInTheDocument();
     expect(screen.getByText("149,880")).toBeInTheDocument();
   });

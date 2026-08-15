@@ -33,7 +33,7 @@ describe("OrdersPage", () => {
       items: [
         {
           id: "o1",
-          plan_code: "advanced",
+          plan_code: "desktop_pro",
           status: "paid",
           channel: "activation_code",
           months: 3,
@@ -43,7 +43,7 @@ describe("OrdersPage", () => {
       ],
     });
     renderPage();
-    expect(await screen.findByText("进阶版")).toBeInTheDocument();
+    expect(await screen.findByText("Desktop Pro")).toBeInTheDocument();
     expect(screen.getByText("已支付")).toBeInTheDocument();
     expect(screen.getByText("3 个月")).toBeInTheDocument();
   });

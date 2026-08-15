@@ -100,7 +100,7 @@ export function PricingPage() {
 
       <section className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
         {plans.map((plan) => {
-          const featured = plan.code === "pro";
+          const featured = plan.code === "pro_bundle";
           return (
             <div
               key={plan.code}

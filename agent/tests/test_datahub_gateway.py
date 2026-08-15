@@ -81,7 +81,7 @@ def test_fixed_endpoint_authorizes_and_settles_one_credit(env) -> None:
 def test_per_unit_endpoint_releases_unused_authorization(env) -> None:
     store, credentials, gateway = env
     commerce = CommerceService(store, CreditLedger(store))
-    code = commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = commerce.admin_create_activation_code(plan="data_developer", months=3)
     commerce.activate_code("u1", code.plaintext, "activation")
     created = credentials.create("u1", "daily", ["stocks.daily"], [], None)
     prepared = gateway.prepare(
@@ -94,7 +94,7 @@ def test_per_unit_endpoint_releases_unused_authorization(env) -> None:
         prepared, JSONResponse({"ok": True, "data": [{} for _ in range(1001)]})
     )
     assert response.headers["X-DataHub-Credits-Charged"] == "12"
-    assert DataCreditLedger(store).balance("u1").available == 30_000 - 12
+    assert DataCreditLedger(store).balance("u1").available == 100_000 - 12
 
 
 def test_failed_request_releases_authorization(env) -> None:
@@ -132,3 +132,4 @@ def test_usage_audit_failure_does_not_undo_settlement(env, monkeypatch) -> None:
     response = gateway.complete(prepared, JSONResponse({"ok": True, "data": []}))
     assert response.status_code == 200
     assert DataCreditLedger(store).balance("u1").available == 999
+

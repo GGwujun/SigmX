@@ -57,7 +57,7 @@ def test_welcome_grant_is_idempotent(commerce: CommerceService) -> None:
 
 def test_user_with_existing_plan_does_not_get_welcome_grant(commerce: CommerceService) -> None:
     """A user who activated a paid plan must not also receive the free welcome grant."""
-    code = commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     commerce.activate_code("u1", code.plaintext, "k-1")
     assert commerce.ledger.balance("u1").available == 300  # advanced monthly only
 
@@ -77,8 +77,9 @@ def test_welcome_grant_then_activation_stacks_credits(commerce: CommerceService)
     commerce.ensure_welcome_grant("u1")
     assert commerce.ledger.balance("u1").available == 50
 
-    code = commerce.admin_create_activation_code(plan="pro", months=3)
+    code = commerce.admin_create_activation_code(plan="pro_bundle", months=3)
     commerce.activate_code("u1", code.plaintext, "k-1")
 
     # 50 welcome (permanent) + 1200 pro monthly.
     assert commerce.ledger.balance("u1").available == 1250
+

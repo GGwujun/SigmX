@@ -18,7 +18,10 @@ def product(tmp_path: Path):
     return store, commerce, DataCreditLedger(store)
 
 
-@pytest.mark.parametrize(("plan", "expected"), [("advanced", 30_000), ("pro", 150_000)])
+@pytest.mark.parametrize(
+    ("plan", "expected"),
+    [("desktop_pro", 10_000), ("data_developer", 100_000), ("pro_bundle", 150_000)],
+)
 def test_activation_grants_monthly_data_credits_once(product, plan: str, expected: int) -> None:
     store, commerce, data_ledger = product
     code = commerce.admin_create_activation_code(plan=plan, months=3)
@@ -36,9 +39,9 @@ def test_activation_grants_monthly_data_credits_once(product, plan: str, expecte
 def test_same_plan_month_is_idempotent_but_next_month_gets_new_lot(product) -> None:
     _, commerce, data_ledger = product
     current = date(2026, 8, 15)
-    first = commerce.ensure_monthly_data_grant("u1", "advanced", current)
-    replay = commerce.ensure_monthly_data_grant("u1", "advanced", date(2026, 8, 31))
-    next_month = commerce.ensure_monthly_data_grant("u1", "advanced", date(2026, 9, 1))
+    first = commerce.ensure_monthly_data_grant("u1", "desktop_pro", current)
+    replay = commerce.ensure_monthly_data_grant("u1", "desktop_pro", date(2026, 8, 31))
+    next_month = commerce.ensure_monthly_data_grant("u1", "desktop_pro", date(2026, 9, 1))
     assert first is not None and replay is not None and next_month is not None
     assert replay.idempotent_replay is True
     assert next_month.idempotent_replay is False
@@ -55,3 +58,4 @@ def test_removed_enterprise_plan_cannot_enter_activation_flow(product) -> None:
     _, commerce, _ = product
     with pytest.raises(ValueError, match="cannot create activation code"):
         commerce.admin_create_activation_code(plan="enterprise", months=3)
+

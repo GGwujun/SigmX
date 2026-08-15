@@ -14,12 +14,13 @@ import { ApiError } from "@/lib/api";
 import { createActivationCodes, type CreatedCodeItem } from "@/lib/productApi";
 
 const PLAN_OPTIONS = [
-  { value: "advanced", label: "进阶版（268 元/季）" },
-  { value: "pro", label: "专业版（518 元/季）" },
+  { value: "desktop_pro", label: "Desktop Pro（268 元/季）" },
+  { value: "data_developer", label: "Data Developer（198 元/季）" },
+  { value: "pro_bundle", label: "Pro Bundle（518 元/季）" },
 ];
 
 export function OperationsPage() {
-  const [planCode, setPlanCode] = useState("advanced");
+  const [planCode, setPlanCode] = useState("desktop_pro");
   const [months, setMonths] = useState(3);
   const [count, setCount] = useState(1);
   const [creating, setCreating] = useState(false);

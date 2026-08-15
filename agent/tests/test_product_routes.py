@@ -46,11 +46,11 @@ def test_catalog_endpoint_serializes_personal_plans_only() -> None:
     """GET /api/catalog/plans returns only canonical personal plans."""
     result = asyncio.run(pr.list_plans())
     codes = {p.code for p in result.plans}
-    assert codes == {"free", "advanced", "pro"}
-    advanced = next(p for p in result.plans if p.code == "advanced")
-    assert advanced.price_cny_fen == 26800
-    assert advanced.entitlements["datahub.monthly_credits"] == 30_000
-    assert advanced.entitlements["datahub.dataset_groups"] == ["basic.v1", "market.v1"]
+    assert codes == {"free", "desktop_pro", "data_developer", "pro_bundle"}
+    developer = next(p for p in result.plans if p.code == "data_developer")
+    assert developer.price_cny_fen == 19800
+    assert developer.entitlements["datahub.monthly_credits"] == 100_000
+    assert developer.entitlements["desktop.connected_mode"] is False
 
 
 def test_my_entitlements_defaults_to_free_for_ungranted_user() -> None:
@@ -73,20 +73,20 @@ def test_activate_then_read_back_flow() -> None:
     from src.product.commerce import CommerceService
     from src.product.credits import CreditLedger
     commerce = CommerceService(pr._get_store(), CreditLedger(pr._get_store()))
-    created = commerce.admin_create_activation_code(plan="advanced", months=3)
+    created = commerce.admin_create_activation_code(plan="desktop_pro", months=3)
 
     # User activates via the route handler (no TestClient — direct call).
     resp = asyncio.run(pr.activate_order(
         body=pr.ActivateRequest(code=created.plaintext, idempotency_key="k-1"),
         user={"id": "u1"},
     ))
-    assert resp.plan_code == "advanced"
+    assert resp.plan_code == "desktop_pro"
     assert resp.credits_granted == 300
     assert resp.replayed is False
 
     # Entitlements now reflect advanced; credits read 300.
     snap = asyncio.run(pr.my_entitlements(user={"id": "u1"}))
-    assert snap.plan_code == "advanced"
+    assert snap.plan_code == "desktop_pro"
     bal = asyncio.run(pr.my_credits(user={"id": "u1"}))
     assert bal.available == 300
 
@@ -118,7 +118,7 @@ def test_my_credits_lots_lists_batches_after_activation() -> None:
     from src.product.credits import CreditLedger
 
     commerce = CommerceService(pr._get_store(), CreditLedger(pr._get_store()))
-    created = commerce.admin_create_activation_code(plan="pro", months=3)
+    created = commerce.admin_create_activation_code(plan="pro_bundle", months=3)
     asyncio.run(pr.activate_order(
         body=pr.ActivateRequest(code=created.plaintext, idempotency_key="k-lots"),
         user={"id": "u1"},
@@ -145,7 +145,7 @@ def test_my_credits_ledger_records_grant_and_consume() -> None:
     store = pr._get_store()
     ledger = CreditLedger(store)
     commerce = CommerceService(store, ledger)
-    code = commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     asyncio.run(pr.activate_order(
         body=pr.ActivateRequest(code=code.plaintext, idempotency_key="k-ledger"),
         user={"id": "u2"},
@@ -159,3 +159,4 @@ def test_my_credits_ledger_records_grant_and_consume() -> None:
     assert "grant" in operations       # the activation monthly grant
     assert "reserve" in operations     # the AlphaForge reservation
     assert "settle" in operations      # the settlement
+

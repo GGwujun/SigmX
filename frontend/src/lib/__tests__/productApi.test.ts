@@ -21,14 +21,14 @@ describe("formatPlanPrice", () => {
     expect(formatPlanPrice(plan({ code: "free", price_cny_fen: 0 }))).toBe("免费");
   });
 
-  it("advanced quarterly plan shows yuan per quarter", () => {
-    expect(formatPlanPrice(plan({ code: "advanced", price_cny_fen: 26800, billing_period: "quarter" }))).toBe(
+  it("desktop pro quarterly plan shows yuan per quarter", () => {
+    expect(formatPlanPrice(plan({ code: "desktop_pro", price_cny_fen: 26800, billing_period: "quarter" }))).toBe(
       "¥268/季",
     );
   });
 
-  it("pro plan with non-whole yuan keeps two decimals", () => {
-    expect(formatPlanPrice(plan({ code: "pro", price_cny_fen: 51850, billing_period: "quarter" }))).toBe(
+  it("bundle plan with non-whole yuan keeps two decimals", () => {
+    expect(formatPlanPrice(plan({ code: "pro_bundle", price_cny_fen: 51850, billing_period: "quarter" }))).toBe(
       "¥518.50/季",
     );
   });

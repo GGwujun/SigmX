@@ -103,6 +103,19 @@ def test_device_limit_blocks_extra_device(env: Env) -> None:
         env.devices.approve(user_id="u1", user_code=started.user_code)
 
 
+def test_data_developer_does_not_unlock_desktop(env: Env) -> None:
+    env.store._get_conn().execute(
+        "INSERT INTO entitlement_grants "
+        "(id, user_id, plan_code, order_id, valid_from, valid_until, source, created_at) "
+        "VALUES (?, ?, 'data_developer', NULL, ?, NULL, 'test', ?)",
+        ("grant-data", "u-data", env.clock.iso(), env.clock.iso()),
+    )
+    env.store._get_conn().commit()
+    started = env.devices.start(device_name="desktop-a", fingerprint_hash="fp-data")
+    with pytest.raises(DeviceLimitReached):
+        env.devices.approve(user_id="u-data", user_code=started.user_code)
+
+
 def test_revoked_device_refresh_fails(env: Env) -> None:
     """Plan Task 4 Step 2: after revoke, the refresh token is dead."""
     _grant_free(env, "u1")

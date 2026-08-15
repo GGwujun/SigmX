@@ -35,7 +35,7 @@ def product(tmp_path: Path) -> ProductEnv:
 
 def test_activation_is_atomic_and_idempotent(product: ProductEnv) -> None:
     """Plan Task 3 Step 2 contract: duplicate activation is a replay, not double-grant."""
-    code = product.commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
 
     first = product.commerce.activate_code("u1", code.plaintext, "request-1")
     second = product.commerce.activate_code("u1", code.plaintext, "request-1")
@@ -50,19 +50,19 @@ def test_activation_is_atomic_and_idempotent(product: ProductEnv) -> None:
     assert product.ledger.balance("u1").available == 300
     # Entitlement reflects the activated plan.
     snap = product.commerce.current_entitlements("u1")
-    assert snap.plan_code == "advanced"
+    assert snap.plan_code == "desktop_pro"
 
 
 def test_activation_grants_current_month_credits_once(product: ProductEnv) -> None:
     """Monthly plan credits are granted once per activation (design §4.2, §5.1)."""
-    code = product.commerce.admin_create_activation_code(plan="pro", months=3)
+    code = product.commerce.admin_create_activation_code(plan="pro_bundle", months=3)
     product.commerce.activate_code("u1", code.plaintext, "k-1")
     assert product.ledger.balance("u1").available == 1200  # pro monthly
 
 
 def test_activation_extends_membership_by_months(product: ProductEnv) -> None:
     """An N-month code grants an entitlement window of ~N months (design §5.1)."""
-    code = product.commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     product.commerce.activate_code("u1", code.plaintext, "k-1")
     snap = product.commerce.current_entitlements("u1")
     assert snap.valid_until is not None
@@ -74,7 +74,7 @@ def test_activation_extends_membership_by_months(product: ProductEnv) -> None:
 
 def test_used_code_cannot_be_redeemed_by_another_user(product: ProductEnv) -> None:
     """A code is single-use globally (design §5.1)."""
-    code = product.commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     product.commerce.activate_code("u1", code.plaintext, "k-1")
 
     with pytest.raises(Exception):
@@ -87,7 +87,7 @@ def test_used_code_cannot_be_redeemed_by_another_user(product: ProductEnv) -> No
 def test_expired_code_is_rejected(product: ProductEnv) -> None:
     """An admin code past its expiry cannot be activated."""
     code = product.commerce.admin_create_activation_code(
-        plan="advanced", months=3, expires_at="2000-01-01T00:00:00+00:00"
+        plan="desktop_pro", months=3, expires_at="2000-01-01T00:00:00+00:00"
     )
     with pytest.raises(Exception):
         product.commerce.activate_code("u1", code.plaintext, "k-1")
@@ -101,7 +101,7 @@ def test_unknown_code_is_rejected(product: ProductEnv) -> None:
 
 def test_activation_writes_audit_entry(product: ProductEnv) -> None:
     """Every activation is recorded in the immutable audit log (design §9)."""
-    code = product.commerce.admin_create_activation_code(plan="advanced", months=3)
+    code = product.commerce.admin_create_activation_code(plan="desktop_pro", months=3)
     product.commerce.activate_code("u1", code.plaintext, "k-1")
     rows = product.store._get_conn().execute(
         "SELECT action, target FROM audit_log WHERE target = ?", ("u1",)
@@ -128,10 +128,11 @@ def test_activation_code_provider_implements_protocol() -> None:
 
 def test_plaintext_code_only_returned_once(product: ProductEnv) -> None:
     """Design §9: codes are hashed at rest; plaintext shown only at creation."""
-    created = product.commerce.admin_create_activation_code(plan="pro", months=3)
+    created = product.commerce.admin_create_activation_code(plan="pro_bundle", months=3)
     # The store only ever persists the hash.
     row = product.store._get_conn().execute(
         "SELECT code_hash FROM activation_codes WHERE code_hash = ?", (created.code_hash,)
     ).fetchone()
     assert row is not None
     assert created.plaintext  # plaintext surfaced to the operator at creation
+
