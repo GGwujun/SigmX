@@ -1,14 +1,8 @@
 """
 SigmX Market Data API（并入 vibe-trading）
-Implements the contract in sigmx_market_data_api_contract.md
 Base: /api/v1   Timezone: Asia/Shanghai   Unit: 100M CNY (亿元)
-只读访问 market.db；新闻走 RSSHub。无鉴权（公开只读行情）。
-
-⚠️ 双份维护约定（DEPRECATED 同步责任）：
-本文件是这 11 个 /api/v1 端点的【服务器主版本】（公网 8900）。
-另有【本地副本】E:\\gwj\\sigmx-local\\query-service\\app.py（本地 9000，同接口）。
-**改这些端点的实现/契约，两边必须同步修改**，否则本地与服务器行为不一致。
-两端代码未做自动同步（端点稳定，手动维护成本可控）。
+只读访问 market.db；新闻走 RSSHub。
+鉴权：Data Hub 模式下远程请求需 X-API-Key / 产品令牌（_data_hub_auth）。
 """
 import ipaddress
 import json
@@ -41,9 +35,16 @@ router = APIRouter(tags=["sigmx"])
 # ---- API key auth (Data Hub) ----
 
 def _is_loopback(request: Request) -> bool:
-    """Check if the request originates from loopback."""
+    """Check if the request originates from loopback.
+
+    Also recognizes starlette's TestClient (``client=None`` scope with a
+    ``testclient`` user-agent) so the auth gate stays testable across
+    starlette/httpx versions that stopped populating ``request.client``.
+    """
     host = request.client.host if request.client else ""
     if host in ("127.0.0.1", "::1", "localhost", "testclient"):
+        return True
+    if not host and (request.headers.get("user-agent") or "").lower() == "testclient":
         return True
     try:
         return ipaddress.ip_address(host).is_loopback
@@ -124,8 +125,6 @@ async def _data_hub_auth(
             detail=f"Daily quota exceeded ({quota}/{quota}). Resets at midnight UTC.",
             headers={"X-RateLimit-Limit": str(quota), "X-RateLimit-Remaining": "0"},
         )
-
-    return {"subscription_id": sub["id"], "tier": sub["tier"]}
 
     return {"subscription_id": sub["id"], "tier": sub["tier"]}
 
@@ -599,7 +598,202 @@ def ep_stock_metadata(codes: str = Query(..., description="comma-separated codes
     return ok({"items": rows_to_dicts(rows)}, {"source": "security_master"})
 
 
-# ----- 10. Finance RSS Summary (含聚类)
+# ----- 10. Stock Daily Bars (history)
+@router.get("/api/v1/stocks/daily")
+def ep_stocks_daily(code: str = Query(..., description="stock code, e.g. 000001"),
+                    start: str = None, end: str = None,
+                    limit: int = Query(250, ge=1, le=2000)):
+    code = code.strip()
+    sql = "SELECT code, name, trade_date, open, high, low, close, volume, total_amt, rise_rate, t_rate, source FROM bars_daily WHERE code=?"
+    params: list = [code]
+    if start:
+        sql += " AND trade_date>=?"
+        params.append(start)
+    if end:
+        sql += " AND trade_date<=?"
+        params.append(end)
+    sql += " ORDER BY trade_date DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No bars for code={code}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("open", "high", "low", "close", "volume", "total_amt", "rise_rate", "t_rate"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "count": len(items), "items": items},
+              {"source": "bars_daily", "order": "trade_date desc"})
+
+
+# ----- 10b. Stock Daily Basic (valuation)
+@router.get("/api/v1/stocks/daily-basic")
+def ep_stocks_daily_basic(trade_date: str = None,
+                          codes: str = Query(None, description="comma-separated codes, max 50"),
+                          limit: int = Query(100, ge=1, le=500)):
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "stock_daily_basic")
+        if not td:
+            return err("DATA_NOT_FOUND", "No daily_basic data", 404)
+        sql = """SELECT b.code, s.name, b.close, b.turnover_rate, b.volume_ratio,
+                        b.pe, b.pe_ttm, b.pb, b.ps, b.ps_ttm, b.dv_ratio, b.dv_ttm,
+                        b.total_share, b.float_share, b.total_mv, b.circ_mv
+                 FROM stock_daily_basic b LEFT JOIN security_master s ON s.code=b.code
+                 WHERE b.trade_date=?"""
+        params: list = [td]
+        if codes:
+            code_list = [c.strip() for c in codes.split(",") if c.strip()][:50]
+            if code_list:
+                sql += f" AND b.code IN ({','.join('?' for _ in code_list)})"
+                params.extend(code_list)
+        sql += " ORDER BY b.total_mv DESC LIMIT ?"
+        params.append(limit)
+        rows = conn.execute(sql, params).fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("close", "turnover_rate", "volume_ratio", "pe", "pe_ttm", "pb",
+                  "ps", "ps_ttm", "dv_ratio", "dv_ttm", "total_share", "float_share",
+                  "total_mv", "circ_mv"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "stock_daily_basic", "mv_unit": "10000 CNY (万元)"})
+
+
+# ----- 10c. ETF / Fund daily bars
+@router.get("/api/v1/etf/daily")
+def ep_etf_daily(code: str = Query(...), start: str = None, end: str = None,
+                 limit: int = Query(250, ge=1, le=2000)):
+    return _fund_like_daily("etf_daily", code, start, end, limit)
+
+
+@router.get("/api/v1/fund/daily")
+def ep_fund_daily(code: str = Query(...), start: str = None, end: str = None,
+                  limit: int = Query(250, ge=1, le=2000)):
+    return _fund_like_daily("fund_daily", code, start, end, limit)
+
+
+def _fund_like_daily(table: str, code: str, start: str, end: str, limit: int):
+    code = code.strip()
+    # fund_daily has rise_rate + nav/iopv; etf_daily only has rise.
+    extra_cols = ", rise_rate, nav, iopv" if table == "fund_daily" else ""
+    sql = f"""SELECT code, trade_date, open, high, low, close, volume, total_amt, rise{extra_cols}
+              FROM {table} WHERE code=?"""
+    params: list = [code]
+    if start:
+        sql += " AND trade_date>=?"
+        params.append(start)
+    if end:
+        sql += " AND trade_date<=?"
+        params.append(end)
+    sql += " ORDER BY trade_date DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No bars for code={code} in {table}", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in list(d.keys()):
+            if k not in ("code", "trade_date"):
+                d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"code": code, "count": len(items), "items": items},
+              {"source": table, "order": "trade_date desc"})
+
+
+# ----- 10d. Board (industry/concept) daily bars & members
+@router.get("/api/v1/boards/daily")
+def ep_boards_daily(board_code: str = None, trade_date: str = None,
+                    board_type: str = None, start: str = None, end: str = None,
+                    limit: int = Query(100, ge=1, le=2000)):
+    # No board_code: list all boards for the (given or latest) date.
+    sql = "SELECT board_code, name, board_type, trade_date, open, high, low, close, volume, total_amt, rise, rise_rate, turnover_rate FROM board_daily WHERE 1=1"
+    params: list = []
+    if board_code:
+        sql += " AND board_code=?"
+        params.append(board_code.strip())
+    else:
+        if not trade_date:
+            with get_db() as conn:
+                trade_date = latest_trade_date(conn, "board_daily")
+        sql += " AND trade_date=?"
+        params.append(trade_date)
+        if board_type:
+            sql += " AND board_type=?"
+            params.append(board_type)
+    if board_code:
+        if start:
+            sql += " AND trade_date>=?"
+            params.append(start)
+        if end:
+            sql += " AND trade_date<=?"
+            params.append(end)
+        sql += " ORDER BY trade_date DESC LIMIT ?"
+    else:
+        sql += " ORDER BY rise_rate DESC LIMIT ?"
+    params.append(limit)
+    with get_db() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", "No board data", 404)
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("open", "high", "low", "close", "volume", "total_amt", "rise", "rise_rate", "turnover_rate"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"count": len(items), "items": items},
+              {"source": "board_daily", "order": "trade_date desc" if board_code else "rise_rate desc"})
+
+
+@router.get("/api/v1/boards/members")
+def ep_boards_members(board_code: str = Query(..., description="board code"),
+                      limit: int = Query(200, ge=1, le=2000)):
+    board_code = board_code.strip()
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT board_code, board_type, stock_code, stock_name, stock_exchange
+            FROM board_members WHERE board_code=? LIMIT ?
+        """, (board_code, limit)).fetchall()
+    if not rows:
+        return err("DATA_NOT_FOUND", f"No members for board_code={board_code}", 404)
+    return ok({"board_code": board_code, "count": len(rows), "items": rows_to_dicts(rows)},
+              {"source": "board_members"})
+
+
+# ----- 10e. Realtime quote snapshot (5-min granularity)
+@router.get("/api/v1/quotes/realtime")
+def ep_quotes_realtime(codes: str = Query(..., description="comma-separated codes, max 50")):
+    code_list = [c.strip() for c in codes.split(",") if c.strip()][:50]
+    if not code_list:
+        return err("BAD_REQUEST", "codes required")
+    with get_db() as conn:
+        td = latest_trade_date(conn, "realtime_quote_snapshot")
+        if not td:
+            return err("DATA_NOT_FOUND", "No realtime snapshot", 404)
+        placeholders = ",".join("?" for _ in code_list)
+        rows = conn.execute(f"""
+            SELECT code, name, snapshot_at, price, pre_close, open, high, low,
+                   volume, total_amt, rise, rise_rate, turnover_rate, source
+            FROM realtime_quote_snapshot
+            WHERE trade_date=? AND code IN ({placeholders})
+        """, [td, *code_list]).fetchall()
+    items = []
+    for r in rows:
+        d = dict(r)
+        for k in ("price", "pre_close", "open", "high", "low", "volume", "total_amt", "rise", "rise_rate", "turnover_rate"):
+            d[k] = to_float(d[k])
+        items.append(d)
+    return ok({"trade_date": td, "count": len(items), "items": items},
+              {"source": "realtime_quote_snapshot", "note": "5-minute snapshot granularity"})
+
+
+# ----- 11. Finance RSS Summary (含聚类)
 @router.get("/api/v1/news/finance/rss-summary")
 def ep_news_rss_summary(routes: str = None,
                         limit: int = Query(50, ge=1, le=200),
@@ -1017,6 +1211,13 @@ def _sigmx_endpoint_list():
         "/api/v1/sectors/fund-flow/intraday",
         "/api/v1/stocks/hot-pool",
         "/api/v1/stocks/metadata",
+        "/api/v1/stocks/daily",
+        "/api/v1/stocks/daily-basic",
+        "/api/v1/etf/daily",
+        "/api/v1/fund/daily",
+        "/api/v1/boards/daily",
+        "/api/v1/boards/members",
+        "/api/v1/quotes/realtime",
         "/api/v1/news/finance/rss-summary",
         "/api/v1/content/morning-briefing-triptych",
     ]

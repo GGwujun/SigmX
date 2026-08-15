@@ -55,6 +55,7 @@ docs/*
 !wiki/docs/
 !wiki/docs/**
 !docs/data-source-plan.md
+!docs/datahub-api.md
 docs/screenshots/agent-run.png
 docs/screenshots/boot.png
 data/minutes/
