@@ -31,9 +31,9 @@
 
 **Files:** Modify `agent/src/api/product_routes.py`; test `agent/tests/test_datahub_console_routes.py`.
 
-- [ ] Write failing route tests for owner-filtered paginated logs, error-only filter, budget CRUD, and alert serialization.
-- [ ] Add `/api/datahub/logs`, `/api/datahub/credentials/{id}/budget`, and `/api/datahub/budget-alerts`.
-- [ ] Run route tests; commit `feat(api): expose data hub logs and budgets`.
+- [x] Write failing route tests for owner-filtered paginated logs, error-only filter, budget CRUD, and alert serialization.
+- [x] Add `/api/datahub/logs`, `/api/datahub/credentials/{id}/budget`, and `/api/datahub/budget-alerts`.
+- [x] Run route tests; commit `feat(api): expose data hub logs and budgets`.
 
 ### Task 3: Console UI and online debugger
 

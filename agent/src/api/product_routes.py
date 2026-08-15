@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_admin, require_user
@@ -32,6 +32,7 @@ from src.product.cloud_research import (
 from src.product.credits import CreditLedger
 from src.product.data_credits import DataCreditLedger
 from src.product.datahub_catalog import DataHubEndpointCatalog
+from src.product.datahub_budgets import DataHubBudgetService
 from src.product.datahub_credentials import (
     CredentialLimitReached,
     CredentialNotFound,
@@ -62,6 +63,7 @@ _endpoint_catalog: DataHubEndpointCatalog | None = None
 _credential_service: DataHubCredentialService | None = None
 _cloud_research: CloudResearchService | None = None
 _research_handoffs: ResearchHandoffService | None = None
+_budget_service: DataHubBudgetService | None = None
 
 
 def _get_store() -> ProductStore:
@@ -125,6 +127,13 @@ def _get_research_handoffs() -> ResearchHandoffService:
     if _research_handoffs is None:
         _research_handoffs = ResearchHandoffService(_get_store())
     return _research_handoffs
+
+
+def _get_budget_service() -> DataHubBudgetService:
+    global _budget_service
+    if _budget_service is None:
+        _budget_service = DataHubBudgetService(_get_store())
+    return _budget_service
 
 
 # ---------------------------------------------------------------------------
@@ -388,6 +397,53 @@ class DataHubUsageResponse(BaseModel):
     successful_requests: int
     credits_charged: int
     by_endpoint: list[DataHubUsageByEndpointItem]
+
+
+class DataHubRequestLogItem(BaseModel):
+    request_id: str
+    credential_id: str
+    credential_name: str
+    key_prefix: str
+    endpoint_code: str
+    status_code: int
+    requested_units: int
+    actual_units: int
+    credits_authorized: int
+    credits_charged: int
+    duration_ms: int
+    error_code: str | None
+    created_at: str
+
+
+class DataHubRequestLogsResponse(BaseModel):
+    items: list[DataHubRequestLogItem]
+    next_cursor: str | None
+
+
+class PutDataHubBudgetRequest(BaseModel):
+    daily_limit: int | None = Field(default=None, ge=1)
+
+
+class DataHubBudgetResponse(BaseModel):
+    credential_id: str
+    daily_limit: int
+    spent_today: int
+    remaining_today: int
+    utc_date: str
+
+
+class DataHubBudgetAlertItem(BaseModel):
+    credential_id: str
+    credential_name: str
+    utc_date: str
+    threshold_percent: int
+    spent: int
+    daily_limit: int
+    created_at: str
+
+
+class DataHubBudgetAlertsResponse(BaseModel):
+    items: list[DataHubBudgetAlertItem]
 
 
 class SaveCloudQueryRequest(BaseModel):
@@ -724,6 +780,76 @@ async def datahub_usage(user: dict = Depends(require_user)) -> DataHubUsageRespo
             for row in groups
         ],
     )
+
+
+@_router.get("/api/datahub/logs", response_model=DataHubRequestLogsResponse)
+async def datahub_logs(
+    limit: int = Query(50, ge=1, le=200),
+    before: str | None = Query(None),
+    errors_only: bool = Query(False),
+    user: dict = Depends(require_user),
+) -> DataHubRequestLogsResponse:
+    clauses = ["u.user_id=?"]
+    params: list[Any] = [user["id"]]
+    if errors_only:
+        clauses.append("(u.error_code IS NOT NULL OR u.status_code < 200 OR u.status_code >= 300)")
+    if before:
+        try:
+            created_at, request_id = before.rsplit("~", 1)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid log cursor") from exc
+        clauses.append("(u.created_at < ? OR (u.created_at = ? AND u.request_id < ?))")
+        params.extend([created_at, created_at, request_id])
+    params.append(limit)
+    rows = _get_store()._get_conn().execute(
+        "SELECT u.*, c.name credential_name, c.key_prefix FROM datahub_request_usage u "
+        "JOIN datahub_credentials c ON c.id=u.credential_id WHERE " + " AND ".join(clauses) +
+        " ORDER BY u.created_at DESC, u.request_id DESC LIMIT ?",
+        tuple(params),
+    ).fetchall()
+    items = [DataHubRequestLogItem(**dict(row)) for row in rows]
+    cursor = f"{rows[-1]['created_at']}~{rows[-1]['request_id']}" if len(rows) == limit else None
+    return DataHubRequestLogsResponse(items=items, next_cursor=cursor)
+
+
+@_router.get(
+    "/api/datahub/credentials/{credential_id}/budget",
+    response_model=DataHubBudgetResponse,
+)
+async def get_datahub_budget(
+    credential_id: str, user: dict = Depends(require_user)
+) -> DataHubBudgetResponse:
+    budget = _get_budget_service().get(user["id"], credential_id)
+    if budget is None:
+        raise HTTPException(status_code=404, detail="credential budget not found")
+    return DataHubBudgetResponse(**vars(budget))
+
+
+@_router.put(
+    "/api/datahub/credentials/{credential_id}/budget",
+    response_model=DataHubBudgetResponse | None,
+)
+async def put_datahub_budget(
+    credential_id: str,
+    body: PutDataHubBudgetRequest,
+    user: dict = Depends(require_user),
+) -> DataHubBudgetResponse | None:
+    try:
+        budget = _get_budget_service().set(user["id"], credential_id, body.daily_limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return DataHubBudgetResponse(**vars(budget)) if budget else None
+
+
+@_router.get("/api/datahub/budget-alerts", response_model=DataHubBudgetAlertsResponse)
+async def datahub_budget_alerts(
+    limit: int = Query(100, ge=1, le=500),
+    user: dict = Depends(require_user),
+) -> DataHubBudgetAlertsResponse:
+    return DataHubBudgetAlertsResponse(items=[
+        DataHubBudgetAlertItem(**vars(item))
+        for item in _get_budget_service().list_events(user["id"], limit)
+    ])
 
 
 @_router.get("/api/catalog/releases/stable", response_model=StableRelease)
