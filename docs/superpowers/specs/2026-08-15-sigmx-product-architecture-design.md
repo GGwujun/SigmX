@@ -194,6 +194,8 @@ datahub.commercial_use
 
 响应返回实际积分成本、剩余积分和重置时间。用户可为 API Key 设置每日预算，并在 50%、80% 和 100% 阈值接收通知。
 
+个人 Data Credit 积分包已作为独立服务端商品实现，首始目录为 10,000、50,000 和 200,000 三档，价格、数量与有效期均由服务端返回。当前可用支付通道为预付激活码：运营端只展示一次明文，服务端仅存哈希；用户兑换时原子生成已支付订单、`purchase` 数据积分批次、365 天到期时间、数据账本和审计记录。重复请求按幂等键返回原订单，积分包码全局只能使用一次，且不会发放研究积分。该链路不伪造支付宝或微信支付成功；真实支付仍必须通过签名回调接入。
+
 ## 7. 统一云平台与数据归属
 
 共享领域对象包括 `User`、`Plan`、`EntitlementGrant`、`CreditLot`、`CreditTransaction`、`Order`、`Device`、`ApiCredential`、`UsageRecord`、`CloudWatchlist`、`SavedQuery` 和 `ReportSnapshot`。所有对象直接归属个人 `user_id`，不引入组织或成员层。

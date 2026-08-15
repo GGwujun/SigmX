@@ -12,7 +12,8 @@ import { toast } from "sonner";
 
 import { ApiError } from "@/lib/api";
 import {
-  createActivationCodes, formatPlanPrice, getPlans, type CreatedCodeItem, type PlanView,
+  createActivationCodes, createDataCreditCodes, formatPlanPrice, getDataCreditPacks, getPlans,
+  type CreatedCodeItem, type DataCreditPack, type PlanView,
 } from "@/lib/productApi";
 
 export function OperationsPage() {
@@ -22,12 +23,16 @@ export function OperationsPage() {
   const [count, setCount] = useState(1);
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<CreatedCodeItem[]>([]);
+  const [packs, setPacks] = useState<DataCreditPack[]>([]);
+  const [packCode, setPackCode] = useState("");
 
   useEffect(() => {
-    getPlans().then((catalog) => {
+    Promise.all([getPlans(), getDataCreditPacks()]).then(([catalog, packCatalog]) => {
       const paid = catalog.filter((plan) => plan.code !== "free");
       setPlans(paid);
       setPlanCode((current) => current || paid[0]?.code || "");
+      setPacks(packCatalog);
+      setPackCode((current) => current || packCatalog[0]?.code || "");
     }).catch(() => toast.error("加载套餐目录失败"));
   }, []);
 
@@ -44,6 +49,17 @@ export function OperationsPage() {
     } finally {
       setCreating(false);
     }
+  };
+
+  const createPackCodes = async () => {
+    if (!packCode || creating) return;
+    setCreating(true);
+    try {
+      const codes = await createDataCreditCodes(packCode, count);
+      setCreated((previous) => [...codes, ...previous]);
+      toast.success(`已生成 ${codes.length} 个积分包激活码（明文仅此一次展示）`);
+    } catch (error) { toast.error(error instanceof ApiError ? error.message : "生成失败"); }
+    finally { setCreating(false); }
   };
 
   const copy = async (text: string) => {
@@ -114,6 +130,14 @@ export function OperationsPage() {
         </form>
       </section>
 
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="text-sm font-semibold">生成 Data Credit 积分包码</h2>
+        <div className="mt-4 flex flex-wrap items-end gap-3">
+          <label className="text-xs text-muted-foreground">积分包<select aria-label="Data Credit 积分包" value={packCode} onChange={(event) => setPackCode(event.target.value)} className="mt-1 block rounded-md border bg-background px-2 py-2 text-sm">{packs.map((pack) => <option key={pack.code} value={pack.code}>{pack.name_zh}（¥{(pack.price_cny_fen / 100).toFixed(2)}）</option>)}</select></label>
+          <button type="button" onClick={() => void createPackCodes()} disabled={creating || !packCode} className="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-4 text-sm text-primary-foreground disabled:opacity-50"><Plus className="h-4 w-4" />生成积分包码</button>
+        </div>
+      </section>
+
       {created.length > 0 && (
         <section className="rounded-xl border bg-card p-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-600">
@@ -128,7 +152,7 @@ export function OperationsPage() {
                 <code className="font-mono text-sm tracking-wide">{c.plaintext}</code>
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <span>
-                    {c.plan_code} · {c.months} 月
+                    {c.plan_code}{c.months > 0 ? ` · ${c.months} 月` : " · Data Credit 积分包"}
                   </span>
                   <button
                     onClick={() => copy(c.plaintext)}

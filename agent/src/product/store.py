@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 11
+_SCHEMA_VERSION = 12
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -71,6 +71,18 @@ class ProductStore:
             "SELECT * FROM plans WHERE code = ?", (code,)
         ).fetchone()
         return self._row_to_plan(row) if row else None
+
+    def list_data_credit_packs(self) -> list[dict[str, Any]]:
+        rows = self._get_conn().execute(
+            "SELECT * FROM data_credit_pack_products ORDER BY sort_order, code"
+        ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_data_credit_pack(self, code: str) -> dict[str, Any] | None:
+        row = self._get_conn().execute(
+            "SELECT * FROM data_credit_pack_products WHERE code=? AND enabled=1", (code,)
+        ).fetchone()
+        return dict(row) if row else None
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
@@ -134,6 +146,7 @@ class ProductStore:
             self._ensure_catalog_contract_columns(conn)
             self._ensure_datahub_credential_columns(conn)
             self._seed_catalog(conn)
+            self._seed_data_credit_packs(conn)
             self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
             self._remove_legacy_products(conn)
@@ -160,6 +173,15 @@ class ProductStore:
                 welcome_credits INTEGER NOT NULL DEFAULT 0,
                 description TEXT NOT NULL DEFAULT '',
                 entitlements_json TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS data_credit_pack_products (
+                code TEXT PRIMARY KEY,
+                name_zh TEXT NOT NULL,
+                credits INTEGER NOT NULL CHECK (credits > 0),
+                price_cny_fen INTEGER NOT NULL CHECK (price_cny_fen >= 0),
+                valid_days INTEGER NOT NULL CHECK (valid_days > 0),
+                enabled INTEGER NOT NULL DEFAULT 1,
                 sort_order INTEGER NOT NULL DEFAULT 0
             );
 
@@ -529,6 +551,23 @@ class ProductStore:
                 """,
                 to_seed_row(seed),
             )
+
+    @staticmethod
+    def _seed_data_credit_packs(conn: sqlite3.Connection) -> None:
+        from src.product.data_credit_catalog import DATA_CREDIT_PACKS
+
+        conn.executemany(
+            "INSERT OR IGNORE INTO data_credit_pack_products "
+            "(code,name_zh,credits,price_cny_fen,valid_days,enabled,sort_order) "
+            "VALUES (?,?,?,?,?,1,?)",
+            [
+                (
+                    pack["code"], pack["name_zh"], pack["credits"],
+                    pack["price_cny_fen"], pack["valid_days"], pack["sort_order"],
+                )
+                for pack in DATA_CREDIT_PACKS
+            ],
+        )
 
     @staticmethod
     def _seed_datahub_endpoint_catalog(conn: sqlite3.Connection) -> None:

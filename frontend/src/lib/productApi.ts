@@ -179,6 +179,16 @@ export interface DataCreditBalance {
   expiring_soon: number;
 }
 
+export interface DataCreditPack {
+  code: string;
+  name_zh: string;
+  credits: number;
+  price_cny_fen: number;
+  valid_days: number;
+  enabled: boolean;
+  sort_order: number;
+}
+
 export interface DataCreditLot {
   id: string;
   amount_total: number;
@@ -259,6 +269,17 @@ export interface DataHubBudgetAlert {
 
 export async function getDataCreditBalance(): Promise<DataCreditBalance> {
   return productRequest<DataCreditBalance>("/api/data-credits/me");
+}
+
+export async function getDataCreditPacks(): Promise<DataCreditPack[]> {
+  const data = await productRequest<{ items: DataCreditPack[] }>("/api/catalog/data-credit-packs");
+  return data.items;
+}
+
+export async function redeemDataCreditPack(code: string, idempotencyKey: string): Promise<ActivateResult> {
+  return productRequest<ActivateResult>("/api/data-credits/redeem", {
+    method: "POST", body: JSON.stringify({ code, idempotency_key: idempotencyKey }),
+  });
 }
 
 export async function getDataCreditLots(): Promise<DataCreditLot[]> {
@@ -436,6 +457,17 @@ export async function createActivationCodes(
   const data = await productRequest<{ codes: CreatedCodeItem[] }>(
     "/api/admin/activation-codes",
     { method: "POST", body: JSON.stringify({ plan_code: planCode, months, count }) },
+  );
+  return data.codes;
+}
+
+export async function createDataCreditCodes(
+  packCode: string,
+  count = 1,
+): Promise<CreatedCodeItem[]> {
+  const data = await productRequest<{ codes: CreatedCodeItem[] }>(
+    "/api/admin/data-credit-codes",
+    { method: "POST", body: JSON.stringify({ pack_code: packCode, count }) },
   );
   return data.codes;
 }

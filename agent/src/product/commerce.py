@@ -117,6 +117,21 @@ class CommerceService:
         logger.info("Admin created activation code for plan=%s months=%d", plan, months)
         return CreatedCode(plaintext=plaintext, code_hash=code_hash, plan_code=plan, months=months)
 
+    def admin_create_data_credit_code(self, *, pack_code: str) -> CreatedCode:
+        pack = self.store.get_data_credit_pack(pack_code)
+        if pack is None:
+            raise ValueError(f"unknown Data Credit pack {pack_code!r}")
+        plaintext = self._mint_code()
+        code_hash = hash_code(plaintext)
+        with self.store.transaction() as conn:
+            conn.execute(
+                "INSERT INTO activation_codes "
+                "(code_hash,code_type,plan_code,months,credits,used_by,used_at,created_at,expires_at) "
+                "VALUES (?,'data_credit',?,0,?,NULL,NULL,?,NULL)",
+                (code_hash, pack_code, int(pack["credits"]), _now_iso()),
+            )
+        return CreatedCode(plaintext, code_hash, pack_code, 0)
+
     @staticmethod
     def _mint_code() -> str:
         """Readable, high-entropy code: SX-XXXXXX-XXXXXX."""
@@ -248,6 +263,76 @@ class CommerceService:
             credits_granted=credits_granted,
             replayed=False,
         )
+
+    def redeem_data_credit_code(
+        self, user_id: str, plaintext: str, idempotency_key: str
+    ) -> ActivationResult:
+        import json
+
+        code_hash = hash_code(plaintext)
+        with self.store.transaction() as conn:
+            prior = conn.execute(
+                "SELECT id,plan_code FROM orders WHERE user_id=? AND idempotency_key=?",
+                (user_id, idempotency_key),
+            ).fetchone()
+            if prior:
+                return ActivationResult(prior["id"], prior["plan_code"], 0, 0, True)
+            code = conn.execute(
+                "SELECT * FROM activation_codes WHERE code_hash=?", (code_hash,)
+            ).fetchone()
+            if code is None or code["code_type"] != "data_credit":
+                raise ActivationError("数据积分包激活码无效")
+            if code["used_by"] is not None:
+                raise ActivationError("激活码已被使用")
+            pack = self.store.get_data_credit_pack(code["plan_code"])
+            if pack is None or int(pack["credits"]) != int(code["credits"]):
+                raise ActivationError("数据积分包已下架或配置不一致")
+            now = _now()
+            now_iso = now.isoformat()
+            conn.execute(
+                "UPDATE activation_codes SET used_by=?,used_at=? WHERE code_hash=?",
+                (user_id, now_iso, code_hash),
+            )
+            order_id = uuid.uuid4().hex
+            conn.execute(
+                "INSERT INTO orders "
+                "(id,user_id,plan_code,status,channel,price_cny_fen,entitlements_snapshot_json,"
+                "months,idempotency_key,provider_payment_id,created_at,paid_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    order_id, user_id, pack["code"], OrderStatus.PAID,
+                    PaymentChannel.ACTIVATION_CODE, int(pack["price_cny_fen"]),
+                    json.dumps({"data_credits": int(pack["credits"]), "valid_days": int(pack["valid_days"])}),
+                    0, idempotency_key, code_hash, now_iso, now_iso,
+                ),
+            )
+            lot_id = uuid.uuid4().hex
+            expires_at = (now + timedelta(days=int(pack["valid_days"]))).isoformat()
+            grant_key = f"data-pack:{order_id}"
+            conn.execute(
+                "INSERT INTO data_credit_lots "
+                "(id,owner_id,amount_total,amount_remaining,source,expires_at,idempotency_key,created_at) "
+                "VALUES (?,?,?,?,'purchase',?,?,?)",
+                (lot_id, user_id, int(pack["credits"]), int(pack["credits"]), expires_at, grant_key, now_iso),
+            )
+            conn.execute(
+                "INSERT INTO data_credit_ledger "
+                "(id,owner_id,lot_id,reservation_id,delta,operation,idempotency_key,metadata_json,created_at) "
+                "VALUES (?,?,?,NULL,?,'grant',?,?,?)",
+                (
+                    uuid.uuid4().hex, user_id, lot_id, int(pack["credits"]), grant_key,
+                    json.dumps({"order_id": order_id, "pack_code": pack["code"]}), now_iso,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO audit_log (id,actor,action,target,reason,metadata_json,created_at) "
+                "VALUES (?,?, 'data_credit_pack_activation', ?, ?, ?, ?)",
+                (
+                    uuid.uuid4().hex, user_id, user_id, f"activated {pack['code']}",
+                    json.dumps({"order_id": order_id, "credits": int(pack["credits"])}), now_iso,
+                ),
+            )
+        return ActivationResult(order_id, pack["code"], 0, int(pack["credits"]), False)
 
     def ensure_monthly_data_grant(
         self, user_id: str, plan_code: str, period: date

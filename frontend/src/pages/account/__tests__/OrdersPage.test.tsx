@@ -45,7 +45,7 @@ describe("OrdersPage", () => {
       period_days: 30, paid_orders: 1, paid_cny_fen: 26800,
       research_credits_consumed: 70, data_credits_consumed: 120,
       daily: [{ date: "2026-08-14", research_credits_consumed: 70, data_credits_consumed: 120, paid_cny_fen: 26800 }],
-    });
+    }, { items: [{ code: "data_10k", name_zh: "Data Credit 10,000" }] });
     renderPage();
     expect(await screen.findByText("桌面专业研究版")).toBeInTheDocument();
     expect(screen.getByText("已支付")).toBeInTheDocument();
@@ -59,7 +59,7 @@ describe("OrdersPage", () => {
     mockFetch({ items: [] }, { plans: [] }, {
       period_days: 30, paid_orders: 0, paid_cny_fen: 0,
       research_credits_consumed: 0, data_credits_consumed: 0, daily: [],
-    });
+    }, { items: [] });
     renderPage();
     await waitFor(() => {
       expect(screen.getByText(/暂无订单/)).toBeInTheDocument();

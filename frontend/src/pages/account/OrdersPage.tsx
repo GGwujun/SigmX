@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { AccountNav } from "@/components/layout/AccountNav";
 import { ApiError } from "@/lib/api";
 import {
-  getBillingSummary, getPlans, listOrders, type BillingSummary, type OrderItem,
+  getBillingSummary, getDataCreditPacks, getPlans, listOrders, type BillingSummary, type OrderItem,
 } from "@/lib/productApi";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -37,11 +37,14 @@ export function OrdersPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [items, plans, billing] = await Promise.all([
-        listOrders(), getPlans(), getBillingSummary(30),
+      const [items, plans, billing, packs] = await Promise.all([
+        listOrders(), getPlans(), getBillingSummary(30), getDataCreditPacks(),
       ]);
       setOrders(items);
-      setPlanNames(Object.fromEntries(plans.map((plan) => [plan.code, plan.name_zh])));
+      setPlanNames(Object.fromEntries([
+        ...plans.map((plan) => [plan.code, plan.name_zh] as const),
+        ...packs.map((pack) => [pack.code, pack.name_zh] as const),
+      ]));
       setSummary(billing);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : "加载订单失败");

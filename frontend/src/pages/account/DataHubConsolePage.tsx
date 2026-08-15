@@ -7,6 +7,7 @@ import {
   getDataCreditBalance,
   getDataCreditLedger,
   getDataCreditLots,
+  getDataCreditPacks,
   getDataHubCatalog,
   getDataHubUsage,
   getDataHubLogs,
@@ -16,10 +17,12 @@ import {
   listDataHubCredentials,
   revokeDataHubCredential,
   rotateDataHubCredential,
+  redeemDataCreditPack,
   type CreatedDataHubCredential,
   type DataCreditBalance,
   type DataCreditLedgerEntry,
   type DataCreditLot,
+  type DataCreditPack,
   type DataHubCredential,
   type DataHubEndpoint,
   type DataHubUsage,
@@ -52,12 +55,15 @@ export function DataHubConsolePage() {
   const [debugResult, setDebugResult] = useState("");
   const [debugging, setDebugging] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(false);
+  const [packs, setPacks] = useState<DataCreditPack[]>([]);
+  const [packCode, setPackCode] = useState("");
+  const [redeemingPack, setRedeemingPack] = useState(false);
 
   const reload = useCallback(async () => {
     setError("");
     try {
-      const [nextBalance, nextUsage, nextCredentials, nextCatalog, nextLots, nextLedger, nextLogs, nextAlerts, nextBudgets] = await Promise.all([
-        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataHubCatalog(), getDataCreditLots(), getDataCreditLedger(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(),
+      const [nextBalance, nextUsage, nextCredentials, nextCatalog, nextLots, nextLedger, nextLogs, nextAlerts, nextBudgets, nextPacks] = await Promise.all([
+        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataHubCatalog(), getDataCreditLots(), getDataCreditLedger(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(), getDataCreditPacks(),
       ]);
       setBalance(nextBalance);
       setUsage(nextUsage);
@@ -69,6 +75,7 @@ export function DataHubConsolePage() {
       setAlerts(nextAlerts);
       setBudgets(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, item])));
       setBudgetInputs(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, String(item.daily_limit)])));
+      setPacks(nextPacks);
       setDebugEndpoint((current) => current || nextCatalog.find((item) => item.enabled && item.http_method === "GET")?.endpoint_code || "");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "加载 Data Hub 控制台失败");
@@ -159,6 +166,18 @@ export function DataHubConsolePage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "加载日志失败"); }
   };
 
+  const redeemPack = async () => {
+    const code = packCode.trim();
+    if (!code || redeemingPack) return;
+    setRedeemingPack(true); setError("");
+    try {
+      await redeemDataCreditPack(code, `data-pack:${code}`);
+      setPackCode("");
+      await reload();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "兑换数据积分包失败"); }
+    finally { setRedeemingPack(false); }
+  };
+
   return (
     <div className="mx-auto max-w-6xl space-y-6 p-6">
       <AccountNav />
@@ -178,6 +197,18 @@ export function DataHubConsolePage() {
           <Metric label="调用与消耗" value={`${usage?.total_requests ?? 0} 次`} detail={`本期已扣 ${usage?.credits_charged ?? 0} Data Credit`} />
         </section>
       )}
+
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="font-semibold">Data Credit 积分包</h2>
+        <p className="mt-1 text-xs text-muted-foreground">积分包独立于套餐，兑换后有效期 12 个月。</p>
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          {packs.map((pack) => <div key={pack.code} className="rounded-lg border p-3"><strong>{pack.name_zh}</strong><div className="mt-1 text-lg font-bold">{pack.credits.toLocaleString()}</div><div className="text-xs text-muted-foreground">¥{(pack.price_cny_fen / 100).toFixed(2)} · {pack.valid_days} 天</div></div>)}
+        </div>
+        <div className="mt-4 flex gap-2">
+          <input aria-label="Data Credit 积分包激活码" value={packCode} onChange={(event) => setPackCode(event.target.value)} placeholder="输入已购买的积分包激活码" className="flex-1 rounded-md border bg-background px-3 py-2 text-sm" />
+          <button onClick={() => void redeemPack()} disabled={!packCode.trim() || redeemingPack} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">{redeemingPack ? "兑换中…" : "兑换积分包"}</button>
+        </div>
+      </section>
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4" />创建 Credential</h2>

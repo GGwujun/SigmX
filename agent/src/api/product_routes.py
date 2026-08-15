@@ -158,6 +158,20 @@ class CatalogResponse(BaseModel):
     plans: list[PlanView]
 
 
+class DataCreditPackView(BaseModel):
+    code: str
+    name_zh: str
+    credits: int
+    price_cny_fen: int
+    valid_days: int
+    enabled: bool
+    sort_order: int
+
+
+class DataCreditPackCatalogResponse(BaseModel):
+    items: list[DataCreditPackView]
+
+
 class StableRelease(BaseModel):
     version: str
     notes: str
@@ -223,6 +237,11 @@ class BillingSummaryResponse(BaseModel):
 class CreateActivationCodeRequest(BaseModel):
     plan_code: str
     months: int = Field(..., ge=1, le=36)
+    count: int = Field(1, ge=1, le=100)
+
+
+class CreateDataCreditCodeRequest(BaseModel):
+    pack_code: str
     count: int = Field(1, ge=1, le=100)
 
 
@@ -558,6 +577,13 @@ async def list_plans() -> CatalogResponse:
     """Public plan catalog (design §4.1, §7.1 /pricing). No auth."""
     plans = [PlanView(**p) for p in _get_store().list_plans()]
     return CatalogResponse(plans=plans)
+
+
+@_router.get("/api/catalog/data-credit-packs", response_model=DataCreditPackCatalogResponse)
+async def list_data_credit_packs() -> DataCreditPackCatalogResponse:
+    return DataCreditPackCatalogResponse(
+        items=[DataCreditPackView(**item) for item in _get_store().list_data_credit_packs()]
+    )
 
 
 @_router.get("/api/datahub/catalog", response_model=DataHubCatalogResponse)
@@ -1013,6 +1039,25 @@ async def activate_order(
     )
 
 
+@_router.post("/api/data-credits/redeem", response_model=ActivateResponse)
+async def redeem_data_credit_pack(
+    body: ActivateRequest, user: dict = Depends(require_user)
+) -> ActivateResponse:
+    try:
+        result = _get_commerce().redeem_data_credit_code(
+            user["id"], body.code, body.idempotency_key
+        )
+    except ActivationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ActivateResponse(
+        order_id=result.order_id,
+        plan_code=result.plan_code,
+        months=0,
+        credits_granted=result.credits_granted,
+        replayed=result.replayed,
+    )
+
+
 @_router.get("/api/orders", response_model=OrdersResponse)
 async def list_orders(user: dict = Depends(require_user)) -> OrdersResponse:
     rows = _get_store()._get_conn().execute(
@@ -1188,6 +1233,28 @@ async def create_activation_codes(
             for c in codes
         ]
     )
+
+
+@_router.post("/api/admin/data-credit-codes", response_model=CreateActivationCodeResponse)
+async def create_data_credit_codes(
+    body: CreateDataCreditCodeRequest, _: dict = Depends(require_admin)
+) -> CreateActivationCodeResponse:
+    try:
+        codes = [
+            _get_commerce().admin_create_data_credit_code(pack_code=body.pack_code)
+            for _ in range(body.count)
+        ]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return CreateActivationCodeResponse(codes=[
+        CreatedCodeItem(
+            plaintext=code.plaintext,
+            code_hash=code.code_hash,
+            plan_code=code.plan_code,
+            months=0,
+        )
+        for code in codes
+    ])
 
 
 def register_product_routes(app: FastAPI) -> APIRouter:

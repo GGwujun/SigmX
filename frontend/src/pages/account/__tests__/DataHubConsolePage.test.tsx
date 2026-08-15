@@ -10,6 +10,8 @@ function installFetch() {
     if (url === "/api/data-credits/me") return Promise.resolve(ok({ available: 1000, expiring_soon: 100 }));
     if (url === "/api/data-credits/lots") return Promise.resolve(ok({ lots: [{ id: "l1", amount_total: 1000, amount_remaining: 997, source: "monthly", expires_at: "2026-08-31T23:59:59Z", created_at: "2026-08-01T00:00:00Z" }] }));
     if (url === "/api/data-credits/ledger") return Promise.resolve(ok({ entries: [{ id: "e1", operation: "settle", delta: -3, lot_id: "l1", reservation_id: "r1", created_at: "2026-08-15T00:00:00Z" }] }));
+    if (url === "/api/catalog/data-credit-packs") return Promise.resolve(ok({ items: [{ code: "data_10k", name_zh: "Data Credit 10,000", credits: 10000, price_cny_fen: 3900, valid_days: 365, enabled: true, sort_order: 1 }] }));
+    if (url === "/api/data-credits/redeem" && options?.method === "POST") return Promise.resolve(ok({ order_id: "o-pack", plan_code: "data_10k", months: 0, credits_granted: 10000, replayed: false }));
     if (url === "/api/datahub/catalog") return Promise.resolve(ok({ items: [{ endpoint_code: "health", catalog_version: 2, http_method: "GET", path_pattern: "/api/v1/health", dataset_group: "basic.v1", pricing_mode: "free", base_cost: 0, unit_name: null, unit_size: null, unit_cost: null, max_cost: null, enabled: true }] }));
     if (url === "/api/datahub/usage") return Promise.resolve(ok({ total_requests: 2, successful_requests: 2, credits_charged: 3, by_endpoint: [] }));
     if (url === "/api/datahub/credentials" && options?.method === "POST") {
@@ -72,5 +74,17 @@ describe("DataHubConsolePage", () => {
     expect(await screen.findByText(/HTTP 200/)).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith("/api/v1/health", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer sxd_live_debug_only" }) }));
     expect(JSON.stringify(localStorage)).not.toContain("sxd_live_debug_only");
+  });
+
+  it("shows server-driven Data Credit packs and redeems a prepaid pack code", async () => {
+    const fetchMock = installFetch();
+    render(<MemoryRouter><DataHubConsolePage /></MemoryRouter>);
+    expect(await screen.findByText("Data Credit 10,000")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Data Credit 积分包激活码"), { target: { value: "SX-PACK-ABC123" } });
+    fireEvent.click(screen.getByRole("button", { name: "兑换积分包" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
+      "/api/data-credits/redeem",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ code: "SX-PACK-ABC123", idempotency_key: "data-pack:SX-PACK-ABC123" }) }),
+    ));
   });
 });
