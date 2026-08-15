@@ -131,6 +131,7 @@ class ProductStore:
         with self._lock:
             self._create_tables(conn)
             self._seed_catalog(conn)
+            self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
             self._stamp_version(conn)
             conn.commit()
@@ -388,6 +389,40 @@ class ProductStore:
                 """,
                 to_seed_row(seed),
             )
+
+    @staticmethod
+    def _seed_datahub_endpoint_catalog(conn: sqlite3.Connection) -> None:
+        # Local import avoids a module cycle: the catalog service itself accepts
+        # ProductStore while the store owns durable seed persistence.
+        from src.product.datahub_catalog import ENDPOINT_CATALOG_V1
+
+        conn.executemany(
+            """
+            INSERT OR IGNORE INTO datahub_endpoint_catalog
+                (endpoint_code, catalog_version, http_method, path_pattern,
+                 dataset_group, pricing_mode, base_cost, unit_name, unit_size,
+                 unit_cost, max_cost, enabled, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    entry.endpoint_code,
+                    entry.catalog_version,
+                    entry.http_method,
+                    entry.path_pattern,
+                    entry.dataset_group,
+                    entry.pricing_mode,
+                    entry.base_cost,
+                    entry.unit_name,
+                    entry.unit_size,
+                    entry.unit_cost,
+                    entry.max_cost,
+                    int(entry.enabled),
+                    "2026-08-15T00:00:00+00:00",
+                )
+                for entry in ENDPOINT_CATALOG_V1
+            ],
+        )
 
     @staticmethod
     def _migrate_v2_datahub_entitlements(conn: sqlite3.Connection) -> None:
