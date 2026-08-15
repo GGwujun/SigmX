@@ -3373,6 +3373,9 @@ register_admin_redeem_routes(app)
 from src.api.product_routes import register_product_routes  # noqa: E402
 register_product_routes(app)
 
+from src.api.public_research_routes import register_public_research_routes  # noqa: E402
+register_public_research_routes(app)
+
 
 # ============================================================================
 # Notify routes (Feishu/DingTalk/WeChat) — defined in src/api/notify_routes.py

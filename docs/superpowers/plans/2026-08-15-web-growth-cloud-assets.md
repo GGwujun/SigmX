@@ -51,6 +51,26 @@
 
 ### Task 3: Public discovery pages and unified search
 
+Before the frontend, implement the anonymous read boundary:
+
+**Files:**
+- Create: `agent/src/product/public_research.py`
+- Create: `agent/src/api/public_research_routes.py`
+- Modify: `agent/api_server.py`
+- Test: `agent/tests/test_public_research.py`
+- Test: `agent/tests/test_public_research_routes.py`
+
+**Interfaces:**
+- Produces: `GET /api/public/search?q=`, `GET /api/public/stocks/{code}`, and `GET /api/public/funds/{code}` with at most ten delayed, source-labelled results.
+
+- [x] Write service and route tests for code/name search, supported natural-language filters (`低估值`, `高股息`, `小市值`), stock summary, fund summary, empty data, and absence of auth requirements.
+- [x] Run both backend test files and confirm failure because the service/routes do not exist.
+- [x] Implement read-only queries over `MarketStore`; return only public fields plus `source`, `as_of`, and `is_delayed` metadata.
+- [x] Register the public router independently of Data Hub billing routes and re-run the tests.
+- [x] Commit with `feat(web): expose limited public research api`.
+
+Then implement the public React pages:
+
 **Files:**
 - Create: `frontend/src/pages/public/PublicSearchPage.tsx`
 - Create: `frontend/src/pages/public/PublicInstrumentPage.tsx`
