@@ -12,6 +12,14 @@ from pathlib import Path
 from src.product.store import ProductStore
 
 
+OLD_DATAHUB_KEYS = {
+    "datahub.daily_quota",
+    "datahub.basic",
+    "datahub.featured",
+    "datahub.external_api",
+}
+
+
 def test_catalog_is_seeded_and_server_driven(tmp_path: Path) -> None:
     store = ProductStore(tmp_path / "product.db")
     plans = {plan["code"]: plan for plan in store.list_plans()}
@@ -21,8 +29,11 @@ def test_catalog_is_seeded_and_server_driven(tmp_path: Path) -> None:
     assert plans["advanced"]["price_cny_fen"] == 26800
     assert plans["pro"]["price_cny_fen"] == 51800
 
-    # Entitlements are stable keys with numeric quotas (design §4.1, §6).
-    assert plans["advanced"]["entitlements"]["datahub.daily_quota"] == 1000
+    assert plans["free"]["entitlements"]["datahub.monthly_credits"] == 1_000
+    assert plans["advanced"]["entitlements"]["datahub.dataset_groups"] == ["basic.v1", "market.v1"]
+    assert plans["pro"]["entitlements"]["datahub.monthly_credits"] == 150_000
+    for plan in plans.values():
+        assert OLD_DATAHUB_KEYS.isdisjoint(plan["entitlements"])
     assert plans["pro"]["entitlements"]["desktop.device_limit"] == 3
 
 
@@ -31,9 +42,52 @@ def test_enterprise_plan_present(tmp_path: Path) -> None:
     enterprise = store.get_plan("enterprise")
     assert enterprise is not None
     assert enterprise["price_cny_fen"] == 0  # contract-priced, not a fixed sticker
-    # Enterprise is configured per-contract, so it still advertises the external-API
-    # entitlement key even though its quota is not a fixed number.
-    assert "datahub.external_api" in enterprise["entitlements"]
+    assert enterprise["entitlements"]["datahub.commercial_use"] is True
+    assert enterprise["entitlements"]["datahub.monthly_credits"] == 0
+
+
+def test_schema_v2_tables_exist(tmp_path: Path) -> None:
+    store = ProductStore(tmp_path / "product.db")
+    names = {
+        row[0]
+        for row in store._get_conn().execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+    assert {
+        "data_credit_lots",
+        "data_credit_reservations",
+        "data_credit_allocations",
+        "data_credit_ledger",
+        "datahub_endpoint_catalog",
+    } <= names
+    versions = {
+        row[0]
+        for row in store._get_conn().execute(
+            "SELECT version FROM product_migrations"
+        )
+    }
+    assert 2 in versions
+
+
+def test_schema_v2_replaces_old_datahub_keys_only(tmp_path: Path) -> None:
+    db_path = tmp_path / "product.db"
+    first = ProductStore(db_path)
+    conn = first._get_conn()
+    conn.execute("DELETE FROM product_migrations WHERE version = 2")
+    conn.execute(
+        "UPDATE plans SET entitlements_json = ? WHERE code = 'advanced'",
+        ('{"datahub.basic":true,"datahub.daily_quota":999,"desktop.device_limit":7}',),
+    )
+    conn.commit()
+    conn.close()
+    first._conn = None
+
+    migrated = ProductStore(db_path).get_plan("advanced")
+    assert migrated is not None
+    assert OLD_DATAHUB_KEYS.isdisjoint(migrated["entitlements"])
+    assert migrated["entitlements"]["datahub.monthly_credits"] == 30_000
+    assert migrated["entitlements"]["desktop.device_limit"] == 7
 
 
 def test_get_plan_unknown_returns_none(tmp_path: Path) -> None:

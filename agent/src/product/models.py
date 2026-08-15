@@ -38,10 +38,14 @@ class PaymentChannel(StrEnum):
 
 # Stable entitlement keys — never compare against a translated plan name.
 ENTITLEMENT_KEYS = {
-    "datahub.basic",
-    "datahub.featured",
-    "datahub.daily_quota",
-    "datahub.external_api",
+    "datahub.enabled",
+    "datahub.dataset_groups",
+    "datahub.monthly_credits",
+    "datahub.rate_limit_per_minute",
+    "datahub.concurrent_limit",
+    "datahub.max_rows_per_request",
+    "datahub.history_depth_days",
+    "datahub.commercial_use",
     "cloud_ai.enabled",
     "cloud_ai.concurrent_jobs",
     "cloud_ai.credit_per_alphaforge",

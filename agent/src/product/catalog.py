@@ -10,7 +10,10 @@ the store; orders snapshot the price+entitlements at purchase time (design §4.1
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import TypeAlias, TypedDict
+
+
+EntitlementValue: TypeAlias = int | bool | list[str]
 
 
 class PlanSeed(TypedDict):
@@ -26,11 +29,11 @@ class PlanSeed(TypedDict):
     monthly_credits: int  # plan credits granted per natural month; 0 if none
     welcome_credits: int  # one-time grant at registration; 0 if none
     description: str
-    entitlements: dict[str, int | bool]
+    entitlements: dict[str, EntitlementValue]
     sort_order: int
 
 
-# Free plan: 100 requests/day, 50 one-time welcome credits, single device.
+# Free plan: basic Data Hub access, 50 one-time research credits, single device.
 FREE: PlanSeed = {
     "code": "free",
     "name_zh": "免费版",
@@ -40,8 +43,14 @@ FREE: PlanSeed = {
     "welcome_credits": 50,
     "description": "体验与本地基础功能",
     "entitlements": {
-        "datahub.basic": True,
-        "datahub.daily_quota": 100,
+        "datahub.enabled": True,
+        "datahub.dataset_groups": ["basic.v1"],
+        "datahub.monthly_credits": 1_000,
+        "datahub.rate_limit_per_minute": 30,
+        "datahub.concurrent_limit": 1,
+        "datahub.max_rows_per_request": 1_000,
+        "datahub.history_depth_days": 365,
+        "datahub.commercial_use": False,
         "desktop.connected_mode": True,
         "desktop.device_limit": 1,
         "cloud_ai.enabled": True,
@@ -51,7 +60,7 @@ FREE: PlanSeed = {
     "sort_order": 1,
 }
 
-# Advanced: 268 CNY/quarter, 1000 req/day, 300 monthly credits, 1 device.
+# Advanced: 268 CNY/quarter, market data, 300 monthly research credits.
 ADVANCED: PlanSeed = {
     "code": "advanced",
     "name_zh": "进阶版",
@@ -61,9 +70,14 @@ ADVANCED: PlanSeed = {
     "welcome_credits": 0,
     "description": "普通个人投资者",
     "entitlements": {
-        "datahub.basic": True,
-        "datahub.featured": False,
-        "datahub.daily_quota": 1000,
+        "datahub.enabled": True,
+        "datahub.dataset_groups": ["basic.v1", "market.v1"],
+        "datahub.monthly_credits": 30_000,
+        "datahub.rate_limit_per_minute": 120,
+        "datahub.concurrent_limit": 3,
+        "datahub.max_rows_per_request": 10_000,
+        "datahub.history_depth_days": 1_825,
+        "datahub.commercial_use": False,
         "desktop.connected_mode": True,
         "desktop.device_limit": 1,
         "cloud_ai.enabled": True,
@@ -75,7 +89,7 @@ ADVANCED: PlanSeed = {
     "sort_order": 2,
 }
 
-# Pro: 518 CNY/quarter, 10000 req/day, 1200 monthly credits, 3 devices, featured data.
+# Pro: 518 CNY/quarter, complete datasets, 1200 monthly research credits.
 PRO: PlanSeed = {
     "code": "pro",
     "name_zh": "专业版",
@@ -85,9 +99,14 @@ PRO: PlanSeed = {
     "welcome_credits": 0,
     "description": "重度研究和批量任务",
     "entitlements": {
-        "datahub.basic": True,
-        "datahub.featured": True,
-        "datahub.daily_quota": 10000,
+        "datahub.enabled": True,
+        "datahub.dataset_groups": ["basic.v1", "market.v1", "finance.v1", "pro.v1"],
+        "datahub.monthly_credits": 150_000,
+        "datahub.rate_limit_per_minute": 600,
+        "datahub.concurrent_limit": 10,
+        "datahub.max_rows_per_request": 100_000,
+        "datahub.history_depth_days": 7_300,
+        "datahub.commercial_use": False,
         "desktop.connected_mode": True,
         "desktop.device_limit": 3,
         "cloud_ai.enabled": True,
@@ -99,9 +118,7 @@ PRO: PlanSeed = {
     "sort_order": 3,
 }
 
-# Enterprise: contract-priced, independent quota/SLA. Numeric quotas are set per
-# contract; the catalog just advertises the entitlement surface so the external
-# API key path is visible.
+# Enterprise: contract values are applied by a later organization entitlement layer.
 ENTERPRISE: PlanSeed = {
     "code": "enterprise",
     "name_zh": "企业版",
@@ -111,9 +128,14 @@ ENTERPRISE: PlanSeed = {
     "welcome_credits": 0,
     "description": "API、团队和私有化",
     "entitlements": {
-        "datahub.basic": True,
-        "datahub.featured": True,
-        "datahub.external_api": True,
+        "datahub.enabled": True,
+        "datahub.dataset_groups": [],
+        "datahub.monthly_credits": 0,
+        "datahub.rate_limit_per_minute": 0,
+        "datahub.concurrent_limit": 0,
+        "datahub.max_rows_per_request": 0,
+        "datahub.history_depth_days": 0,
+        "datahub.commercial_use": True,
         "desktop.connected_mode": True,
         "cloud_ai.enabled": True,
         "reports.cloud_history": True,

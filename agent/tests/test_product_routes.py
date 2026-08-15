@@ -49,14 +49,15 @@ def test_catalog_endpoint_serializes_all_four_plans() -> None:
     assert codes == {"free", "advanced", "pro", "enterprise"}
     advanced = next(p for p in result.plans if p.code == "advanced")
     assert advanced.price_cny_fen == 26800
-    assert advanced.entitlements["datahub.daily_quota"] == 1000
+    assert advanced.entitlements["datahub.monthly_credits"] == 30_000
+    assert advanced.entitlements["datahub.dataset_groups"] == ["basic.v1", "market.v1"]
 
 
 def test_my_entitlements_defaults_to_free_for_ungranted_user() -> None:
     """GET /api/entitlements/me reads free for a user with no activation."""
     snap = asyncio.run(pr.my_entitlements(user={"id": "u-new"}))
     assert snap.plan_code == "free"
-    assert "datahub.basic" in snap.entitlements
+    assert snap.entitlements["datahub.enabled"] is True
 
 
 def test_my_credits_seeds_welcome_on_first_read() -> None:

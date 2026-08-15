@@ -29,7 +29,14 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
+
+_OLD_DATAHUB_ENTITLEMENT_KEYS = {
+    "datahub.basic",
+    "datahub.featured",
+    "datahub.daily_quota",
+    "datahub.external_api",
+}
 
 
 class ProductStore:
@@ -124,6 +131,7 @@ class ProductStore:
         with self._lock:
             self._create_tables(conn)
             self._seed_catalog(conn)
+            self._migrate_v2_datahub_entitlements(conn)
             self._stamp_version(conn)
             conn.commit()
 
@@ -277,6 +285,70 @@ class ProductStore:
                 PRIMARY KEY (user_id, metric, day)
             );
 
+            CREATE TABLE IF NOT EXISTS data_credit_lots (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                amount_total INTEGER NOT NULL CHECK (amount_total > 0),
+                amount_remaining INTEGER NOT NULL CHECK (amount_remaining >= 0),
+                source TEXT NOT NULL,
+                expires_at TEXT,
+                idempotency_key TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(owner_id, idempotency_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS data_credit_reservations (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                endpoint_code TEXT NOT NULL,
+                amount_authorized INTEGER NOT NULL CHECK (amount_authorized > 0),
+                amount_settled INTEGER,
+                idempotency_key TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('authorized', 'settled', 'released')),
+                created_at TEXT NOT NULL,
+                settled_at TEXT,
+                UNIQUE(owner_id, idempotency_key)
+            );
+
+            CREATE TABLE IF NOT EXISTS data_credit_allocations (
+                reservation_id TEXT NOT NULL,
+                lot_id TEXT NOT NULL,
+                amount INTEGER NOT NULL CHECK (amount > 0),
+                PRIMARY KEY (reservation_id, lot_id),
+                FOREIGN KEY (reservation_id) REFERENCES data_credit_reservations(id),
+                FOREIGN KEY (lot_id) REFERENCES data_credit_lots(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS data_credit_ledger (
+                id TEXT PRIMARY KEY,
+                owner_id TEXT NOT NULL,
+                lot_id TEXT,
+                reservation_id TEXT,
+                delta INTEGER NOT NULL,
+                operation TEXT NOT NULL CHECK (operation IN ('grant', 'authorize', 'settle', 'release')),
+                idempotency_key TEXT NOT NULL,
+                metadata_json TEXT,
+                created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS datahub_endpoint_catalog (
+                endpoint_code TEXT NOT NULL,
+                catalog_version INTEGER NOT NULL,
+                http_method TEXT NOT NULL,
+                path_pattern TEXT NOT NULL,
+                dataset_group TEXT NOT NULL,
+                pricing_mode TEXT NOT NULL CHECK (pricing_mode IN ('free', 'fixed', 'per_unit')),
+                base_cost INTEGER NOT NULL CHECK (base_cost >= 0),
+                unit_name TEXT,
+                unit_size INTEGER,
+                unit_cost INTEGER,
+                max_cost INTEGER,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (endpoint_code, catalog_version),
+                UNIQUE (http_method, path_pattern, catalog_version)
+            );
+
             -- Operator audit log (design §9).
             CREATE TABLE IF NOT EXISTS audit_log (
                 id TEXT PRIMARY KEY,
@@ -315,6 +387,29 @@ class ProductStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 to_seed_row(seed),
+            )
+
+    @staticmethod
+    def _migrate_v2_datahub_entitlements(conn: sqlite3.Connection) -> None:
+        if conn.execute(
+            "SELECT 1 FROM product_migrations WHERE version = 2"
+        ).fetchone() is not None:
+            return
+        for seed in DEFAULT_CATALOG:
+            row = conn.execute(
+                "SELECT entitlements_json FROM plans WHERE code = ?", (seed["code"],)
+            ).fetchone()
+            if row is None:
+                continue
+            current = json.loads(row["entitlements_json"])
+            for key in _OLD_DATAHUB_ENTITLEMENT_KEYS:
+                current.pop(key, None)
+            current.update(
+                {key: value for key, value in seed["entitlements"].items() if key.startswith("datahub.")}
+            )
+            conn.execute(
+                "UPDATE plans SET entitlements_json = ? WHERE code = ?",
+                (json.dumps(current, sort_keys=True, ensure_ascii=False), seed["code"]),
             )
 
     @staticmethod
