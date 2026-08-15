@@ -34,7 +34,7 @@ function renderPage() {
     <MemoryRouter initialEntries={["/login"]}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/portal" element={<div>portal-page</div>} />
+        <Route path="/me" element={<div>portal-home</div>} />
         <Route path="/app" element={<div>workbench-page</div>} />
       </Routes>
     </MemoryRouter>,
@@ -58,7 +58,7 @@ describe("LoginPage post-login routing", () => {
     renderPage();
     await submitLogin();
     await waitFor(() => expect(getToken()).toBe("jwt-abc"));
-    expect(await screen.findByText("portal-page")).toBeInTheDocument();
+    expect(await screen.findByText("portal-home")).toBeInTheDocument();
     expect(screen.queryByText("workbench-page")).not.toBeInTheDocument();
   });
 

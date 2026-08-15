@@ -9,7 +9,7 @@ describe("lib/desktop", () => {
 
   it("defaults to browser mode when sigmxDesktop is absent", () => {
     expect(isDesktopMode()).toBe(false);
-    expect(postLoginTarget()).toBe("/portal");
+    expect(postLoginTarget()).toBe("/me");
   });
 
   it("detects desktop mode when preload injected isDesktop=true", () => {
@@ -21,6 +21,6 @@ describe("lib/desktop", () => {
   it("treats isDesktop absent as browser mode", () => {
     vi.stubGlobal("sigmxDesktop", {});
     expect(isDesktopMode()).toBe(false);
-    expect(postLoginTarget()).toBe("/portal");
+    expect(postLoginTarget()).toBe("/me");
   });
 });

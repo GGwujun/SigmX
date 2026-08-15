@@ -198,7 +198,7 @@ function RequireAdmin() {
  */
 export function DesktopOnly() {
   if (!isDesktopMode()) {
-    return <Navigate to="/portal" replace />;
+    return <Navigate to="/me" replace />;
   }
   return <Outlet />;
 }
@@ -220,7 +220,7 @@ export const router = createBrowserRouter([
   { path: "/login", element: wrap(LoginPage) },
   { path: "/register", element: wrap(RegisterPage) },
   // Light portal alias — browsers land here after login, then on to /account.
-  { path: "/portal", element: <Navigate to="/account" replace /> },
+  { path: "/portal", element: <Navigate to="/me" replace /> },
   // Protected app
   {
     element: <RequireAuth />,

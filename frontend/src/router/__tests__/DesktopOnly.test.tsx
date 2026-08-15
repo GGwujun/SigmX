@@ -11,7 +11,7 @@ function renderAt(path: string) {
         <Route element={<DesktopOnly />}>
           <Route path="/app" element={<div>workbench</div>} />
         </Route>
-        <Route path="/portal" element={<div>portal-redirect-target</div>} />
+        <Route path="/me" element={<div>portal-redirect-target</div>} />
       </Routes>
     </MemoryRouter>,
   );

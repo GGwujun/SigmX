@@ -14,6 +14,6 @@ export function isDesktopMode(): boolean {
 }
 
 /** Where to navigate after a successful login/registration. */
-export function postLoginTarget(): string {
-  return isDesktopMode() ? "/app" : "/portal";
+export function postLoginTarget(): "/app" | "/me" {
+  return isDesktopMode() ? "/app" : "/me";
 }
