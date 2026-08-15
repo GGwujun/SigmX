@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import { ApiError } from "@/lib/api";
 import {
   createActivationCodes, createDataCreditCodes, formatPlanPrice, getAdminProductMetrics,
+  compensatePersonalCredits, revokePersonalSecurityTarget,
   getDataCreditPacks, getPlans, type AdminProductMetrics, type CreatedCodeItem,
   type DataCreditPack, type PlanView,
 } from "@/lib/productApi";
@@ -27,6 +28,11 @@ export function OperationsPage() {
   const [packs, setPacks] = useState<DataCreditPack[]>([]);
   const [packCode, setPackCode] = useState("");
   const [metrics, setMetrics] = useState<AdminProductMetrics | null>(null);
+  const [supportAction, setSupportAction] = useState<"research" | "data" | "device" | "credential">("research");
+  const [supportUserId, setSupportUserId] = useState("");
+  const [supportTargetId, setSupportTargetId] = useState("");
+  const [supportAmount, setSupportAmount] = useState(100);
+  const [supportReason, setSupportReason] = useState("");
 
   useEffect(() => {
     Promise.all([getPlans(), getDataCreditPacks(), getAdminProductMetrics(30)]).then(([catalog, packCatalog, nextMetrics]) => {
@@ -74,6 +80,22 @@ export function OperationsPage() {
     }
   };
 
+  const runSupportAction = async (event: FormEvent) => {
+    event.preventDefault();
+    if (creating) return;
+    setCreating(true);
+    try {
+      if (supportAction === "research" || supportAction === "data") {
+        await compensatePersonalCredits(supportUserId.trim(), supportAction, supportAmount, supportReason.trim());
+      } else {
+        await revokePersonalSecurityTarget(supportUserId.trim(), supportAction === "device" ? "devices" : "credentials", supportTargetId.trim(), supportReason.trim());
+      }
+      setSupportReason("");
+      toast.success("个人支持操作已完成并写入审计日志");
+    } catch (error) { toast.error(error instanceof ApiError ? error.message : "支持操作失败"); }
+    finally { setCreating(false); }
+  };
+
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-6">
       <header>
@@ -96,6 +118,18 @@ export function OperationsPage() {
           {(["landing_view", "search_submitted", "result_view", "register_completed", "download_clicked", "checkout_intent"] as const).map((stage) => <Metric key={stage} label={({ landing_view: "访问首页", search_submitted: "发起搜索", result_view: "查看结果", register_completed: "完成注册", download_clicked: "下载 Desktop", checkout_intent: "购买意向" })[stage]} value={(metrics.personal_funnel?.[stage] ?? 0).toLocaleString()} />)}
         </div>
       </section>}
+
+      <section className="rounded-xl border bg-card p-5">
+        <h2 className="text-sm font-semibold">个人用户支持</h2>
+        <p className="mt-1 text-xs text-muted-foreground">仅支持正向积分补偿和安全撤销；每次操作必须填写原因并永久审计。</p>
+        <form onSubmit={runSupportAction} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <label className="text-xs text-muted-foreground">操作<select aria-label="个人支持操作" value={supportAction} onChange={(event) => setSupportAction(event.target.value as typeof supportAction)} className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm"><option value="research">补偿研究积分</option><option value="data">补偿 Data Credit</option><option value="device">撤销 Desktop 设备</option><option value="credential">撤销 Data Hub Credential</option></select></label>
+          <label className="text-xs text-muted-foreground">个人用户 ID<input required value={supportUserId} onChange={(event) => setSupportUserId(event.target.value)} className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm" /></label>
+          {(supportAction === "research" || supportAction === "data") ? <label className="text-xs text-muted-foreground">补偿数量<input aria-label="补偿数量" required type="number" min={1} max={1000000} value={supportAmount} onChange={(event) => setSupportAmount(Number(event.target.value))} className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm" /></label> : <label className="text-xs text-muted-foreground">目标 ID<input aria-label="目标 ID" required value={supportTargetId} onChange={(event) => setSupportTargetId(event.target.value)} className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm" /></label>}
+          <label className="text-xs text-muted-foreground">操作原因<input aria-label="操作原因" required minLength={5} value={supportReason} onChange={(event) => setSupportReason(event.target.value)} className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm" /></label>
+          <button type="submit" disabled={creating} className="mt-4 h-10 rounded-md border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50 sm:mt-auto">确认并审计</button>
+        </form>
+      </section>
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">生成激活码</h2>

@@ -36,6 +36,7 @@ from src.product.datahub_catalog import DataHubEndpointCatalog
 from src.product.datahub_budgets import DataHubBudgetService
 from src.product.notifications import PersonalNotificationService
 from src.product.funnel import PersonalFunnelService
+from src.product.support_operations import PersonalSupportOperations, SupportTargetNotFound
 from src.product.subscriptions import SavedQuerySubscriptionService
 from src.product.datahub_credentials import (
     CredentialLimitReached,
@@ -71,6 +72,7 @@ _budget_service: DataHubBudgetService | None = None
 _notification_service: PersonalNotificationService | None = None
 _subscription_service: SavedQuerySubscriptionService | None = None
 _funnel_service: PersonalFunnelService | None = None
+_support_operations: PersonalSupportOperations | None = None
 
 
 def _get_store() -> ProductStore:
@@ -162,6 +164,13 @@ def _get_funnel() -> PersonalFunnelService:
     if _funnel_service is None:
         _funnel_service = PersonalFunnelService(_get_store())
     return _funnel_service
+
+
+def _get_support_operations() -> PersonalSupportOperations:
+    global _support_operations
+    if _support_operations is None:
+        _support_operations = PersonalSupportOperations(_get_store())
+    return _support_operations
 
 
 # ---------------------------------------------------------------------------
@@ -301,6 +310,19 @@ class AdminProductMetricsResponse(BaseModel):
 class PersonalFunnelEventRequest(BaseModel):
     anonymous_session_id: str = Field(..., min_length=16, max_length=64)
     event_name: str = Field(..., min_length=1, max_length=40)
+
+
+class AdminCompensateCreditsRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=128)
+    ledger: str
+    amount: int = Field(..., ge=1, le=1_000_000)
+    reason: str = Field(..., min_length=5, max_length=500)
+
+
+class AdminSecurityRevokeRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=128)
+    target_id: str = Field(..., min_length=1, max_length=128)
+    reason: str = Field(..., min_length=5, max_length=500)
 
 
 class SavedQuerySubscriptionItem(BaseModel):
@@ -1436,6 +1458,53 @@ async def admin_product_metrics(
         weekly_effective_research_users=len(effective_users),
         personal_funnel=_get_funnel().aggregate(start),
     )
+
+
+def _admin_actor(admin: dict) -> str:
+    return str(admin.get("email") or admin.get("id") or "admin")
+
+
+@_router.post("/api/admin/personal-support/credits")
+async def admin_compensate_personal_credits(
+    body: AdminCompensateCreditsRequest, admin: dict = Depends(require_admin)
+) -> dict:
+    try:
+        operation_id = _get_support_operations().compensate(
+            _admin_actor(admin), body.user_id, body.ledger, body.amount, body.reason
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"operation_id": operation_id}
+
+
+@_router.post("/api/admin/personal-support/devices/revoke")
+async def admin_revoke_personal_device(
+    body: AdminSecurityRevokeRequest, admin: dict = Depends(require_admin)
+) -> dict:
+    try:
+        _get_support_operations().revoke_device(
+            _admin_actor(admin), body.user_id, body.target_id, body.reason
+        )
+    except SupportTargetNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
+
+
+@_router.post("/api/admin/personal-support/credentials/revoke")
+async def admin_revoke_personal_credential(
+    body: AdminSecurityRevokeRequest, admin: dict = Depends(require_admin)
+) -> dict:
+    try:
+        _get_support_operations().revoke_credential(
+            _admin_actor(admin), body.user_id, body.target_id, body.reason
+        )
+    except SupportTargetNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @_router.post(

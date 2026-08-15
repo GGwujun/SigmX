@@ -34,6 +34,7 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._devices = DeviceService(store)
     pr._notification_service = None
     pr._funnel_service = None
+    pr._support_operations = None
 
     yield store
 
@@ -44,6 +45,7 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._devices = None
     pr._notification_service = None
     pr._funnel_service = None
+    pr._support_operations = None
 
 
 def test_public_funnel_route_is_allowlisted_and_deduplicated() -> None:
@@ -57,6 +59,16 @@ def test_public_funnel_route_is_allowlisted_and_deduplicated() -> None:
             anonymous_session_id="browser_session_1234", event_name="enterprise_lead"
         )))
     assert error.value.status_code == 400
+
+
+def test_admin_personal_compensation_route_records_operator() -> None:
+    result = asyncio.run(pr.admin_compensate_personal_credits(
+        pr.AdminCompensateCreditsRequest(user_id="u1", ledger="research", amount=20, reason="任务失败补偿"),
+        admin={"id": "admin-1"},
+    ))
+    assert result["operation_id"]
+    audit = pr._get_store()._get_conn().execute("SELECT actor,action,target FROM audit_log").fetchone()
+    assert dict(audit) == {"actor": "admin-1", "action": "personal.credit.compensate", "target": "u1"}
 
 
 def test_catalog_endpoint_serializes_personal_plans_only() -> None:

@@ -532,6 +532,14 @@ export async function getAdminProductMetrics(days = 30): Promise<AdminProductMet
   return productRequest<AdminProductMetrics>(`/api/admin/product-metrics?days=${days}`);
 }
 
+export async function compensatePersonalCredits(userId: string, ledger: "research" | "data", amount: number, reason: string): Promise<{ operation_id: string }> {
+  return productRequest("/api/admin/personal-support/credits", { method: "POST", body: JSON.stringify({ user_id: userId, ledger, amount, reason }) });
+}
+
+export async function revokePersonalSecurityTarget(userId: string, target: "devices" | "credentials", targetId: string, reason: string): Promise<void> {
+  await productRequest(`/api/admin/personal-support/${target}/revoke`, { method: "POST", body: JSON.stringify({ user_id: userId, target_id: targetId, reason }) });
+}
+
 export async function createActivationCodes(
   planCode: string,
   months: number,

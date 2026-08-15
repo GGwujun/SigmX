@@ -18,7 +18,7 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 | Real checkout/payment/refund | Provider protocol exists; only activation-code provider is operational | Missing: signed Alipay/WeChat provider and production credentials; explicitly excluded from first-phase §15 but required by rollout §13.7 |
 | Purchased Data Credit packs | Server-driven 10k/50k/200k pack catalog; hashed prepaid codes; atomic order, `purchase` lot, 365-day expiry, audit; personal/admin UI | Complete for the operational activation-code payment channel |
 | Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; personal daily/weekly saved-query review subscriptions and idempotent due notifications; `/me` UI | Complete for personal saved-query review; published report delivery is intentionally not duplicated because reports are immutable snapshots |
-| Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics | Partial: catalog editing, external-payment refund, credit adjustment, device/credential operations and content controls remain missing |
+| Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics, positive Research/Data Credit compensation, Desktop device revocation and personal Data Hub Credential revocation | Personal support controls complete and reason-audited; external-payment refund awaits a real provider, while catalog/content editing remain deploy/configuration concerns rather than required end-user paths |
 | Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost, deduplicated weekly effective research users, and the anonymous personal-user acquisition stages | Complete; funnel accepts only fixed events, deduplicates per browser/stage/day and stores no PII, query, instrument, IP, user-agent or arbitrary metadata |
 | SSR/static public delivery | FastAPI public-route allowlist injects escaped semantic HTML, canonical/OG metadata and JSON-LD into built Vite shell; private routes excluded; artifact verified | Complete |
 | SDK and CLI delivery | Dependency-free `sigmx-datahub` wheel, typed response metadata, secure client, `sigmx-data` CLI and public docs | Complete |
@@ -26,6 +26,5 @@ This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md
 
 ## Next implementation order
 
-1. Expand safe personal operations controls where domain services already support auditable mutations.
+1. Run the scoped completion gates and record the repository-wide baseline separately.
 2. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
-3. Run the scoped completion gates and record the repository-wide baseline separately.
