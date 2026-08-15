@@ -51,7 +51,7 @@ def test_free_monthly_grant_is_available_on_first_datahub_contact(product) -> No
     assert data_ledger.balance("u1").available == 1_000
 
 
-def test_enterprise_cannot_enter_personal_activation_flow(product) -> None:
+def test_removed_enterprise_plan_cannot_enter_activation_flow(product) -> None:
     _, commerce, _ = product
-    with pytest.raises(ValueError, match="personal"):
+    with pytest.raises(ValueError, match="cannot create activation code"):
         commerce.admin_create_activation_code(plan="enterprise", months=3)

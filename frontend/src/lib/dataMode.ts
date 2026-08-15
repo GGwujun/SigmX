@@ -44,15 +44,15 @@ export function setDataHubUrl(url: string): void {
 
 export function getDataHubKey(): string {
   try {
-    return window.localStorage.getItem(HUB_KEY_KEY) || "";
+    return window.sessionStorage.getItem(HUB_KEY_KEY) || "";
   } catch { return ""; }
 }
 
 export function setDataHubKey(key: string): void {
   try {
     const trimmed = key.trim();
-    if (trimmed) window.localStorage.setItem(HUB_KEY_KEY, trimmed);
-    else window.localStorage.removeItem(HUB_KEY_KEY);
+    if (trimmed) window.sessionStorage.setItem(HUB_KEY_KEY, trimmed);
+    else window.sessionStorage.removeItem(HUB_KEY_KEY);
   } catch { /* ignore */ }
 }
 
@@ -97,7 +97,7 @@ export function canGenerateRecommendationsLocally(): boolean {
 export function dataHubHeaders(): Record<string, string> {
   if (getDataMode() === "connected") {
     const key = getDataHubKey();
-    if (key) return { "X-API-Key": key };
+    if (key) return { Authorization: `Bearer ${key}` };
   }
   return {};
 }

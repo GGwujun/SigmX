@@ -1,7 +1,7 @@
 # SigmX Data Hub API 目录（/api/v1/*）
 
 > Base: `https://sigmx.dsx-family.site/api/v1` · Timezone: Asia/Shanghai · 金额单位: 亿元（除非另有注明）
-> 鉴权: Data Hub 模式下远程请求需 `X-API-Key` 头或产品 Bearer 令牌；响应统一 `{ok, data, meta}` 信封。
+> 鉴权: Data Hub 模式只接受个人中心创建的 `Authorization: Bearer sxd_live_...` Credential；响应统一 `{ok, data, meta}` 信封，并返回 Data Credit 计费头。
 > 实现于 `agent/src/api/sigmx_routes.py`，health 端点回显最新清单。
 
 ## 市场总览（既有）
@@ -101,4 +101,3 @@
 | `GET /hot-money/daily` | `trade_date`；`hot_name` 模糊；`limit≤500` | 游资每日榜单（买卖净额/上榜理由，按净额绝对值降序） | hot_money_daily（新表，盘后 01302） |
 | `GET /hot-money/list` | — | 游资名录 | hot_money_list（新表，01301） |
 | `GET /stocks/hot-history` | `code`*；`days≤250`；`source` | 个股热度历史曲线（rank/hot_value 逐日） | hot_list（已有数据直查） |
-

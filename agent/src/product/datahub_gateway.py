@@ -298,6 +298,7 @@ class DataHubBillingRoute(APIRoute):
 
     @staticmethod
     def _error_response(exc: Exception):
+        request_id = str(uuid.uuid4())
         if isinstance(exc, CredentialRequired):
             status_code, code = 401, "credential_required"
         elif isinstance(exc, (CredentialInvalid, CredentialExpired, CredentialRevoked)):
@@ -323,4 +324,5 @@ class DataHubBillingRoute(APIRoute):
         return JSONResponse(
             status_code=status_code,
             content={"ok": False, "error": {"code": code, "message": str(exc)}},
+            headers={"X-Request-ID": request_id},
         )

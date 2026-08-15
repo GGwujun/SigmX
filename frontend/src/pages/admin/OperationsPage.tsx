@@ -16,7 +16,6 @@ import { createActivationCodes, type CreatedCodeItem } from "@/lib/productApi";
 const PLAN_OPTIONS = [
   { value: "advanced", label: "进阶版（268 元/季）" },
   { value: "pro", label: "专业版（518 元/季）" },
-  { value: "enterprise", label: "企业版（合同报价）" },
 ];
 
 export function OperationsPage() {

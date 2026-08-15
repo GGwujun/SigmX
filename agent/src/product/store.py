@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 4
+_SCHEMA_VERSION = 6
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -130,10 +130,12 @@ class ProductStore:
         conn = self._get_conn()
         with self._lock:
             self._create_tables(conn)
+            self._drop_legacy_datahub_tables(conn)
             self._ensure_catalog_contract_columns(conn)
             self._seed_catalog(conn)
             self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
+            self._remove_enterprise_product(conn)
             self._stamp_version(conn)
             conn.commit()
 
@@ -276,15 +278,6 @@ class ProductStore:
                 revoked_at TEXT,
                 expires_at TEXT,
                 created_at TEXT NOT NULL
-            );
-
-            -- Daily Data Hub / cloud-AI usage for quota enforcement.
-            CREATE TABLE IF NOT EXISTS usage_daily (
-                user_id TEXT NOT NULL,
-                metric TEXT NOT NULL,
-                day TEXT NOT NULL,
-                consumed INTEGER NOT NULL DEFAULT 0,
-                PRIMARY KEY (user_id, metric, day)
             );
 
             CREATE TABLE IF NOT EXISTS data_credit_lots (
@@ -503,6 +496,16 @@ class ProductStore:
                 conn.execute(
                     f"ALTER TABLE datahub_endpoint_catalog ADD COLUMN {name} {declaration}"
                 )
+
+    @staticmethod
+    def _drop_legacy_datahub_tables(conn: sqlite3.Connection) -> None:
+        conn.execute("DROP TABLE IF EXISTS usage_daily")
+
+    @staticmethod
+    def _remove_enterprise_product(conn: sqlite3.Connection) -> None:
+        conn.execute("DELETE FROM activation_codes WHERE plan_code = 'enterprise'")
+        conn.execute("DELETE FROM entitlement_grants WHERE plan_code = 'enterprise'")
+        conn.execute("DELETE FROM plans WHERE code = 'enterprise'")
 
     @staticmethod
     def _migrate_v2_datahub_entitlements(conn: sqlite3.Connection) -> None:

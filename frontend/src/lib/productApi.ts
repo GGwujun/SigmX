@@ -164,6 +164,24 @@ export interface DataCreditBalance {
   expiring_soon: number;
 }
 
+export interface DataCreditLot {
+  id: string;
+  amount_total: number;
+  amount_remaining: number;
+  source: string;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export interface DataCreditLedgerEntry {
+  id: string;
+  operation: string;
+  delta: number;
+  lot_id: string | null;
+  reservation_id: string | null;
+  created_at: string;
+}
+
 export interface DataHubCredential {
   id: string;
   key_prefix: string;
@@ -201,6 +219,16 @@ export interface DataHubUsage {
 
 export async function getDataCreditBalance(): Promise<DataCreditBalance> {
   return productRequest<DataCreditBalance>("/api/data-credits/me");
+}
+
+export async function getDataCreditLots(): Promise<DataCreditLot[]> {
+  const data = await productRequest<{ lots: DataCreditLot[] }>("/api/data-credits/lots");
+  return data.lots;
+}
+
+export async function getDataCreditLedger(): Promise<DataCreditLedgerEntry[]> {
+  const data = await productRequest<{ entries: DataCreditLedgerEntry[] }>("/api/data-credits/ledger");
+  return data.entries;
 }
 
 export async function listDataHubCredentials(): Promise<DataHubCredential[]> {

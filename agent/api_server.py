@@ -3405,9 +3405,6 @@ from src.api.onboarding_routes import register_onboarding_routes  # noqa: E402
 register_onboarding_routes(app)
 
 # Admin-only Data Hub subscription management
-from src.api.admin_routes import register_admin_routes  # noqa: E402
-register_admin_routes(app, require_admin)
-
 
 # ============================================================================
 # AlphaForge routes (Web UI)

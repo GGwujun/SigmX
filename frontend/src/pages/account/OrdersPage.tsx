@@ -22,7 +22,6 @@ const PLAN_NAME_ZH: Record<string, string> = {
   free: "免费版",
   advanced: "进阶版",
   pro: "专业版",
-  enterprise: "企业版",
 };
 
 function shortDateTime(value?: string | null): string {

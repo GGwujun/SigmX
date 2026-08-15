@@ -130,10 +130,10 @@ function DataHubTab() {
                   type="password"
                   value={hubKey}
                   onChange={e => setHubKey(e.target.value)}
-                  placeholder="sx_..."
+                  placeholder="sxd_live_..."
                   className={fieldClass}
                 />
-                <span className={hintClass}>在 Data Hub 管理后台生成的订阅密钥</span>
+                <span className={hintClass}>在个人中心生成；仅保存在当前 Desktop 会话中</span>
               </label>
             </>
           )}

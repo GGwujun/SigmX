@@ -76,10 +76,11 @@ def test_monthly_data_credit_grant_uses_plan_value_and_next_month_expiry(store: 
     assert lot["expires_at"] == "2026-09-01T00:00:00+00:00"
 
 
-def test_monthly_data_credit_grant_skips_zero_credit_plan(store: ProductStore) -> None:
-    assert grant_monthly_data_credits(
-        DataCreditLedger(store), "org1", "enterprise", date(2026, 8, 15)
-    ) is None
+def test_monthly_data_credit_grant_rejects_removed_enterprise_plan(store: ProductStore) -> None:
+    with pytest.raises(ValueError, match="unknown plan enterprise"):
+        grant_monthly_data_credits(
+            DataCreditLedger(store), "u1", "enterprise", date(2026, 8, 15)
+        )
 
 
 def test_authorize_consumes_expiring_lots_first_and_is_idempotent(store: ProductStore) -> None:

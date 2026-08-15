@@ -16,7 +16,6 @@ class PlanCode(StrEnum):
     FREE = "free"
     ADVANCED = "advanced"
     PRO = "pro"
-    ENTERPRISE = "enterprise"
 
 
 class OrderStatus(StrEnum):

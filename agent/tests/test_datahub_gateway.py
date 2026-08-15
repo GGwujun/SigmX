@@ -11,6 +11,7 @@ from src.product.data_credits import DataCreditLedger
 from src.product.datahub_credentials import DataHubCredentialService
 from src.product.datahub_gateway import (
     CredentialRequired,
+    DataHubBillingRoute,
     DatasetNotEntitled,
     DataHubRequestGateway,
 )
@@ -51,6 +52,14 @@ def test_gateway_requires_new_bearer_credential(env) -> None:
         gateway.prepare(FakeRequest(), "GET", "/api/v1/health")
     with pytest.raises(CredentialRequired):
         gateway.prepare(FakeRequest("Bearer sx_deadbeef"), "GET", "/api/v1/health")
+
+
+def test_gateway_error_response_always_has_request_id() -> None:
+    response = DataHubBillingRoute._error_response(
+        CredentialRequired("Authorization Bearer credential is required")
+    )
+    assert response.status_code == 401
+    assert str(__import__("uuid").UUID(response.headers["X-Request-ID"])) == response.headers["X-Request-ID"]
 
 
 def test_fixed_endpoint_authorizes_and_settles_one_credit(env) -> None:

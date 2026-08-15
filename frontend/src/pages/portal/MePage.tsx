@@ -165,7 +165,7 @@ export function MePage() {
         <ProductCard
           title="SigmX Data Hub"
           eyebrow="Financial Data Infrastructure"
-          description="为 Desktop、Python 和企业系统提供标准化、带质量状态和用量计量的金融数据。"
+          description="为 Desktop 和个人开发者提供标准化、带质量状态和用量计量的金融数据。"
           to="/product/data-hub"
           action="了解 Data Hub"
         />

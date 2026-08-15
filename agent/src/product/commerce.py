@@ -94,8 +94,6 @@ class CommerceService:
         plaintext is shown here and never again (design §9). ``expires_at`` is
         the code's own lifetime (independent of the membership it grants).
         """
-        if plan == PlanCode.ENTERPRISE:
-            raise ValueError("enterprise is not available in the personal activation flow")
         if plan not in {PlanCode.ADVANCED, PlanCode.PRO}:
             raise ValueError(f"cannot create activation code for plan {plan!r}")
         if months <= 0:

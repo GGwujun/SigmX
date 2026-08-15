@@ -37,13 +37,9 @@ def test_catalog_is_seeded_and_server_driven(tmp_path: Path) -> None:
     assert plans["pro"]["entitlements"]["desktop.device_limit"] == 3
 
 
-def test_enterprise_plan_present(tmp_path: Path) -> None:
+def test_enterprise_plan_is_removed_from_personal_catalog(tmp_path: Path) -> None:
     store = ProductStore(tmp_path / "product.db")
-    enterprise = store.get_plan("enterprise")
-    assert enterprise is not None
-    assert enterprise["price_cny_fen"] == 0  # contract-priced, not a fixed sticker
-    assert enterprise["entitlements"]["datahub.commercial_use"] is True
-    assert enterprise["entitlements"]["datahub.monthly_credits"] == 0
+    assert store.get_plan("enterprise") is None
 
 
 def test_schema_v2_tables_exist(tmp_path: Path) -> None:
@@ -71,7 +67,8 @@ def test_schema_v2_tables_exist(tmp_path: Path) -> None:
             "SELECT version FROM product_migrations"
         )
     }
-    assert {1, 2, 3, 4} <= versions
+    assert {1, 2, 3, 4, 5, 6} <= versions
+    assert "usage_daily" not in names
 
 
 def test_schema_v2_replaces_old_datahub_keys_only(tmp_path: Path) -> None:
@@ -105,14 +102,14 @@ def test_migration_is_idempotent_when_reopened(tmp_path: Path) -> None:
 
     first = ProductStore(db_path)
     first_codes = {p["code"] for p in first.list_plans()}
-    assert first_codes == {"free", "advanced", "pro", "enterprise"}
+    assert first_codes == {"free", "advanced", "pro"}
 
     second = ProductStore(db_path)  # re-open against the populated db
     second_codes = {p["code"] for p in second.list_plans()}
     assert second_codes == first_codes
 
     # The advanced plan was seeded exactly once — no duplicated rows.
-    assert len(second.list_plans()) == 4
+    assert len(second.list_plans()) == 3
     advanced = second.get_plan("advanced")
     assert advanced is not None
     assert advanced["price_cny_fen"] == 26800

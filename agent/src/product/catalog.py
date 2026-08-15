@@ -118,32 +118,7 @@ PRO: PlanSeed = {
     "sort_order": 3,
 }
 
-# Enterprise: contract values are applied by a later organization entitlement layer.
-ENTERPRISE: PlanSeed = {
-    "code": "enterprise",
-    "name_zh": "企业版",
-    "price_cny_fen": 0,
-    "billing_period": "contract",
-    "monthly_credits": 0,
-    "welcome_credits": 0,
-    "description": "API、团队和私有化",
-    "entitlements": {
-        "datahub.enabled": True,
-        "datahub.dataset_groups": [],
-        "datahub.monthly_credits": 0,
-        "datahub.rate_limit_per_minute": 0,
-        "datahub.concurrent_limit": 0,
-        "datahub.max_rows_per_request": 0,
-        "datahub.history_depth_days": 0,
-        "datahub.commercial_use": True,
-        "desktop.connected_mode": True,
-        "cloud_ai.enabled": True,
-        "reports.cloud_history": True,
-    },
-    "sort_order": 4,
-}
-
-DEFAULT_CATALOG: list[PlanSeed] = [FREE, ADVANCED, PRO, ENTERPRISE]
+DEFAULT_CATALOG: list[PlanSeed] = [FREE, ADVANCED, PRO]
 
 
 def to_seed_row(seed: PlanSeed) -> tuple:

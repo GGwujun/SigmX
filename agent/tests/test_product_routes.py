@@ -42,11 +42,11 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ProductS
     pr._devices = None
 
 
-def test_catalog_endpoint_serializes_all_four_plans() -> None:
-    """GET /api/catalog/plans returns the four canonical plans with entitlements."""
+def test_catalog_endpoint_serializes_personal_plans_only() -> None:
+    """GET /api/catalog/plans returns only canonical personal plans."""
     result = asyncio.run(pr.list_plans())
     codes = {p.code for p in result.plans}
-    assert codes == {"free", "advanced", "pro", "enterprise"}
+    assert codes == {"free", "advanced", "pro"}
     advanced = next(p for p in result.plans if p.code == "advanced")
     assert advanced.price_cny_fen == 26800
     assert advanced.entitlements["datahub.monthly_credits"] == 30_000
