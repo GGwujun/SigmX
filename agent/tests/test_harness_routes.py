@@ -8,6 +8,7 @@ import pytest
 import src.api.harness_routes as routes
 from src.agent.tools import ToolRegistry
 from src.harness.registry import HarnessToolRegistry
+from src.harness.assets import LocalAssetCatalog
 from src.harness.store import HarnessStore
 
 
@@ -15,6 +16,10 @@ from src.harness.store import HarnessStore
 def harness_dependencies(monkeypatch, tmp_path: Path):
     routes._registry = HarnessToolRegistry.from_tool_registry(ToolRegistry())
     routes._store = HarnessStore(tmp_path / "harness.db", now=lambda: "2026-08-16T03:00:00+00:00")
+    asset_root = tmp_path / "reports"
+    asset_root.mkdir()
+    (asset_root / "research-20260815.md").write_text("private", encoding="utf-8")
+    routes._assets = LocalAssetCatalog({"report": asset_root})
     monkeypatch.setattr(routes, "_status", lambda user_id: {
         "runtime_available": True, "cloud_connected": False,
         "local_data_available": True, "data_hub_available": True,
@@ -24,6 +29,7 @@ def harness_dependencies(monkeypatch, tmp_path: Path):
     yield
     routes._registry = None
     routes._store = None
+    routes._assets = None
 
 
 def test_status_and_runs_are_normalized_for_authenticated_user() -> None:
@@ -59,6 +65,14 @@ def test_harness_runs_are_private_to_current_user() -> None:
     assert error.value.status_code == 404
 
 
+def test_local_assets_return_metadata_and_summary_only() -> None:
+    result = asyncio.run(routes.harness_assets(kind=None, query=None, user={"id": "u1"}))
+    assert result.summary.counts == {"report": 1}
+    assert result.items[0].name == "research-20260815.md"
+    assert result.items[0].version == "20260815"
+    assert "private" not in result.model_dump_json()
+
+
 def test_context_preview_never_returns_file_paths_or_secrets(tmp_path: Path) -> None:
     private = tmp_path / "portfolio-secret.txt"
     private.write_text("password=do-not-leak", encoding="utf-8")
@@ -78,7 +92,7 @@ def test_context_preview_never_returns_file_paths_or_secrets(tmp_path: Path) -> 
 
 
 def test_harness_routes_require_user_dependency() -> None:
-    protected = {"/api/harness/status", "/api/harness/tools", "/api/harness/runs", "/api/harness/runs/{run_id}", "/api/harness/runs/{run_id}/cancel", "/api/harness/context/preview"}
+    protected = {"/api/harness/status", "/api/harness/tools", "/api/harness/runs", "/api/harness/runs/{run_id}", "/api/harness/runs/{run_id}/cancel", "/api/harness/assets", "/api/harness/context/preview"}
     for route in routes.router.routes:
         if route.path in protected:
             assert route.dependant.dependencies

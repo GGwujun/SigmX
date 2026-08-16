@@ -33,6 +33,16 @@ export interface HarnessRun {
   error: string | null;
 }
 
+export interface LocalAsset {
+  id: string; kind: string; name: string; extension: string; size_bytes: number;
+  modified_at: string; version: string | null; local_only: boolean;
+}
+
+export interface LocalAssetsResponse {
+  items: LocalAsset[];
+  summary: { counts: Record<string, number>; total_size_bytes: number; latest_modified_at: string | null };
+}
+
 async function harnessRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...authHeaders(), ...init.headers } });
   if (!response.ok) {
@@ -64,4 +74,12 @@ export function getHarnessRun(runId: string): Promise<HarnessRun> {
 
 export function cancelHarnessRun(runId: string): Promise<HarnessRun> {
   return harnessRequest(`/api/harness/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
+}
+
+export function getHarnessAssets(filters: { kind?: string; query?: string } = {}): Promise<LocalAssetsResponse> {
+  const params = new URLSearchParams();
+  if (filters.kind) params.set("kind", filters.kind);
+  if (filters.query) params.set("query", filters.query);
+  const suffix = params.size ? `?${params}` : "";
+  return harnessRequest(`/api/harness/assets${suffix}`);
 }

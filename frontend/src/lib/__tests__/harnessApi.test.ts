@@ -1,4 +1,4 @@
-import { cancelHarnessRun, createHarnessRun, getHarnessRun, getHarnessRuns, getHarnessStatus } from "../harnessApi";
+import { cancelHarnessRun, createHarnessRun, getHarnessAssets, getHarnessRun, getHarnessRuns, getHarnessStatus } from "../harnessApi";
 
 describe("harnessApi", () => {
   it("loads the authenticated Harness status contract", async () => {
@@ -23,10 +23,12 @@ describe("harnessApi", () => {
     await createHarnessRun({ run_type: "research", title: "茅台研究", goal: "验证盈利质量", context_manifest: {} });
     await getHarnessRun("run 1");
     await cancelHarnessRun("run 1");
+    await getHarnessAssets({ kind: "report", query: "quality" });
 
     expect(fetchMock.mock.calls[0][0]).toBe("/api/harness/runs?limit=20&run_type=research&status=running");
     expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ method: "POST", body: expect.any(String) }));
     expect(fetchMock.mock.calls[2][0]).toBe("/api/harness/runs/run%201");
     expect(fetchMock.mock.calls[3][0]).toBe("/api/harness/runs/run%201/cancel");
+    expect(fetchMock.mock.calls[4][0]).toBe("/api/harness/assets?kind=report&query=quality");
   });
 });

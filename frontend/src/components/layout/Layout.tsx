@@ -1,6 +1,6 @@
 ﻿import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useSearchParams } from "react-router-dom";
-import { BarChart3, Bot, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss, Globe, Radar, Shield } from "lucide-react";
+import { Activity, BarChart3, Bot, Database, Moon, Sun, Plus, Trash2, Pencil, MessageSquare, ChevronsLeft, ChevronsRight, Settings, Layers, Loader2, Target, Zap, Coins, User, CalendarClock, Ticket, Rss, Globe, Radar, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import { api, type SessionItem } from "@/lib/api";
@@ -28,21 +28,20 @@ function DataHubBanner() {
 }
 import { Watermark } from "@/components/Watermark";
 
+export const DESKTOP_PRIMARY_NAV = [
+  { to: "/app", icon: BarChart3, label: "工作台" },
+  { to: "/research", icon: Bot, label: "研究中心" },
+  { to: "/market", icon: Radar, label: "市场工作台" },
+  { to: "/quant", icon: Zap, label: "量化实验室" },
+  { to: "/tracking", icon: Target, label: "跟踪中心" },
+  { to: "/runs", icon: Activity, label: "运行中心" },
+  { to: "/assets", icon: Database, label: "本地资产" },
+];
+
 const NAV_GROUPS = [
   {
-    title: "工作台",
-    items: [
-      { to: "/app", icon: BarChart3, label: "我的工作台" },
-      { to: "/market-dashboard", icon: Radar, label: "总览大屏" },
-    ],
-  },
-  {
-    title: "AI 投研",
-    items: [
-      { to: "/agent", icon: Bot, label: "智能体" },
-      { to: "/alpha-forge", icon: Zap, label: "AlphaForge" },
-      { to: "/fund-arbitrage", icon: Coins, label: "套利分析" },
-    ],
+    title: "Financial Harness",
+    items: DESKTOP_PRIMARY_NAV,
   },
   {
     title: "交易决策",

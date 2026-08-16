@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_user
 from src.harness.context import build_context_manifest
+from src.harness.assets import LocalAssetCatalog
 from src.harness.registry import HarnessToolRegistry
 from src.harness.store import HarnessRun, HarnessStore, InvalidRunTransition
 
@@ -67,6 +68,28 @@ class HarnessRunsResponse(BaseModel):
     items: list[HarnessRunItem]
 
 
+class LocalAssetItem(BaseModel):
+    id: str
+    kind: str
+    name: str
+    extension: str
+    size_bytes: int
+    modified_at: str
+    version: str | None
+    local_only: bool
+
+
+class LocalAssetSummaryResponse(BaseModel):
+    counts: dict[str, int]
+    total_size_bytes: int
+    latest_modified_at: str | None
+
+
+class LocalAssetsResponse(BaseModel):
+    items: list[LocalAssetItem]
+    summary: LocalAssetSummaryResponse
+
+
 class CreateHarnessRunRequest(BaseModel):
     run_type: str = Field(..., min_length=1, max_length=32)
     title: str = Field(..., min_length=1, max_length=160)
@@ -101,6 +124,7 @@ class ContextPreviewResponse(BaseModel):
 router = APIRouter(prefix="/api/harness", tags=["harness"])
 _registry: HarnessToolRegistry | None = None
 _store: HarnessStore | None = None
+_assets: LocalAssetCatalog | None = None
 
 
 def _get_registry() -> HarnessToolRegistry:
@@ -116,6 +140,17 @@ def _get_store() -> HarnessStore:
     if _store is None:
         _store = HarnessStore(Path.home() / ".vibe-trading" / "harness.db")
     return _store
+
+
+def _get_assets() -> LocalAssetCatalog:
+    global _assets
+    if _assets is None:
+        root = Path.home() / ".vibe-trading"
+        _assets = LocalAssetCatalog({
+            "dataset": root / "data", "research": root / "research",
+            "report": root / "reports", "cache": root / "cache",
+        })
+    return _assets
 
 
 def _run_item(run: HarnessRun) -> HarnessRunItem:
@@ -217,6 +252,19 @@ async def cancel_harness_run(run_id: str, user: dict = Depends(require_user)) ->
         raise HTTPException(status_code=404, detail="harness run not found") from None
     except InvalidRunTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.get("/assets", response_model=LocalAssetsResponse)
+async def harness_assets(
+    kind: str | None = Query(None), query: str | None = Query(None, max_length=120),
+    user: dict = Depends(require_user),
+) -> LocalAssetsResponse:
+    del user
+    catalog = _get_assets()
+    return LocalAssetsResponse(
+        items=[LocalAssetItem(**asdict(item)) for item in catalog.list_assets(kind=kind, query=query)],
+        summary=LocalAssetSummaryResponse(**asdict(catalog.summary())),
+    )
 
 
 @router.post("/context/preview", response_model=ContextPreviewResponse)

@@ -12,6 +12,7 @@ const AlphaForge = lazy(() => import("@/pages/AlphaForge").then(m => ({ default:
 const TrackingDashboard = lazy(() => import("@/pages/TrackingDashboard").then(m => ({ default: m.TrackingDashboard })));
 const RunDetail = lazy(() => import("@/pages/RunDetail").then(m => ({ default: m.RunDetail })));
 const HarnessRunsPage = lazy(() => import("@/pages/HarnessRunsPage").then(m => ({ default: m.HarnessRunsPage })));
+const LocalAssetsPage = lazy(() => import("@/pages/LocalAssetsPage").then(m => ({ default: m.LocalAssetsPage })));
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
 const BigScreen = lazy(() => import("@/pages/BigScreen"));
 const MarketStage = lazy(() => import("@/pages/MarketStagePage").then(m => ({ default: m.MorningBrief })));
@@ -40,10 +41,6 @@ const OrdersPage = lazy(() => import("@/pages/account/OrdersPage").then(m => ({ 
 const DataHubConsolePage = lazy(() => import("@/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
 const CloudAccountPage = lazy(() => import("@/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
 
-function DesktopAssets() {
-  return <div className="p-6"><h1 className="text-xl font-semibold">本地资产</h1><p className="mt-2 text-sm text-muted-foreground">管理本地数据集、研究文件、报告与缓存版本。</p></div>;
-}
-
 export const desktopRouter = createBrowserRouter([
   { path: "/login", element: wrap(LoginPage) },
   { element: <RequireAuth />, children: [
@@ -56,7 +53,7 @@ export const desktopRouter = createBrowserRouter([
       { path: "/tracking", element: wrap(TrackingDashboard) },
       { path: "/runs", element: wrap(HarnessRunsPage) },
       { path: "/runs/:runId", element: wrap(RunDetail) },
-      { path: "/assets", element: <DesktopAssets /> },
+      { path: "/assets", element: wrap(LocalAssetsPage) },
       { path: "/cloud", element: <Navigate to="/me" replace /> },
       { path: "/settings", element: wrap(Settings) },
       { path: "/market-dashboard", element: wrap(MarketDashboard) },
