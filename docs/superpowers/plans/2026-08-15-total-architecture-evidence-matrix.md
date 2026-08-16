@@ -1,30 +1,35 @@
 # SigmX Total Architecture Evidence Matrix
 
-This is the completion gate for `2026-08-15-sigmx-product-architecture-design.md`. A row is complete only when code and an executable verification both exist.
+This is the strict completion gate for `2026-08-15-sigmx-product-architecture-design.md`.
 
-| Architecture requirement | Current evidence | Status / remaining work |
-|---|---|---|
-| Three independent products and route shells | Public routes, `/me` account shell, Desktop `/app`, Data Hub catalog/gateway; router boundary tests | Complete |
-| Public acquisition funnel | Search, query, stock/fund, research snapshot, product, pricing, download and docs routes; public research tests; route-specific semantic HTML | Complete |
-| Logged-in cloud assets | Saved queries, watchlist, report snapshots, task handoffs and `/me` | Complete |
-| Desktop Financial Harness | Runtime context, tool contracts, governance states, run records, Connected sessions and UI status | Complete for the specified non-trading scope |
-| Secure cross-terminal research loop | Hashed one-time handoff, strict `sigmx://research/` parser, device-bound consumption, explicit redacted report publication | Complete |
-| Independent Data Hub | Versioned endpoint catalog, personal Credentials, scopes/IP/rotation/revoke, gateway limits and Data Credit settlement | Complete |
-| Developer console | Catalog/docs, Credential management, debugger, lots/ledger, logs/errors, UTC budgets and 50/80/100 alerts | Complete |
-| Four personal products | `free`, `desktop_pro`, `data_developer`, `pro_bundle`; old personal/enterprise codes removed; server-driven names/prices | Complete |
-| Double-credit separation | Independent stores, lots, ledgers, authorization/reservation and settlement paths | Complete |
-| Personal renewal | Same-plan activation extends from current expiry | Complete |
-| Personal bills and consumption insight | `/api/billing/summary`, paid order amount, 30-day Research/Data Credit consumption, account display | Complete |
-| Real checkout/payment/refund | Provider protocol exists; only activation-code provider is operational | Missing: signed Alipay/WeChat provider and production credentials; explicitly excluded from first-phase §15 but required by rollout §13.7 |
-| Purchased Data Credit packs | Server-driven 10k/50k/200k pack catalog; hashed prepaid codes; atomic order, `purchase` lot, 365-day expiry, audit; personal/admin UI | Complete for the operational activation-code payment channel |
-| Personal notifications/subscriptions | User-owned inbox/preferences; transactional budget and commerce events; owner-scoped mark-read; personal daily/weekly saved-query review subscriptions and idempotent due notifications; `/me` UI | Complete for personal saved-query review; published report delivery is intentionally not duplicated because reports are immutable snapshots |
-| Operations console | Plan/pack activation-code generation, immutable commerce audit, personal product metrics, positive Research/Data Credit compensation, Desktop device revocation and personal Data Hub Credential revocation | Personal support controls complete and reason-audited; external-payment refund awaits a real provider, while catalog/content editing remain deploy/configuration concerns rather than required end-user paths |
-| Metrics and funnel | Admin summary for plan distribution, paid orders/revenue, active Credentials, Data Hub success/cost, deduplicated weekly effective research users, and the anonymous personal-user acquisition stages | Complete; funnel accepts only fixed events, deduplicates per browser/stage/day and stores no PII, query, instrument, IP, user-agent or arbitrary metadata |
-| SSR/static public delivery | FastAPI public-route allowlist injects escaped semantic HTML, canonical/OG metadata and JSON-LD into built Vite shell; private routes excluded; artifact verified | Complete |
-| SDK and CLI delivery | Dependency-free `sigmx-datahub` wheel, typed response metadata, secure client, `sigmx-data` CLI and public docs | Complete |
-| Full verification | Fresh scoped backend gate: 176 passed; full frontend: 43 files / 258 passed; production TypeScript/Vite build succeeded; Python SDK: 3 passed and sdist/wheel built | Complete for the product-architecture scope. Repository-wide historical baseline remains 3588 passed, 74 failed, 24 errors, dominated by Windows symlink permissions and legacy/external environment suites outside this architecture change |
+The previous matrix equated routes, files, narrow tests, and adapter DTOs with completed product behavior. That assessment was invalid. The authoritative inventory is now `sigmx-product-requirements.json`, audited by `scripts/verify_product_architecture.py`.
 
-## Next implementation order
+## Evidence rules
 
-1. Run the scoped completion gates and record the repository-wide baseline separately.
-2. Integrate a real payment provider only with real merchant configuration and signed webhook verification.
+- `complete`: both executable test evidence and current runtime/browser/package evidence exist.
+- `indirect`: implementation or test files exist, but do not directly prove the complete user-facing requirement.
+- `missing`: no evidence exists or the declared evidence is absent.
+- Real payment is excluded by the explicit personal-product scope decision; activation-code commerce remains required.
+
+## Current baseline
+
+Run:
+
+```powershell
+python scripts/verify_product_architecture.py
+```
+
+At this baseline, no product-architecture row is marked complete. Existing implementation files are retained as indirect evidence and missing product behavior is represented without evidence. Runtime evidence will be added only after the corresponding vertical slice passes browser, API, SDK, or packaged-Desktop verification.
+
+## Known critical gaps
+
+1. Web and Desktop still share one Vite application and runtime route filtering.
+2. Public instrument/search pages lack the full data, quality, event, risk, and action model.
+3. `/me` lacks an authoritative today view, query history, cloud task state, and device presence.
+4. Harness runs are read-only adapters over unrelated stores, not an authoritative runtime model.
+5. Data Hub response quality/version/normalization contracts are not consistently enforced.
+6. Data Hub console and operations UI are dense partial pages rather than complete workflows.
+7. Retention, Desktop, data-quality, commercial, and margin metrics are incomplete.
+8. The production artifacts have not proved independent Web/Desktop boundaries.
+
+This matrix must not be manually promoted based on intent or file existence. Update the manifest with direct evidence paths only after executing the relevant completion gate.

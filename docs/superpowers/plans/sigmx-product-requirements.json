@@ -1,0 +1,385 @@
+[
+  {
+    "id": "1.1",
+    "title": "Three product surfaces",
+    "evidence": [
+      "file:frontend/src/router.tsx"
+    ]
+  },
+  {
+    "id": "3.1",
+    "title": "Public home and acquisition routes",
+    "evidence": [
+      "file:frontend/src/pages/public/LandingPage.tsx"
+    ]
+  },
+  {
+    "id": "3.2",
+    "title": "Unified multi-intent search",
+    "evidence": [
+      "file:agent/src/product/public_research.py"
+    ]
+  },
+  {
+    "id": "3.3",
+    "title": "Complete stock detail",
+    "evidence": [
+      "file:frontend/src/pages/public/PublicInstrumentPage.tsx"
+    ]
+  },
+  {
+    "id": "3.4",
+    "title": "Complete fund detail",
+    "evidence": [
+      "file:frontend/src/pages/public/PublicInstrumentPage.tsx"
+    ]
+  },
+  {
+    "id": "3.5",
+    "title": "Public research evidence and sharing",
+    "evidence": [
+      "file:frontend/src/pages/public/PublicReportPage.tsx"
+    ]
+  },
+  {
+    "id": "3.6",
+    "title": "Personal today overview",
+    "evidence": [
+      "file:frontend/src/pages/portal/MePage.tsx"
+    ]
+  },
+  {
+    "id": "3.7",
+    "title": "Cloud watchlist synchronization",
+    "evidence": [
+      "file:frontend/src/pages/portal/MePage.tsx"
+    ]
+  },
+  {
+    "id": "3.8",
+    "title": "Saved query history and subscriptions",
+    "evidence": [
+      "file:agent/src/product/subscriptions.py"
+    ]
+  },
+  {
+    "id": "3.9",
+    "title": "Cloud reports and task status",
+    "evidence": [
+      "file:frontend/src/pages/portal/MePage.tsx"
+    ]
+  },
+  {
+    "id": "3.10",
+    "title": "Desktop presence and handoff",
+    "evidence": [
+      "file:frontend/src/lib/desktopConnectedSession.ts"
+    ]
+  },
+  {
+    "id": "4.1",
+    "title": "Desktop independent route and build shell",
+    "evidence": [
+      "file:frontend/src/router.tsx"
+    ]
+  },
+  {
+    "id": "4.2",
+    "title": "Agent runtime",
+    "evidence": [
+      "file:agent/src/harness/registry.py"
+    ]
+  },
+  {
+    "id": "4.3",
+    "title": "Data runtime",
+    "evidence": []
+  },
+  {
+    "id": "4.4",
+    "title": "Tool runtime",
+    "evidence": [
+      "file:agent/src/harness/registry.py"
+    ]
+  },
+  {
+    "id": "4.5",
+    "title": "Context runtime",
+    "evidence": [
+      "file:agent/src/harness/context.py"
+    ]
+  },
+  {
+    "id": "4.6",
+    "title": "Governance runtime",
+    "evidence": [
+      "file:agent/src/harness/models.py"
+    ]
+  },
+  {
+    "id": "4.7",
+    "title": "Observability runtime and authoritative runs",
+    "evidence": [
+      "file:agent/src/harness/runs.py"
+    ]
+  },
+  {
+    "id": "4.8",
+    "title": "Research center",
+    "evidence": [
+      "file:frontend/src/pages/Agent.tsx"
+    ]
+  },
+  {
+    "id": "4.9",
+    "title": "Market workbench",
+    "evidence": [
+      "file:frontend/src/pages/MarketDashboard.tsx"
+    ]
+  },
+  {
+    "id": "4.10",
+    "title": "Quant lab",
+    "evidence": [
+      "file:frontend/src/pages/AlphaForge.tsx"
+    ]
+  },
+  {
+    "id": "4.11",
+    "title": "Tracking center",
+    "evidence": [
+      "file:frontend/src/pages/TrackingDashboard.tsx"
+    ]
+  },
+  {
+    "id": "4.12",
+    "title": "Local assets",
+    "evidence": []
+  },
+  {
+    "id": "4.13",
+    "title": "Standalone and Connected modes",
+    "evidence": [
+      "file:agent/src/api/harness_routes.py"
+    ]
+  },
+  {
+    "id": "5.1",
+    "title": "Data Hub four endpoint groups",
+    "evidence": [
+      "file:agent/src/product/datahub_catalog.py"
+    ]
+  },
+  {
+    "id": "5.2",
+    "title": "Multi-source normalization",
+    "evidence": []
+  },
+  {
+    "id": "5.3",
+    "title": "Adjustment and trading-day handling",
+    "evidence": []
+  },
+  {
+    "id": "5.4",
+    "title": "Deduplication and anomaly quality flags",
+    "evidence": []
+  },
+  {
+    "id": "5.5",
+    "title": "Versioned data responses",
+    "evidence": []
+  },
+  {
+    "id": "5.6",
+    "title": "Developer onboarding and credentials",
+    "evidence": [
+      "file:frontend/src/pages/account/DataHubConsolePage.tsx"
+    ]
+  },
+  {
+    "id": "5.7",
+    "title": "Catalog, debugger, SDK and logs",
+    "evidence": [
+      "file:frontend/src/pages/account/DataHubConsolePage.tsx"
+    ]
+  },
+  {
+    "id": "6.1",
+    "title": "Four personal plans and entitlements",
+    "evidence": [
+      "file:agent/src/product/catalog.py"
+    ]
+  },
+  {
+    "id": "6.2",
+    "title": "Independent Research and Data credits",
+    "evidence": [
+      "file:agent/src/product/credits.py"
+    ]
+  },
+  {
+    "id": "6.3",
+    "title": "Endpoint charging rules",
+    "evidence": [
+      "file:agent/src/product/datahub_contracts.py"
+    ]
+  },
+  {
+    "id": "7.1",
+    "title": "Shared cloud domain objects",
+    "evidence": [
+      "file:agent/src/product/store.py"
+    ]
+  },
+  {
+    "id": "7.2",
+    "title": "Explicit data ownership and locality",
+    "evidence": []
+  },
+  {
+    "id": "8.1",
+    "title": "Web registration and retention loop",
+    "evidence": []
+  },
+  {
+    "id": "8.2",
+    "title": "Web to Desktop secure handoff loop",
+    "evidence": [
+      "file:agent/src/product/handoffs.py"
+    ]
+  },
+  {
+    "id": "8.3",
+    "title": "Data Hub credit settlement loop",
+    "evidence": [
+      "file:agent/src/product/datahub_gateway.py"
+    ]
+  },
+  {
+    "id": "9.1",
+    "title": "Independent deployment boundaries",
+    "evidence": []
+  },
+  {
+    "id": "10.1",
+    "title": "Visible degradation states",
+    "evidence": []
+  },
+  {
+    "id": "10.2",
+    "title": "Personal security and audit",
+    "evidence": [
+      "file:agent/src/product/store.py"
+    ]
+  },
+  {
+    "id": "11.1",
+    "title": "User operations",
+    "evidence": [
+      "file:frontend/src/pages/admin/OperationsPage.tsx"
+    ]
+  },
+  {
+    "id": "11.2",
+    "title": "Product and price operations",
+    "evidence": []
+  },
+  {
+    "id": "11.3",
+    "title": "Order and refund operations",
+    "evidence": []
+  },
+  {
+    "id": "11.4",
+    "title": "Activation code operations",
+    "evidence": [
+      "file:frontend/src/pages/admin/OperationsPage.tsx"
+    ]
+  },
+  {
+    "id": "11.5",
+    "title": "Dual-credit adjustment operations",
+    "evidence": [
+      "file:frontend/src/pages/admin/OperationsPage.tsx"
+    ]
+  },
+  {
+    "id": "11.6",
+    "title": "Device and Credential operations",
+    "evidence": [
+      "file:frontend/src/pages/admin/OperationsPage.tsx"
+    ]
+  },
+  {
+    "id": "11.7",
+    "title": "Endpoint catalog, price, cost and quality operations",
+    "evidence": []
+  },
+  {
+    "id": "11.8",
+    "title": "Content and growth operations",
+    "evidence": []
+  },
+  {
+    "id": "12.1",
+    "title": "Web product metrics",
+    "evidence": [
+      "file:agent/src/product/funnel.py"
+    ]
+  },
+  {
+    "id": "12.2",
+    "title": "Desktop activation and retention metrics",
+    "evidence": []
+  },
+  {
+    "id": "12.3",
+    "title": "Data Hub usage and quality metrics",
+    "evidence": [
+      "file:agent/src/api/product_routes.py"
+    ]
+  },
+  {
+    "id": "12.4",
+    "title": "Commercial and margin metrics",
+    "evidence": []
+  },
+  {
+    "id": "13.1",
+    "title": "Web growth and cloud assets rollout",
+    "evidence": []
+  },
+  {
+    "id": "13.2",
+    "title": "Desktop Harness rollout",
+    "evidence": []
+  },
+  {
+    "id": "13.3",
+    "title": "Data Hub productization rollout",
+    "evidence": []
+  },
+  {
+    "id": "13.4",
+    "title": "Personal commerce rollout without real payment",
+    "evidence": [
+      "file:agent/src/product/commerce.py"
+    ]
+  },
+  {
+    "id": "14.1",
+    "title": "First-phase navigation acceptance",
+    "evidence": [
+      "file:frontend/src/router.tsx"
+    ]
+  },
+  {
+    "id": "15.1",
+    "title": "Real payment excluded by user decision",
+    "evidence": [
+      "file:agent/src/product/payment.py"
+    ]
+  }
+]
+
