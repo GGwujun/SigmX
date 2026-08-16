@@ -8,7 +8,7 @@
 # Prerequisites:
 #   - Python 3.11+ with pyinstaller installed
 #   - Node.js 20+
-#   - Frontend dist built (cd frontend && npm run build)
+#   - Node.js 20+
 #
 # Usage: bash scripts/build-desktop.sh
 
@@ -17,6 +17,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 echo "=== SigmX Desktop Builder ==="
 echo "Root: $ROOT"
+
+echo ""
+echo "[0/3] Building Desktop-only renderer..."
+cd "$ROOT/frontend"
+npm run typecheck
+npm run build:desktop
 
 # ---- Step 1: PyInstaller ----
 echo ""

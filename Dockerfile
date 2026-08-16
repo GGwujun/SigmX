@@ -7,7 +7,7 @@ WORKDIR /app/frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY frontend/ ./
-RUN npm run build
+RUN npm run typecheck && npm run build:web
 
 # ============================================================================
 # Stage 2: Python runtime
@@ -37,7 +37,7 @@ COPY agent/ agent/
 COPY docker/start-server.sh docker/start-server.sh
 
 # Copy built frontend
-COPY --from=frontend-build /app/frontend/dist frontend/dist
+COPY --from=frontend-build /app/frontend/dist/web frontend/dist/web
 
 # Install CLI entrypoint
 RUN pip install --no-cache-dir -e .

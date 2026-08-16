@@ -21,11 +21,12 @@ def main() -> int:
     if getattr(sys, "frozen", False):
         # PyInstaller onedir: datas land in _internal/ next to the exe.
         # sys._MEIPASS is only set in onefile mode; in onedir, check both
-        # <exe_dir>/_internal/frontend/dist and <exe_dir>/frontend/dist.
+        # <exe_dir>/_internal/frontend/dist/desktop and the equivalent
+        # non-_internal location.
         base = getattr(sys, "_MEIPASS", None) or here
         candidates = [
-            os.path.join(base, "_internal", "frontend", "dist"),
-            os.path.join(base, "frontend", "dist"),
+            os.path.join(base, "_internal", "frontend", "dist", "desktop"),
+            os.path.join(base, "frontend", "dist", "desktop"),
         ]
         for d in candidates:
             if os.path.isdir(d):

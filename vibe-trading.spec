@@ -81,9 +81,9 @@ if os.path.isdir(_prompts_dir):
             datas += [(_fp, _rel)]
 
 # The built React frontend is served by the backend; ship it inside the bundle.
-frontend_dist = os.path.join("frontend", "dist")
+frontend_dist = os.path.join("frontend", "dist", "desktop")
 if os.path.isdir(frontend_dist):
-    datas += [(frontend_dist, "frontend/dist")]
+    datas += [(frontend_dist, "frontend/dist/desktop")]
 
 a = Analysis(
     ["desktop/launch_backend.py"],

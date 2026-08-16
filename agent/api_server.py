@@ -533,7 +533,7 @@ app.add_middleware(
 # ``/runs/{id}`` and ``/correlation``). Because FastAPI matches registered
 # routes before the static SPA mount, a browser that refreshes or bookmarks
 # one of these URLs would receive JSON (or 401/422) instead of the SPA shell.
-# The middleware below serves ``frontend/dist/index.html`` when the request
+# The middleware below serves the selected product build's ``index.html`` when the request
 # clearly came from a browser (``Accept`` contains ``text/html``); programmatic
 # clients are routed to the real API handler as before.
 #
@@ -544,7 +544,17 @@ app.add_middleware(
 # here would incorrectly hijack those when the browser sets ``Accept:
 # text/html`` (e.g. a user pasting the URL into the address bar).
 
-_FRONTEND_DIST = Path(os.getenv("SIGMX_FRONTEND_DIST", "")) if os.getenv("SIGMX_FRONTEND_DIST") else Path(__file__).resolve().parent.parent / "frontend" / "dist"
+from src.product.frontend_build import resolve_frontend_dist
+
+
+_REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+_FRONTEND_OVERRIDE = Path(os.environ["SIGMX_FRONTEND_DIST"]) if os.getenv("SIGMX_FRONTEND_DIST") else None
+_DESKTOP_PRODUCT = os.getenv("VIBE_TRADING_DESKTOP_MODE", "").strip().lower() in {"1", "true", "yes"}
+_FRONTEND_DIST = resolve_frontend_dist(
+    _REPOSITORY_ROOT,
+    desktop_mode=_DESKTOP_PRODUCT,
+    override=_FRONTEND_OVERRIDE,
+)
 _SPA_HTML_EXACT_PATHS: frozenset[str] = frozenset({
     "/correlation",
     "/daily-recommendations",
@@ -3517,7 +3527,11 @@ def serve_main(argv: list[str] | None = None) -> int:
     # Prefer SIGMX_FRONTEND_DIST (set by PyInstaller launch_backend.py) so
     # the frozen bundle finds its shipped frontend. Fall back to the repo layout.
     _env_dist = os.getenv("SIGMX_FRONTEND_DIST")
-    frontend_dist = Path(_env_dist) if _env_dist else (Path(__file__).resolve().parent.parent / "frontend" / "dist")
+    frontend_dist = resolve_frontend_dist(
+        Path(__file__).resolve().parent.parent,
+        desktop_mode=os.getenv("VIBE_TRADING_DESKTOP_MODE", "").strip().lower() in {"1", "true", "yes"},
+        override=Path(_env_dist) if _env_dist else None,
+    )
     frontend_root = Path(__file__).resolve().parent.parent / "frontend"
 
     # Windows registry commonly maps .js → text/plain. StaticFiles relies on the
@@ -3532,8 +3546,9 @@ def serve_main(argv: list[str] | None = None) -> int:
     vite_proc = None
     if args.dev and frontend_root.exists():
         print("[dev] Starting Vite dev server on :5173 ...")
+        dev_script = "dev:desktop" if _DESKTOP_PRODUCT else "dev:web"
         vite_proc = subprocess.Popen(
-            ["npx", "vite", "--host", "0.0.0.0"],
+            ["npm", "run", dev_script, "--", "--host", "0.0.0.0"],
             cwd=str(frontend_root),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,

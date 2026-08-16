@@ -51,6 +51,8 @@ const SPA_WITH_API_PATHS = [
 ];
 
 export default defineConfig(({ mode }) => {
+  const product = mode === "desktop" ? "desktop" : "web";
+  const productRoot = path.resolve(__dirname, `apps/${product}`);
   const env = loadEnv(mode, process.cwd(), "");
   const apiTarget = env.VITE_API_URL || "http://localhost:8000";
   const apiProxy = { target: apiTarget, changeOrigin: true };
@@ -64,6 +66,9 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
+    root: productRoot,
+    publicDir: path.resolve(__dirname, "public"),
+    envDir: __dirname,
     plugins: [react()],
     // Inject app version from package.json as a build-time constant so the
     // UI footer stays in sync without a hardcoded duplicate.
@@ -95,6 +100,8 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      outDir: path.resolve(__dirname, `dist/${product}`),
+      emptyOutDir: true,
       rollupOptions: {
         output: {
           manualChunks: {
