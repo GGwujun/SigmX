@@ -18,7 +18,12 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vitest/globals"],
     "baseUrl": ".",
-    "paths": { "@/*": ["./src/*"] }
+    "paths": {
+      "@/*": ["./src/*"],
+      "@sigmx/ui": ["./packages/ui/src/index.ts"],
+      "@sigmx/domain": ["./packages/domain/src/index.ts"],
+      "@sigmx/api-client": ["./packages/api-client/src/index.ts"]
+    }
   },
-  "include": ["src", "apps"]
+  "include": ["src", "apps", "packages"]
 }

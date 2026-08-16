@@ -5,7 +5,12 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   resolve: {
-    alias: { "@": path.resolve(__dirname, "./src") },
+    alias: {
+      "@": path.resolve(__dirname, "./src"),
+      "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
+      "@sigmx/domain": path.resolve(__dirname, "./packages/domain/src/index.ts"),
+      "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src/index.ts"),
+    },
   },
   test: {
     globals: true,

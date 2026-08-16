@@ -76,7 +76,12 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(pkg.version),
     },
     resolve: {
-      alias: { "@": path.resolve(__dirname, "./src") },
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
+        "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
+        "@sigmx/domain": path.resolve(__dirname, "./packages/domain/src/index.ts"),
+        "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src/index.ts"),
+      },
     },
     server: {
       port: 5899,
