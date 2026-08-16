@@ -128,6 +128,20 @@ export interface SavedQuerySubscription {
   created_at: string;
 }
 
+export interface CloudTaskItem {
+  id: string; user_id: string; task_type: string; title: string;
+  status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+  payload: Record<string, unknown>; reserved_credits: number; reservation_id: string;
+  result_ref: string | null; error: string | null; created_at: string;
+  started_at: string | null; finished_at: string | null;
+}
+
+export interface QueryExecutionItem {
+  id: string; user_id: string; query: string; intent: string;
+  conditions: Array<Record<string, unknown>>; condition_version: number;
+  result_count: number; executed_at: string;
+}
+
 export interface AdminProductMetrics {
   period_days: number;
   active_entitled_users: number;
@@ -442,6 +456,25 @@ export async function putSavedQuerySubscription(
 
 export async function deleteSavedQuerySubscription(id: string): Promise<void> {
   await productRequest(`/api/cloud/query-subscriptions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function listCloudTasks(): Promise<CloudTaskItem[]> {
+  return (await productRequest<{ items: CloudTaskItem[] }>("/api/cloud/tasks?limit=100")).items;
+}
+
+export async function cancelCloudTask(id: string): Promise<CloudTaskItem> {
+  return productRequest<CloudTaskItem>(`/api/cloud/tasks/${encodeURIComponent(id)}/cancel`, { method: "POST" });
+}
+
+export async function listQueryExecutions(): Promise<QueryExecutionItem[]> {
+  return (await productRequest<{ items: QueryExecutionItem[] }>("/api/cloud/query-executions?limit=100")).items;
+}
+
+export async function recordQueryExecution(input: {
+  query: string; intent: string; conditions: Array<Record<string, unknown>>;
+  result_count: number; idempotency_key: string;
+}): Promise<QueryExecutionItem> {
+  return productRequest<QueryExecutionItem>("/api/cloud/query-executions", { method: "POST", body: JSON.stringify(input) });
 }
 
 export async function listDevices(): Promise<DeviceItem[]> {

@@ -3394,6 +3394,9 @@ register_admin_redeem_routes(app)
 from src.api.product_routes import register_product_routes  # noqa: E402
 register_product_routes(app)
 
+from src.api.cloud_task_routes import register_cloud_task_routes  # noqa: E402
+register_cloud_task_routes(app)
+
 from src.api.public_research_routes import register_public_research_routes  # noqa: E402
 register_public_research_routes(app)
 

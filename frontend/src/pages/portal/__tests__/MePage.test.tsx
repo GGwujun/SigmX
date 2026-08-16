@@ -17,6 +17,8 @@ const productApi = vi.hoisted(() => ({
   listSavedQuerySubscriptions: vi.fn(),
   putSavedQuerySubscription: vi.fn(),
   deleteSavedQuerySubscription: vi.fn(),
+  listCloudTasks: vi.fn(),
+  listQueryExecutions: vi.fn(),
 }));
 const cloudApi = vi.hoisted(() => ({
   listQueries: vi.fn(), listWatchlist: vi.fn(), listReports: vi.fn(),
@@ -75,6 +77,8 @@ describe("MePage", () => {
     productApi.listSavedQuerySubscriptions.mockReset().mockResolvedValue([]);
     productApi.putSavedQuerySubscription.mockReset().mockResolvedValue({ id: "s1", saved_query_id: "q1", query: "低估值 高股息", frequency: "weekly", next_run_at: "2026-08-22T00:00:00Z", last_run_at: null, created_at: "2026-08-15T00:00:00Z" });
     productApi.deleteSavedQuerySubscription.mockReset().mockResolvedValue(undefined);
+    productApi.listCloudTasks.mockReset().mockResolvedValue([{ id: "t1", user_id: "u1", task_type: "deep_research", title: "研究贵州茅台", status: "running", payload: { symbol: "600519.SH" }, reserved_credits: 10, reservation_id: "cr1", result_ref: null, error: null, created_at: "2026-08-15T00:00:00Z", started_at: "2026-08-15T00:01:00Z", finished_at: null }]);
+    productApi.listQueryExecutions.mockReset().mockResolvedValue([{ id: "e1", user_id: "u1", query: "低估值 高股息", intent: "screener", conditions: [{ field: "pe_ttm", value: [0, 20] }], condition_version: 2, result_count: 18, executed_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listQueries.mockReset().mockResolvedValue([{ id: "q1", query: "低估值 高股息", result_summary: { matches: 2 }, created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listWatchlist.mockReset().mockResolvedValue([{ symbol: "600519.SH", name: "贵州茅台", created_at: "2026-08-15T00:00:00Z" }]);
     cloudApi.listReports.mockReset().mockResolvedValue([{ id: "r1", slug: "public-report", title: "贵州茅台简析", summary: "摘要", created_at: "2026-08-15T00:00:00Z", revoked_at: null }]);
@@ -92,7 +96,7 @@ describe("MePage", () => {
   it("renders real personal cloud assets instead of planning placeholders", async () => {
     renderPage();
     expect(await screen.findByText("贵州茅台")).toBeInTheDocument();
-    expect(screen.getAllByText("低估值 高股息")).toHaveLength(2);
+    expect(screen.getAllByText("低估值 高股息")).toHaveLength(3);
     expect(screen.getByText("贵州茅台简析")).toBeInTheDocument();
     expect(screen.queryByText("规划中")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /打开公开快照/ })).toHaveAttribute("href", "/research/public-report");
@@ -137,5 +141,15 @@ describe("MePage", () => {
     fireEvent.change(await screen.findByLabelText("复查频率：低估值 高股息"), { target: { value: "weekly" } });
     expect(productApi.putSavedQuerySubscription).toHaveBeenCalledWith("q1", "weekly");
     expect(await screen.findByText("下次提醒：2026-08-22")).toBeInTheDocument();
+  });
+
+  it("shows authoritative cloud-task state and versioned query history", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "云任务" })).toBeInTheDocument();
+    expect(screen.getByText("研究贵州茅台")).toBeInTheDocument();
+    expect(screen.getByText("运行中 · 预占 10 Research Credit")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "查询历史" })).toBeInTheDocument();
+    expect(screen.getByText("条件版本 v2 · 18 个结果")).toBeInTheDocument();
   });
 });

@@ -9,6 +9,8 @@ import {
   Database,
   Download,
   Laptop,
+  ListChecks,
+  History,
   RefreshCw,
   Settings2,
 } from "lucide-react";
@@ -26,6 +28,8 @@ import {
   listSavedQuerySubscriptions,
   putSavedQuerySubscription,
   deleteSavedQuerySubscription,
+  listCloudTasks,
+  listQueryExecutions,
   type CreditsBalanceResponse,
   type DataCreditBalance,
   type DataHubUsage,
@@ -34,6 +38,8 @@ import {
   type NotificationPreferences,
   type PersonalNotification,
   type SavedQuerySubscription,
+  type CloudTaskItem,
+  type QueryExecutionItem,
 } from "@/lib/productApi";
 import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@/lib/cloudResearchApi";
 
@@ -49,6 +55,8 @@ interface ProductState {
   notifications: PersonalNotification[] | null;
   notificationPreferences: NotificationPreferences | null;
   querySubscriptions: SavedQuerySubscription[] | null;
+  cloudTasks: CloudTaskItem[] | null;
+  queryExecutions: QueryExecutionItem[] | null;
 }
 
 const EMPTY_STATE: ProductState = {
@@ -63,6 +71,8 @@ const EMPTY_STATE: ProductState = {
   notifications: null,
   notificationPreferences: null,
   querySubscriptions: null,
+  cloudTasks: null,
+  queryExecutions: null,
 };
 
 function formatNumber(value: number): string {
@@ -90,6 +100,8 @@ export function MePage() {
       listNotifications(),
       getNotificationPreferences(),
       listSavedQuerySubscriptions(),
+      listCloudTasks(),
+      listQueryExecutions(),
     ] as const);
 
     setState({
@@ -104,6 +116,8 @@ export function MePage() {
       notifications: results[8].status === "fulfilled" ? results[8].value : null,
       notificationPreferences: results[9].status === "fulfilled" ? results[9].value : null,
       querySubscriptions: results[10].status === "fulfilled" ? results[10].value : null,
+      cloudTasks: results[11].status === "fulfilled" ? results[11].value : null,
+      queryExecutions: results[12].status === "fulfilled" ? results[12].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -245,6 +259,25 @@ export function MePage() {
         <AssetList icon={BarChart3} title="我的自选" empty="尚未同步云自选。" items={(state.watchlist ?? []).map((item) => ({ key: item.symbol, title: item.name || item.symbol, detail: item.symbol, to: `/stock/${item.symbol}`, handoff: () => createHandoff("instrument", { symbol: item.symbol }) }))} unavailable={state.watchlist === null && !loading} />
         <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}`, handoff: () => createHandoff("saved_query", { query: item.query, saved_query_id: item.id }) }))} unavailable={state.queries === null && !loading} />
         <AssetList icon={Cloud} title="我的报告" empty="尚未发布脱敏报告快照。" items={(state.reports ?? []).filter((item) => !item.revoked_at).map((item) => ({ key: item.id, title: item.title, detail: "打开公开快照", to: `/research/${item.slug}` }))} unavailable={state.reports === null && !loading} />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-md border bg-card p-4">
+          <div className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" /><h2 className="text-sm font-semibold">云任务</h2></div>
+          <p className="mt-1 text-xs text-muted-foreground">展示权威任务状态以及 Research Credit 预占和结算结果。</p>
+          <div className="mt-3 divide-y">
+            {state.cloudTasks?.length === 0 && <p className="py-3 text-xs text-muted-foreground">暂无云任务。</p>}
+            {(state.cloudTasks ?? []).slice(0, 8).map((task) => <div key={task.id} className="py-3"><div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{task.title}</span><span className={`rounded border px-2 py-0.5 text-[11px] ${task.status === "failed" ? "text-destructive" : task.status === "succeeded" ? "text-success" : "text-primary"}`}>{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" } as const)[task.status]}</span></div><p className="mt-1 text-xs text-muted-foreground">{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" } as const)[task.status]} · 预占 {task.reserved_credits} Research Credit</p>{task.error && <p className="mt-1 text-xs text-destructive">{task.error}</p>}</div>)}
+          </div>
+        </div>
+        <div className="rounded-md border bg-card p-4">
+          <div className="flex items-center gap-2"><History className="h-4 w-4 text-primary" /><h2 className="text-sm font-semibold">查询历史</h2></div>
+          <p className="mt-1 text-xs text-muted-foreground">保留每次执行的条件版本与结果数量，便于比较变化。</p>
+          <div className="mt-3 divide-y">
+            {state.queryExecutions?.length === 0 && <p className="py-3 text-xs text-muted-foreground">暂无查询执行历史。</p>}
+            {(state.queryExecutions ?? []).slice(0, 8).map((execution) => <Link key={execution.id} to={`/query/${encodeURIComponent(execution.query)}`} className="block py-3 hover:bg-muted/20"><div className="text-sm font-medium">{execution.query}</div><p className="mt-1 text-xs text-muted-foreground">条件版本 v{execution.condition_version} · {execution.result_count} 个结果</p></Link>)}
+          </div>
+        </div>
       </section>
 
       {(state.queries?.length ?? 0) > 0 && <section className="rounded-md border bg-card p-4">

@@ -98,4 +98,18 @@ describe("public discovery funnel", () => {
     render(<MemoryRouter initialEntries={["/query/Data%20Hub%20%E8%82%A1%E7%A5%A8%E6%97%A5%E7%BA%BF%E6%8E%A5%E5%8F%A3"]}><Routes><Route path="/query/:id" element={<PublicSearchPage />} /></Routes></MemoryRouter>);
     expect(await screen.findByRole("link", { name: /股票日线接口/ })).toHaveAttribute("href", "/docs/data-hub/stocks-daily");
   });
+
+  it("records an authenticated query execution in personal history", async () => {
+    window.localStorage.setItem("sigmx_auth_token", "jwt");
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ query: "低估值", intent: "screener", interpretation: ["市盈率 0-20"], answer: null, resources: [], items: [{ code: "000001.SZ", name: "平安银行", instrument_type: "stock", industry: "银行", close: 12, pe_ttm: 6, pb: 0.7, dividend_yield: 5, total_market_value: 230000, as_of: "20260814" }], source: "local_market_store", is_delayed: true }))
+      .mockResolvedValueOnce(ok({ id: "e1", condition_version: 1 }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<MemoryRouter initialEntries={["/query/%E4%BD%8E%E4%BC%B0%E5%80%BC"]}><Routes><Route path="/query/:id" element={<PublicSearchPage />} /></Routes></MemoryRouter>);
+
+    expect(await screen.findByText("平安银行")).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/cloud/query-executions");
+    expect(JSON.parse(String(fetchMock.mock.calls[1][1]?.body))).toMatchObject({ query: "低估值", intent: "screener", result_count: 1 });
+  });
 });

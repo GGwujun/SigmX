@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bookmark, Monitor } from "lucide-react";
 import { DataStatus, EmptyState, ErrorState, Panel } from "@sigmx/ui";
@@ -6,6 +6,7 @@ import { DataStatus, EmptyState, ErrorState, Panel } from "@sigmx/ui";
 import { cloudResearchApi, type PublicSearchResult } from "@/lib/cloudResearchApi";
 import { isAuthenticated } from "@/lib/apiAuth";
 import { trackPersonalFunnel } from "@/lib/personalFunnel";
+import { recordQueryExecution } from "@/lib/productApi";
 
 export function PublicSearchPage() {
   const { id = "" } = useParams();
@@ -13,6 +14,7 @@ export function PublicSearchPage() {
   const navigate = useNavigate();
   const [result, setResult] = useState<PublicSearchResult | null>(null);
   const [error, setError] = useState("");
+  const executionKey = useRef(`web:${Date.now()}:${Math.random().toString(36).slice(2)}`);
 
   useEffect(() => {
     trackPersonalFunnel("search_submitted");
@@ -20,6 +22,17 @@ export function PublicSearchPage() {
   }, [query]);
 
   useEffect(() => { if (result) trackPersonalFunnel("result_view"); }, [result]);
+
+  useEffect(() => {
+    if (!result || !isAuthenticated()) return;
+    void recordQueryExecution({
+      query,
+      intent: result.intent ?? "instrument_search",
+      conditions: result.interpretation.map(label => ({ label })),
+      result_count: result.items.length,
+      idempotency_key: executionKey.current,
+    }).catch(() => undefined);
+  }, [query, result]);
 
   const save = async () => {
     const summary = { matches: result?.items.length ?? 0, interpretation: result?.interpretation ?? [] };

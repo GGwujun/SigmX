@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 15
+_SCHEMA_VERSION = 16
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -505,6 +505,41 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_saved_queries_user_created
                 ON saved_queries(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS cloud_tasks (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                task_type TEXT NOT NULL,
+                title TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed','cancelled')),
+                payload_json TEXT NOT NULL,
+                reserved_credits INTEGER NOT NULL CHECK (reserved_credits > 0),
+                reservation_id TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                result_ref TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                UNIQUE(user_id, idempotency_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_cloud_tasks_user_created
+                ON cloud_tasks(user_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS query_executions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                query TEXT NOT NULL,
+                intent TEXT NOT NULL,
+                conditions_json TEXT NOT NULL,
+                condition_version INTEGER NOT NULL CHECK (condition_version > 0),
+                result_count INTEGER NOT NULL CHECK (result_count >= 0),
+                idempotency_key TEXT NOT NULL,
+                executed_at TEXT NOT NULL,
+                UNIQUE(user_id, idempotency_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_query_executions_user_time
+                ON query_executions(user_id, executed_at DESC, condition_version DESC);
 
             CREATE TABLE IF NOT EXISTS cloud_watchlist (
                 user_id TEXT NOT NULL,
