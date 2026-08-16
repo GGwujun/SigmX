@@ -12,6 +12,7 @@ from src.api.auth_routes import require_user
 from src.product.cloud_tasks import CloudTaskService, InvalidTaskTransition
 from src.product.credits import InsufficientCredits
 from src.product.query_history import QueryHistoryService
+from src.product.data_locality import DataLocalityPolicy, UnsafeCloudPayload
 
 
 class CreateCloudTaskRequest(BaseModel):
@@ -96,12 +97,15 @@ def _response(task) -> CloudTaskResponse:
 @router.post("", response_model=CloudTaskResponse)
 async def create_cloud_task(body: CreateCloudTaskRequest, user: dict = Depends(require_user)) -> CloudTaskResponse:
     try:
+        DataLocalityPolicy().assert_cloud_safe(body.payload)
         return _response(_get_service().create(
             user["id"], task_type=body.task_type, title=body.title, cost=body.cost,
             payload=body.payload, idempotency_key=body.idempotency_key,
         ))
     except InsufficientCredits as exc:
         raise HTTPException(status_code=402, detail=str(exc)) from exc
+    except UnsafeCloudPayload as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("", response_model=CloudTaskListResponse)

@@ -254,7 +254,10 @@
   {
     "id": "7.2",
     "title": "Explicit data ownership and locality",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/data_locality.py",
+      "test:agent/tests/test_data_locality.py"
+    ]
   },
   {
     "id": "8.1",

@@ -41,6 +41,15 @@ def test_cloud_task_routes_are_authenticated() -> None:
         assert route.dependencies or route.dependant.dependencies
 
 
+def test_cloud_task_rejects_local_files_and_credentials_at_cloud_boundary() -> None:
+    with pytest.raises(routes.HTTPException) as error:
+        asyncio.run(routes.create_cloud_task(
+            routes.CreateCloudTaskRequest(task_type="research", title="unsafe", cost=1, payload={"local_path": "C:/private.csv"}, idempotency_key="unsafe:1"),
+            {"id": "u1"},
+        ))
+    assert error.value.status_code == 422
+
+
 def test_record_and_list_query_execution_routes() -> None:
     user = {"id": "u1"}
     created = asyncio.run(routes.record_query_execution(
