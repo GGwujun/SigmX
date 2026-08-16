@@ -8,18 +8,13 @@ import pytest
 import src.api.harness_routes as routes
 from src.agent.tools import ToolRegistry
 from src.harness.registry import HarnessToolRegistry
-from src.harness.runs import HarnessRunEnvelope
-
-
-class FakeRuns:
-    def list(self, limit=50):
-        return [HarnessRunEnvelope("r1", "swarm", "completed", "2026-08-15T10:00:00", "2026-08-15T10:10:00", costs={"input_tokens": 10})]
+from src.harness.store import HarnessStore
 
 
 @pytest.fixture(autouse=True)
 def harness_dependencies(monkeypatch, tmp_path: Path):
     routes._registry = HarnessToolRegistry.from_tool_registry(ToolRegistry())
-    routes._runs = FakeRuns()
+    routes._store = HarnessStore(tmp_path / "harness.db", now=lambda: "2026-08-16T03:00:00+00:00")
     monkeypatch.setattr(routes, "_status", lambda user_id: {
         "runtime_available": True, "cloud_connected": False,
         "local_data_available": True, "data_hub_available": True,
@@ -28,23 +23,39 @@ def harness_dependencies(monkeypatch, tmp_path: Path):
     })
     yield
     routes._registry = None
-    routes._runs = None
+    routes._store = None
 
 
 def test_status_and_runs_are_normalized_for_authenticated_user() -> None:
     status = asyncio.run(routes.harness_status(user={"id": "u1"}))
     assert status.governance_ceiling == "simulate"
     assert status.degradations == ["cloud offline"]
-    runs = asyncio.run(routes.harness_runs(limit=20, user={"id": "u1"}))
-    assert runs.items[0].run_type == "swarm"
-    assert runs.items[0].costs == {"input_tokens": 10}
-    detail = asyncio.run(routes.harness_run("r1", user={"id": "u1"}))
-    assert detail.run_id == "r1"
+    created = asyncio.run(routes.create_harness_run(
+        routes.CreateHarnessRunRequest(run_type="research", title="茅台研究", goal="验证盈利质量", context_manifest={"current_symbol": "600519.SH"}),
+        user={"id": "u1"},
+    ))
+    runs = asyncio.run(routes.harness_runs(limit=20, run_type=None, status=None, user={"id": "u1"}))
+    assert runs.items[0].run_type == "research"
+    assert runs.items[0].title == "茅台研究"
+    detail = asyncio.run(routes.harness_run(created.run_id, user={"id": "u1"}))
+    assert detail.context_manifest == {"current_symbol": "600519.SH"}
+    cancelled = asyncio.run(routes.cancel_harness_run(created.run_id, user={"id": "u1"}))
+    assert cancelled.status == "cancelled"
 
 
 def test_unknown_harness_run_returns_404() -> None:
     with pytest.raises(routes.HTTPException) as error:
         asyncio.run(routes.harness_run("missing", user={"id": "u1"}))
+    assert error.value.status_code == 404
+
+
+def test_harness_runs_are_private_to_current_user() -> None:
+    created = asyncio.run(routes.create_harness_run(
+        routes.CreateHarnessRunRequest(run_type="backtest", title="私有回测", goal="验证"),
+        user={"id": "u1"},
+    ))
+    with pytest.raises(routes.HTTPException) as error:
+        asyncio.run(routes.harness_run(created.run_id, user={"id": "u2"}))
     assert error.value.status_code == 404
 
 
@@ -67,7 +78,7 @@ def test_context_preview_never_returns_file_paths_or_secrets(tmp_path: Path) -> 
 
 
 def test_harness_routes_require_user_dependency() -> None:
-    protected = {"/api/harness/status", "/api/harness/tools", "/api/harness/runs", "/api/harness/runs/{run_id}", "/api/harness/context/preview"}
+    protected = {"/api/harness/status", "/api/harness/tools", "/api/harness/runs", "/api/harness/runs/{run_id}", "/api/harness/runs/{run_id}/cancel", "/api/harness/context/preview"}
     for route in routes.router.routes:
         if route.path in protected:
             assert route.dependant.dependencies

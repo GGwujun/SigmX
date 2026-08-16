@@ -11,6 +11,7 @@ const MarketDashboard = lazy(() => import("@/pages/MarketDashboard").then(m => (
 const AlphaForge = lazy(() => import("@/pages/AlphaForge").then(m => ({ default: m.AlphaForge })));
 const TrackingDashboard = lazy(() => import("@/pages/TrackingDashboard").then(m => ({ default: m.TrackingDashboard })));
 const RunDetail = lazy(() => import("@/pages/RunDetail").then(m => ({ default: m.RunDetail })));
+const HarnessRunsPage = lazy(() => import("@/pages/HarnessRunsPage").then(m => ({ default: m.HarnessRunsPage })));
 const Settings = lazy(() => import("@/pages/Settings").then(m => ({ default: m.Settings })));
 const BigScreen = lazy(() => import("@/pages/BigScreen"));
 const MarketStage = lazy(() => import("@/pages/MarketStagePage").then(m => ({ default: m.MorningBrief })));
@@ -53,7 +54,7 @@ export const desktopRouter = createBrowserRouter([
       { path: "/market", element: wrap(MarketDashboard) },
       { path: "/quant", element: wrap(AlphaForge) },
       { path: "/tracking", element: wrap(TrackingDashboard) },
-      { path: "/runs", element: <Navigate to="/app" replace /> },
+      { path: "/runs", element: wrap(HarnessRunsPage) },
       { path: "/runs/:runId", element: wrap(RunDetail) },
       { path: "/assets", element: <DesktopAssets /> },
       { path: "/cloud", element: <Navigate to="/me" replace /> },

@@ -14,10 +14,10 @@ describe("HarnessOverview", () => {
       governance_ceiling: "simulate",
       degradations: ["cloud device is not connected"],
     }} runs={[{
-      run_id: "run-1", run_type: "session", status: "completed",
+      run_id: "run-1", run_type: "research", title: "研究", goal: "验证", status: "succeeded", created_at: "2026-08-15T00:00:00Z",
       started_at: "2026-08-15T00:00:00Z", finished_at: null,
-      context_manifest: {}, tool_calls: ["market.snapshot"], evidence_refs: [],
-      costs: { research_credit: 2 }, degradations: [], result_ref: null,
+      context_manifest: {}, steps: [], tool_calls: [{ id: "t1", tool_id: "market.snapshot", status: "succeeded", duration_ms: 1, output_ref: null }], evidence: [], artifacts: [],
+      costs: { research_credit: 2 }, degradations: [], governance_events: [], result_ref: null, error: null,
     }]} dataMode="standalone" />);
 
     expect(screen.getByText("Standalone · 本地优先")).toBeInTheDocument();

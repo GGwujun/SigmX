@@ -15,19 +15,26 @@ export interface HarnessStatus {
 export interface HarnessRun {
   run_id: string;
   run_type: string;
+  title: string;
+  goal: string;
   status: string;
+  created_at: string;
   started_at: string | null;
   finished_at: string | null;
   context_manifest: Record<string, unknown>;
-  tool_calls: string[];
-  evidence_refs: string[];
+  steps: Array<{ id: string; title: string; status: string; created_at: string }>;
+  tool_calls: Array<{ id: string; tool_id: string; status: string; duration_ms: number; output_ref: string | null }>;
+  evidence: Array<{ id: string; kind: string; title: string; ref: string; source: string; data_version: string | null }>;
+  artifacts: Array<{ id: string; kind: string; name: string; ref: string }>;
   costs: Record<string, number>;
-  degradations: string[];
+  degradations: Array<{ id: string; code: string; message: string }>;
+  governance_events: Array<{ id: string; level: string; decision: string; reason: string }>;
   result_ref: string | null;
+  error: string | null;
 }
 
-async function harnessRequest<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { ...authHeaders() } });
+async function harnessRequest<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(path, { ...init, headers: { "Content-Type": "application/json", ...authHeaders(), ...init.headers } });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new ApiError(body.detail || `Harness request failed (${response.status})`, response.status);
@@ -39,7 +46,22 @@ export function getHarnessStatus(): Promise<HarnessStatus> {
   return harnessRequest("/api/harness/status");
 }
 
-export async function getHarnessRuns(limit = 5): Promise<HarnessRun[]> {
-  const response = await harnessRequest<{ items: HarnessRun[] }>(`/api/harness/runs?limit=${limit}`);
+export async function getHarnessRuns(limit = 5, filters: { runType?: string; status?: string } = {}): Promise<HarnessRun[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (filters.runType) params.set("run_type", filters.runType);
+  if (filters.status) params.set("status", filters.status);
+  const response = await harnessRequest<{ items: HarnessRun[] }>(`/api/harness/runs?${params}`);
   return response.items;
+}
+
+export function createHarnessRun(input: { run_type: string; title: string; goal: string; context_manifest: Record<string, unknown> }): Promise<HarnessRun> {
+  return harnessRequest("/api/harness/runs", { method: "POST", body: JSON.stringify(input) });
+}
+
+export function getHarnessRun(runId: string): Promise<HarnessRun> {
+  return harnessRequest(`/api/harness/runs/${encodeURIComponent(runId)}`);
+}
+
+export function cancelHarnessRun(runId: string): Promise<HarnessRun> {
+  return harnessRequest(`/api/harness/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" });
 }
