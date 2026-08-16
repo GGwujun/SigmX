@@ -15,3 +15,15 @@ def test_explicit_frontend_override_wins_for_both_products(tmp_path: Path) -> No
     override = tmp_path / "release" / "renderer"
     assert resolve_frontend_dist(tmp_path, desktop_mode=True, override=override) == override
     assert resolve_frontend_dist(tmp_path, desktop_mode=False, override=override) == override
+
+
+def test_nested_product_roots_deduplicate_react_runtime() -> None:
+    root = Path(__file__).resolve().parents[2]
+    config = (root / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
+    assert 'dedupe: ["react", "react-dom"]' in config
+
+
+def test_product_api_namespace_is_proxied_to_backend() -> None:
+    root = Path(__file__).resolve().parents[2]
+    config = (root / "frontend" / "vite.config.ts").read_text(encoding="utf-8")
+    assert '"/api"' in config

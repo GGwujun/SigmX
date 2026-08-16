@@ -3,91 +3,104 @@
     "id": "1.1",
     "title": "Three product surfaces",
     "evidence": [
-      "file:frontend/src/router.tsx"
+      "runtime:frontend/src/router/webRouter.tsx",
+      "test:frontend/src/router/__tests__/productBoundaries.test.ts"
     ]
   },
   {
     "id": "3.1",
     "title": "Public home and acquisition routes",
     "evidence": [
-      "file:frontend/src/pages/public/LandingPage.tsx"
+      "runtime:frontend/src/pages/public/LandingPage.tsx",
+      "test:frontend/src/pages/public/__tests__/LandingPage.test.tsx"
     ]
   },
   {
     "id": "3.2",
     "title": "Unified multi-intent search",
     "evidence": [
-      "file:agent/src/product/public_research.py"
+      "runtime:agent/src/product/query_intent.py",
+      "test:agent/tests/test_query_intent.py"
     ]
   },
   {
     "id": "3.3",
     "title": "Complete stock detail",
     "evidence": [
-      "file:frontend/src/pages/public/PublicInstrumentPage.tsx"
+      "runtime:agent/src/product/public_research.py",
+      "test:agent/tests/test_public_research.py"
     ]
   },
   {
     "id": "3.4",
     "title": "Complete fund detail",
     "evidence": [
-      "file:frontend/src/pages/public/PublicInstrumentPage.tsx"
+      "runtime:agent/src/product/public_research.py",
+      "test:agent/tests/test_public_research.py"
     ]
   },
   {
     "id": "3.5",
     "title": "Public research evidence and sharing",
     "evidence": [
-      "file:frontend/src/pages/public/PublicReportPage.tsx"
+      "runtime:frontend/src/pages/public/PublicReportPage.tsx",
+      "test:frontend/src/pages/public/__tests__/SampleReportPage.test.tsx"
     ]
   },
   {
     "id": "3.6",
     "title": "Personal today overview",
     "evidence": [
-      "file:frontend/src/pages/portal/MePage.tsx"
+      "runtime:frontend/src/pages/portal/MePage.tsx",
+      "test:frontend/src/pages/portal/__tests__/MePage.test.tsx"
     ]
   },
   {
     "id": "3.7",
     "title": "Cloud watchlist synchronization",
     "evidence": [
-      "file:frontend/src/pages/portal/MePage.tsx"
+      "runtime:agent/src/product/cloud_research.py",
+      "test:agent/tests/test_cloud_research.py"
     ]
   },
   {
     "id": "3.8",
     "title": "Saved query history and subscriptions",
     "evidence": [
-      "file:agent/src/product/subscriptions.py"
+      "runtime:agent/src/product/subscriptions.py",
+      "test:agent/tests/test_saved_query_subscriptions.py"
     ]
   },
   {
     "id": "3.9",
     "title": "Cloud reports and task status",
     "evidence": [
-      "file:frontend/src/pages/portal/MePage.tsx"
+      "runtime:agent/src/product/cloud_tasks.py",
+      "test:agent/tests/test_cloud_tasks.py"
     ]
   },
   {
     "id": "3.10",
     "title": "Desktop presence and handoff",
     "evidence": [
-      "file:frontend/src/lib/desktopConnectedSession.ts"
+      "runtime:frontend/src/lib/desktopConnectedSession.ts",
+      "test:frontend/src/lib/__tests__/desktopConnectedSession.test.ts"
     ]
   },
   {
     "id": "4.1",
     "title": "Desktop independent route and build shell",
     "evidence": [
-      "file:frontend/src/router.tsx"
+      "runtime:frontend/src/router/desktopRouter.tsx",
+      "test:agent/tests/test_frontend_product_build.py"
     ]
   },
   {
     "id": "4.2",
     "title": "Agent runtime",
     "evidence": [
-      "file:agent/src/harness/registry.py"
+      "runtime:agent/src/harness/registry.py",
+      "test:agent/tests/test_harness_registry.py"
     ]
   },
   {
@@ -102,21 +115,24 @@
     "id": "4.4",
     "title": "Tool runtime",
     "evidence": [
-      "file:agent/src/harness/registry.py"
+      "runtime:agent/src/harness/registry.py",
+      "test:agent/tests/test_harness_registry.py"
     ]
   },
   {
     "id": "4.5",
     "title": "Context runtime",
     "evidence": [
-      "file:agent/src/harness/context.py"
+      "runtime:agent/src/harness/context.py",
+      "test:agent/tests/test_harness_context.py"
     ]
   },
   {
     "id": "4.6",
     "title": "Governance runtime",
     "evidence": [
-      "file:agent/src/harness/models.py"
+      "runtime:agent/src/harness/models.py",
+      "test:agent/tests/test_consent_commit.py"
     ]
   },
   {
@@ -131,28 +147,32 @@
     "id": "4.8",
     "title": "Research center",
     "evidence": [
-      "file:frontend/src/pages/Agent.tsx"
+      "runtime:frontend/src/pages/Agent.tsx",
+      "test:agent/tests/test_harness_routes.py"
     ]
   },
   {
     "id": "4.9",
     "title": "Market workbench",
     "evidence": [
-      "file:frontend/src/pages/MarketDashboard.tsx"
+      "runtime:frontend/src/pages/MarketDashboard.tsx",
+      "test:agent/tests/test_market_dashboard_routes.py"
     ]
   },
   {
     "id": "4.10",
     "title": "Quant lab",
     "evidence": [
-      "file:frontend/src/pages/AlphaForge.tsx"
+      "runtime:frontend/src/pages/AlphaForge.tsx",
+      "test:agent/tests/test_swarm_m4_e2e.py"
     ]
   },
   {
     "id": "4.11",
     "title": "Tracking center",
     "evidence": [
-      "file:frontend/src/pages/TrackingDashboard.tsx"
+      "runtime:frontend/src/pages/TrackingDashboard.tsx",
+      "test:agent/tests/test_cloud_research_routes.py"
     ]
   },
   {
@@ -167,14 +187,16 @@
     "id": "4.13",
     "title": "Standalone and Connected modes",
     "evidence": [
-      "file:agent/src/api/harness_routes.py"
+      "runtime:frontend/src/lib/dataMode.ts",
+      "test:frontend/src/lib/__tests__/dataMode.test.ts"
     ]
   },
   {
     "id": "5.1",
     "title": "Data Hub four endpoint groups",
     "evidence": [
-      "file:agent/src/product/datahub_catalog.py"
+      "runtime:agent/src/product/datahub_catalog.py",
+      "test:agent/tests/test_datahub_endpoint_catalog.py"
     ]
   },
   {
@@ -213,42 +235,48 @@
     "id": "5.6",
     "title": "Developer onboarding and credentials",
     "evidence": [
-      "file:frontend/src/pages/account/DataHubConsolePage.tsx"
+      "runtime:frontend/src/pages/account/DataHubConsolePage.tsx",
+      "test:frontend/src/pages/account/__tests__/DataHubConsolePage.test.tsx"
     ]
   },
   {
     "id": "5.7",
     "title": "Catalog, debugger, SDK and logs",
     "evidence": [
-      "file:frontend/src/pages/account/DataHubConsolePage.tsx"
+      "runtime:frontend/src/pages/account/DataHubConsolePage.tsx",
+      "test:frontend/src/pages/account/__tests__/DataHubConsolePage.test.tsx"
     ]
   },
   {
     "id": "6.1",
     "title": "Four personal plans and entitlements",
     "evidence": [
-      "file:agent/src/product/catalog.py"
+      "runtime:agent/src/product/catalog.py",
+      "test:agent/tests/test_product_store.py"
     ]
   },
   {
     "id": "6.2",
     "title": "Independent Research and Data credits",
     "evidence": [
-      "file:agent/src/product/credits.py"
+      "runtime:agent/src/product/credits.py",
+      "test:agent/tests/test_product_credits.py"
     ]
   },
   {
     "id": "6.3",
     "title": "Endpoint charging rules",
     "evidence": [
-      "file:agent/src/product/datahub_contracts.py"
+      "runtime:agent/src/product/datahub_contracts.py",
+      "test:agent/tests/test_datahub_contracts.py"
     ]
   },
   {
     "id": "7.1",
     "title": "Shared cloud domain objects",
     "evidence": [
-      "file:agent/src/product/store.py"
+      "runtime:agent/src/product/store.py",
+      "test:agent/tests/test_product_store.py"
     ]
   },
   {
@@ -279,7 +307,8 @@
     "id": "8.3",
     "title": "Data Hub credit settlement loop",
     "evidence": [
-      "file:agent/src/product/datahub_gateway.py"
+      "runtime:agent/src/product/datahub_gateway.py",
+      "test:agent/tests/test_datahub_gateway.py"
     ]
   },
   {
@@ -302,14 +331,16 @@
     "id": "10.2",
     "title": "Personal security and audit",
     "evidence": [
-      "file:agent/src/product/store.py"
+      "runtime:agent/src/product/support_operations.py",
+      "test:agent/tests/test_personal_support_operations.py"
     ]
   },
   {
     "id": "11.1",
     "title": "User operations",
     "evidence": [
-      "file:frontend/src/pages/admin/OperationsPage.tsx"
+      "runtime:agent/src/product/support_operations.py",
+      "test:agent/tests/test_personal_support_operations.py"
     ]
   },
   {
@@ -332,21 +363,24 @@
     "id": "11.4",
     "title": "Activation code operations",
     "evidence": [
-      "file:frontend/src/pages/admin/OperationsPage.tsx"
+      "runtime:agent/src/product/commerce.py",
+      "test:agent/tests/test_product_activation.py"
     ]
   },
   {
     "id": "11.5",
     "title": "Dual-credit adjustment operations",
     "evidence": [
-      "file:frontend/src/pages/admin/OperationsPage.tsx"
+      "runtime:agent/src/product/support_operations.py",
+      "test:agent/tests/test_personal_support_operations.py"
     ]
   },
   {
     "id": "11.6",
     "title": "Device and Credential operations",
     "evidence": [
-      "file:frontend/src/pages/admin/OperationsPage.tsx"
+      "runtime:agent/src/product/support_operations.py",
+      "test:agent/tests/test_personal_support_operations.py"
     ]
   },
   {
@@ -369,7 +403,8 @@
     "id": "12.1",
     "title": "Web product metrics",
     "evidence": [
-      "file:agent/src/product/funnel.py"
+      "runtime:agent/src/product/funnel.py",
+      "test:agent/tests/test_personal_funnel.py"
     ]
   },
   {
@@ -384,7 +419,8 @@
     "id": "12.3",
     "title": "Data Hub usage and quality metrics",
     "evidence": [
-      "file:agent/src/api/product_routes.py"
+      "runtime:agent/src/api/product_routes.py",
+      "test:agent/tests/test_metrics.py"
     ]
   },
   {
@@ -423,7 +459,8 @@
     "id": "13.4",
     "title": "Personal commerce rollout without real payment",
     "evidence": [
-      "file:agent/src/product/commerce.py"
+      "runtime:agent/src/product/commerce.py",
+      "test:agent/tests/test_product_activation.py"
     ]
   },
   {
@@ -438,7 +475,8 @@
     "id": "15.1",
     "title": "Real payment excluded by user decision",
     "evidence": [
-      "file:agent/src/product/payment.py"
+      "runtime:agent/src/product/payment.py",
+      "test:agent/tests/test_product_activation.py"
     ]
   }
 ]

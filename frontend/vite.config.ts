@@ -5,6 +5,7 @@ import pkg from "./package.json";
 
 // 纯 API 路由：不会作为浏览器页面打开，始终代理到后端。
 const API_ONLY_PATHS = [
+  "/api",
   "/sessions",
   "/swarm/presets",
   "/swarm/runs",
@@ -76,6 +77,9 @@ export default defineConfig(({ mode }) => {
       __APP_VERSION__: JSON.stringify(pkg.version),
     },
     resolve: {
+      // Both product entry roots live below this workspace. Force every aliased
+      // shared source file and the renderer to use one React dispatcher.
+      dedupe: ["react", "react-dom"],
       alias: {
         "@": path.resolve(__dirname, "./src"),
         "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
