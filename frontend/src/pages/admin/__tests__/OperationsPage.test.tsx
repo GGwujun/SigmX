@@ -4,6 +4,8 @@ import { MemoryRouter } from "react-router-dom";
 
 import { OperationsPage } from "../OperationsPage";
 
+vi.mock("@/components/admin/OperationsGovernance", () => ({ OperationsGovernance: () => <div data-testid="operations-governance" /> }));
+
 afterEach(() => {
   vi.restoreAllMocks();
 });

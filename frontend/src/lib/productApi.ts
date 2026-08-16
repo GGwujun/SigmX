@@ -156,6 +156,15 @@ export interface AdminProductMetrics {
   personal_funnel: Record<string, number>;
 }
 
+export interface OperationsState {
+  products: Array<{ code: string; enabled: boolean; price_cny_fen: number; updated_at: string }>;
+  endpoints: Array<{ code: string; enabled: boolean; credit_cost: number; unit_cost_cny_fen: number; quality_score: number; updated_at: string }>;
+  content: Array<{ slot: string; title: string; href: string; enabled: boolean; updated_at: string }>;
+  refunds: Array<{ id: string; order_id: string; user_id: string; status: string; reason: string; created_at: string }>;
+  metrics: { desktop_research_users: number; desktop_active_sessions: number; usage_revenue_cny_fen: number; usage_cost_cny_fen: number; gross_margin_rate: number };
+  audit: Array<{ id: string; actor_id: string; object_type: string; object_id: string; action: string; reason: string; before: Record<string, unknown>; after: Record<string, unknown>; created_at: string }>;
+}
+
 export interface DeviceItem {
   id: string;
   name: string;
@@ -563,6 +572,26 @@ export async function refreshDeviceToken(refreshToken: string): Promise<DeviceTo
 
 export async function getAdminProductMetrics(days = 30): Promise<AdminProductMetrics> {
   return productRequest<AdminProductMetrics>(`/api/admin/product-metrics?days=${days}`);
+}
+
+export function getOperationsState(days = 30): Promise<OperationsState> {
+  return productRequest(`/api/admin/operations?days=${days}`);
+}
+
+export function updateOperationalProduct(code: string, input: { enabled: boolean; price_cny_fen: number; reason: string }): Promise<unknown> {
+  return productRequest(`/api/admin/operations/products/${encodeURIComponent(code)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function updateOperationalEndpoint(code: string, input: { enabled: boolean; credit_cost: number; unit_cost_cny_fen: number; quality_score: number; reason: string }): Promise<unknown> {
+  return productRequest(`/api/admin/operations/endpoints/${encodeURIComponent(code)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function updateOperationalContent(slot: string, input: { title: string; href: string; enabled: boolean; reason: string }): Promise<unknown> {
+  return productRequest(`/api/admin/operations/content/${encodeURIComponent(slot)}`, { method: "PUT", body: JSON.stringify(input) });
+}
+
+export function refundActivationOrder(orderId: string, reason: string, idempotencyKey: string): Promise<unknown> {
+  return productRequest(`/api/admin/operations/orders/${encodeURIComponent(orderId)}/refund`, { method: "POST", body: JSON.stringify({ reason, idempotency_key: idempotencyKey }) });
 }
 
 export async function compensatePersonalCredits(userId: string, ledger: "research" | "data", amount: number, reason: string): Promise<{ operation_id: string }> {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatPlanPrice, type PlanView } from "../productApi";
+import { formatPlanPrice, getOperationsState, updateOperationalEndpoint, type PlanView } from "../productApi";
 
 function plan(over: Partial<PlanView>): PlanView {
   return {
@@ -37,5 +37,17 @@ describe("formatPlanPrice", () => {
     expect(formatPlanPrice(plan({ code: "enterprise", price_cny_fen: 0, billing_period: "contract" }))).toBe(
       "合同报价",
     );
+  });
+});
+
+describe("operations API", () => {
+  it("loads state and updates endpoint policy with an audited reason", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ products: [], endpoints: [], content: [], refunds: [], metrics: {}, audit: [] }) });
+    vi.stubGlobal("fetch", fetchMock);
+    await getOperationsState();
+    await updateOperationalEndpoint("market.daily", { enabled: true, credit_cost: 3, unit_cost_cny_fen: 1.2, quality_score: 0.998, reason: "接口成本校准" });
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/admin/operations?days=30");
+    expect(fetchMock.mock.calls[1][0]).toBe("/api/admin/operations/endpoints/market.daily");
+    expect(fetchMock.mock.calls[1][1]).toEqual(expect.objectContaining({ method: "PUT" }));
   });
 });

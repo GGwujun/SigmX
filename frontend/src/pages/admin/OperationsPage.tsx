@@ -9,6 +9,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Copy, KeyRound, Loader2, Plus, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { OperationsGovernance } from "@/components/admin/OperationsGovernance";
 
 import { ApiError } from "@/lib/api";
 import {
@@ -118,6 +119,8 @@ export function OperationsPage() {
           {(["landing_view", "search_submitted", "result_view", "register_completed", "download_clicked", "checkout_intent"] as const).map((stage) => <Metric key={stage} label={({ landing_view: "访问首页", search_submitted: "发起搜索", result_view: "查看结果", register_completed: "完成注册", download_clicked: "下载 Desktop", checkout_intent: "购买意向" })[stage]} value={(metrics.personal_funnel?.[stage] ?? 0).toLocaleString()} />)}
         </div>
       </section>}
+
+      <OperationsGovernance />
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">个人用户支持</h2>

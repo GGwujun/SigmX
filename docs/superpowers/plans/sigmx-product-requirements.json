@@ -262,13 +262,17 @@
   {
     "id": "8.1",
     "title": "Web registration and retention loop",
-    "evidence": []
+    "evidence": [
+      "runtime:frontend/src/pages/auth/RegisterPage.tsx",
+      "test:frontend/src/pages/auth/__tests__/LoginPage.test.tsx"
+    ]
   },
   {
     "id": "8.2",
     "title": "Web to Desktop secure handoff loop",
     "evidence": [
-      "file:agent/src/product/handoffs.py"
+      "runtime:agent/src/product/research_handoffs.py",
+      "test:agent/tests/test_research_handoffs.py"
     ]
   },
   {
@@ -281,12 +285,18 @@
   {
     "id": "9.1",
     "title": "Independent deployment boundaries",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/frontend_build.py",
+      "test:agent/tests/test_frontend_product_build.py"
+    ]
   },
   {
     "id": "10.1",
     "title": "Visible degradation states",
-    "evidence": []
+    "evidence": [
+      "runtime:frontend/src/pages/HarnessRunsPage.tsx",
+      "test:frontend/src/pages/__tests__/HarnessRunsPage.test.tsx"
+    ]
   },
   {
     "id": "10.2",
@@ -305,12 +315,18 @@
   {
     "id": "11.2",
     "title": "Product and price operations",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/operations.py",
+      "test:agent/tests/test_product_operations.py"
+    ]
   },
   {
     "id": "11.3",
     "title": "Order and refund operations",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/operations.py",
+      "test:agent/tests/test_product_operations.py"
+    ]
   },
   {
     "id": "11.4",
@@ -336,12 +352,18 @@
   {
     "id": "11.7",
     "title": "Endpoint catalog, price, cost and quality operations",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/operations.py",
+      "test:agent/tests/test_product_operations.py"
+    ]
   },
   {
     "id": "11.8",
     "title": "Content and growth operations",
-    "evidence": []
+    "evidence": [
+      "runtime:frontend/src/components/admin/OperationsGovernance.tsx",
+      "test:frontend/src/components/admin/__tests__/OperationsGovernance.test.tsx"
+    ]
   },
   {
     "id": "12.1",
@@ -353,7 +375,10 @@
   {
     "id": "12.2",
     "title": "Desktop activation and retention metrics",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/operations.py",
+      "test:agent/tests/test_product_operations.py"
+    ]
   },
   {
     "id": "12.3",
@@ -365,22 +390,34 @@
   {
     "id": "12.4",
     "title": "Commercial and margin metrics",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/operations.py",
+      "test:agent/tests/test_product_operations.py"
+    ]
   },
   {
     "id": "13.1",
     "title": "Web growth and cloud assets rollout",
-    "evidence": []
+    "evidence": [
+      "runtime:frontend/src/pages/portal/MePage.tsx",
+      "test:frontend/src/pages/public/__tests__/PublicDiscovery.test.tsx"
+    ]
   },
   {
     "id": "13.2",
     "title": "Desktop Harness rollout",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/harness/store.py",
+      "test:agent/tests/test_harness_store.py"
+    ]
   },
   {
     "id": "13.3",
     "title": "Data Hub productization rollout",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/product/datahub_gateway.py",
+      "test:agent/tests/test_datahub_gateway.py"
+    ]
   },
   {
     "id": "13.4",
@@ -393,7 +430,8 @@
     "id": "14.1",
     "title": "First-phase navigation acceptance",
     "evidence": [
-      "file:frontend/src/router.tsx"
+      "runtime:frontend/src/router/desktopRouter.tsx",
+      "test:frontend/src/components/layout/__tests__/DesktopNavigation.test.ts"
     ]
   },
   {

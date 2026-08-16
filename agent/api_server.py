@@ -3402,6 +3402,8 @@ register_public_research_routes(app)
 
 from src.api.harness_routes import register_harness_routes  # noqa: E402
 register_harness_routes(app)
+from src.api.operations_routes import register_operations_routes  # noqa: E402
+register_operations_routes(app)
 
 
 # ============================================================================
