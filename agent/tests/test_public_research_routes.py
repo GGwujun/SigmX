@@ -43,3 +43,11 @@ def test_public_router_has_no_auth_dependencies() -> None:
     for path in ("/api/public/search", "/api/public/stocks/{code}", "/api/public/funds/{code}"):
         assert path in paths
         assert paths[path].dependencies == []
+
+
+def test_public_search_route_preserves_intent_answer_and_resources() -> None:
+    docs = asyncio.run(routes.public_search(q="Data Hub 股票日线接口", limit=10))
+
+    assert docs.intent == "api_docs"
+    assert docs.answer
+    assert docs.resources[0].url == "/docs/data-hub/stocks-daily"

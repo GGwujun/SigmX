@@ -29,4 +29,12 @@ describe("DataStatus", () => {
 
     expect(retry).toHaveBeenCalledOnce();
   });
+
+  it("accepts compact exchange trade dates", () => {
+    render(<DataStatus source="行情库" asOf="20260814" freshness="收盘" quality="verified" />);
+
+    expect(screen.getByText(/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/8/)).toBeInTheDocument();
+    expect(screen.getByText(/14/)).toBeInTheDocument();
+  });
 });

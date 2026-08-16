@@ -20,12 +20,22 @@ class PublicSearchItemResponse(BaseModel):
     dividend_yield: float | None
     total_market_value: float | None
     as_of: str | None
+    instrument_type: str
+
+
+class PublicResourceResponse(BaseModel):
+    title: str
+    url: str
+    description: str
 
 
 class PublicSearchResponse(BaseModel):
     query: str
     interpretation: list[str]
     items: list[PublicSearchItemResponse]
+    intent: str
+    answer: str | None
+    resources: list[PublicResourceResponse]
     source: str
     is_delayed: bool
 

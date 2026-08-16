@@ -73,3 +73,30 @@ def test_fund_summary_uses_fund_master_and_latest_daily(research: PublicResearch
 def test_unknown_instrument_is_explicit(research: PublicResearchService) -> None:
     with pytest.raises(InstrumentNotFound):
         research.stock("999999")
+
+
+def test_market_question_returns_an_explainable_market_answer(research: PublicResearchService) -> None:
+    result = research.search("今天市场怎么样")
+
+    assert result.intent == "market_question"
+    assert result.items == []
+    assert result.answer is not None
+    assert "20260814" in result.answer
+    assert result.interpretation == ["识别为市场概览问题"]
+
+
+def test_api_docs_query_returns_relevant_document_links(research: PublicResearchService) -> None:
+    result = research.search("Data Hub 股票日线接口怎么调用")
+
+    assert result.intent == "api_docs"
+    assert result.items == []
+    assert result.resources[0].title == "股票日线接口"
+    assert result.resources[0].url == "/docs/data-hub/stocks-daily"
+
+
+def test_fund_search_reads_fund_master_instead_of_stock_master(research: PublicResearchService) -> None:
+    result = research.search("沪深300 ETF")
+
+    assert result.intent == "fund_search"
+    assert result.items[0].code == "510300"
+    assert result.items[0].instrument_type == "fund"

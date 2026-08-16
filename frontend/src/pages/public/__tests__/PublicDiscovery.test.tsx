@@ -61,4 +61,36 @@ describe("public discovery funnel", () => {
     render(<MemoryRouter initialEntries={["/research/revoked"]}><Routes><Route path="/research/:slug" element={<PublicReportPage />} /></Routes></MemoryRouter>);
     await waitFor(() => expect(screen.getByText("该报告已被作者撤销")).toBeInTheDocument());
   });
+
+  it("renders a market-question answer instead of a false empty result", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok({
+      query: "今天市场怎么样", intent: "market_question", interpretation: ["识别为市场概览问题"],
+      answer: "20260814 可用样本 5310 个，上涨 3102 个，下跌 2058 个。", resources: [], items: [],
+      source: "local_market_store", is_delayed: true,
+    })));
+    render(<MemoryRouter initialEntries={["/query/%E4%BB%8A%E5%A4%A9%E5%B8%82%E5%9C%BA%E6%80%8E%E4%B9%88%E6%A0%B7"]}><Routes><Route path="/query/:id" element={<PublicSearchPage />} /></Routes></MemoryRouter>);
+
+    expect(await screen.findByText(/可用样本 5310/)).toBeInTheDocument();
+    expect(screen.queryByText("当前数据中没有匹配结果，请调整条件。")).not.toBeInTheDocument();
+  });
+
+  it("routes fund results and API documentation resources to the right product page", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({
+        query: "沪深300 ETF", intent: "fund_search", interpretation: ["识别为 ETF/LOF/基金搜索"], answer: null, resources: [],
+        items: [{ code: "510300", name: "沪深300ETF", instrument_type: "fund", industry: "ETF", close: 4.21, pe_ttm: null, pb: null, dividend_yield: null, total_market_value: null, as_of: "20260814" }],
+        source: "local_market_store", is_delayed: true,
+      }))
+      .mockResolvedValueOnce(ok({
+        query: "Data Hub 股票日线接口", intent: "api_docs", interpretation: ["识别为 Data Hub 文档问题"], answer: "请查看接口文档。",
+        resources: [{ title: "股票日线接口", url: "/docs/data-hub/stocks-daily", description: "历史日线、复权与质量字段" }], items: [],
+        source: "local_market_store", is_delayed: true,
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { unmount } = render(<MemoryRouter initialEntries={["/query/%E6%B2%AA%E6%B7%B1300%20ETF"]}><Routes><Route path="/query/:id" element={<PublicSearchPage />} /></Routes></MemoryRouter>);
+    expect(await screen.findByRole("link", { name: /沪深300ETF/ })).toHaveAttribute("href", "/fund/510300");
+    unmount();
+    render(<MemoryRouter initialEntries={["/query/Data%20Hub%20%E8%82%A1%E7%A5%A8%E6%97%A5%E7%BA%BF%E6%8E%A5%E5%8F%A3"]}><Routes><Route path="/query/:id" element={<PublicSearchPage />} /></Routes></MemoryRouter>);
+    expect(await screen.findByRole("link", { name: /股票日线接口/ })).toHaveAttribute("href", "/docs/data-hub/stocks-daily");
+  });
 });

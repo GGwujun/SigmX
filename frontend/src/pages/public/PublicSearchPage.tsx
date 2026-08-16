@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bookmark, Monitor } from "lucide-react";
+import { DataStatus, EmptyState, ErrorState, Panel } from "@sigmx/ui";
 
 import { cloudResearchApi, type PublicSearchResult } from "@/lib/cloudResearchApi";
 import { isAuthenticated } from "@/lib/apiAuth";
@@ -30,13 +31,21 @@ export function PublicSearchPage() {
     await cloudResearchApi.saveQuery(query, summary);
   };
 
-  return <div className="mx-auto max-w-5xl space-y-6 px-4 py-12">
-    <header><p className="text-xs font-medium uppercase tracking-widest text-primary">AI 选股 · 轻量验证</p><h1 className="mt-2 text-3xl font-bold">{query}</h1><p className="mt-2 text-sm text-muted-foreground">匿名用户可查看有限真实结果；完整保存和持续研究需要登录。</p></header>
-    {error && <div role="alert" className="rounded-lg border border-destructive/40 p-4 text-destructive">{error}</div>}
-    {!result && !error && <p className="text-sm text-muted-foreground">正在查询…</p>}
+  return <div className="mx-auto max-w-6xl space-y-5 px-4 py-8 sm:px-6">
+    <header className="border-b pb-5"><p className="text-xs font-medium uppercase tracking-[.18em] text-primary">SigmX Discovery</p><h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{query}</h1><p className="mt-2 text-sm text-muted-foreground">解释查询意图，展示真实数据，并将结果沉淀为持续研究资产。</p></header>
+    {error && <ErrorState title="查询失败" description={error} onRetry={() => window.location.reload()} />}
+    {!result && !error && <div role="status" className="page-state"><strong>正在解析查询并读取数据…</strong></div>}
     {result && <>
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 p-4"><div><div className="text-sm">{result.interpretation.length ? result.interpretation.join(" · ") : "代码、名称或行业匹配"}</div><div className="mt-1 text-xs text-muted-foreground">延迟数据 · 来源 {result.source}</div></div><button onClick={() => void save()} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground"><Bookmark className="h-4 w-4" />保存查询</button></div>
-      <div className="space-y-3">{result.items.length === 0 && <p className="rounded-lg border p-6 text-sm text-muted-foreground">当前数据中没有匹配结果，请调整条件。</p>}{result.items.map((item) => <Link key={item.code} to={`/stock/${item.code}`} className="block rounded-xl border bg-card p-5 hover:border-primary/40"><div className="flex justify-between"><div><strong>{item.name}</strong><code className="ml-2 text-xs text-muted-foreground">{item.code}</code></div><span>{item.close?.toLocaleString() ?? "—"}</span></div><div className="mt-3 grid grid-cols-3 gap-2 text-xs text-muted-foreground"><span>PE {item.pe_ttm ?? "—"}</span><span>PB {item.pb ?? "—"}</span><span>股息率 {item.dividend_yield ?? "—"}%</span></div></Link>)}</div>
+      <Panel title="查询解释" description={result.intent ?? "instrument_search"} action={<button onClick={() => void save()} className="inline-flex items-center gap-2 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground"><Bookmark className="h-3.5 w-3.5" />保存查询</button>}>
+        <div className="flex flex-wrap gap-2">{(result.interpretation.length ? result.interpretation : ["代码、名称或行业匹配"]).map(item => <span key={item} className="rounded border bg-muted/30 px-2 py-1 text-xs">{item}</span>)}</div>
+        {result.answer && <p className="mt-4 border-l-2 border-primary pl-3 text-sm leading-6">{result.answer}</p>}
+        <DataStatus source={result.source} asOf={result.items.find(item => item.as_of)?.as_of ?? null} freshness={result.is_delayed ? "延迟数据" : "实时"} quality={result.answer?.includes("暂不可用") ? "degraded" : "verified"} />
+      </Panel>
+      {(result.resources?.length ?? 0) > 0 && <Panel title="相关文档" description="继续查看接口定义、认证与示例"><div className="grid gap-2 md:grid-cols-2">{result.resources!.map(resource => <Link key={resource.url} to={resource.url} className="rounded border p-3 hover:border-primary/50"><strong className="text-sm">{resource.title}</strong><p className="mt-1 text-xs text-muted-foreground">{resource.description}</p></Link>)}</div></Panel>}
+      <Panel title="匹配结果" description={`${result.items.length} 个结果`}>
+        {result.items.length === 0 && !result.answer && !(result.resources?.length) && <EmptyState title="没有匹配结果" description="调整关键词、筛选条件或直接输入证券代码。" />}
+        <div className="divide-y">{result.items.map((item) => <Link aria-label={`${item.name} ${item.code}`} key={item.code} to={`/${item.instrument_type === "fund" ? "fund" : "stock"}/${item.code}`} className="grid grid-cols-[minmax(0,1fr)_auto] gap-4 px-2 py-3 hover:bg-muted/25"><div><strong className="text-sm">{item.name}</strong><code className="ml-2 text-xs text-muted-foreground">{item.code}</code><div className="mt-1 text-xs text-muted-foreground">{item.industry ?? item.instrument_type ?? "—"}</div></div><div className="text-right font-mono text-sm"><div>{item.close?.toLocaleString() ?? "—"}</div><div className="mt-1 text-[11px] text-muted-foreground">PE {item.pe_ttm ?? "—"} · PB {item.pb ?? "—"} · 股息 {item.dividend_yield ?? "—"}%</div></div></Link>)}</div>
+      </Panel>
       <Link to="/download" className="inline-flex items-center gap-2 text-sm font-medium text-primary"><Monitor className="h-4 w-4" />在 Desktop 中继续深度研究</Link>
     </>}
   </div>;

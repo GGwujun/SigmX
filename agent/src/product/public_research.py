@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from src.data.market_store import MarketStore
+from src.product.query_intent import IntentKind, parse_query
 
 
 class InstrumentNotFound(Exception):
@@ -22,6 +23,14 @@ class PublicSearchItem:
     dividend_yield: float | None
     total_market_value: float | None
     as_of: str | None
+    instrument_type: str = "stock"
+
+
+@dataclass(frozen=True)
+class PublicResourceLink:
+    title: str
+    url: str
+    description: str
 
 
 @dataclass(frozen=True)
@@ -29,6 +38,9 @@ class PublicSearchResult:
     query: str
     interpretation: list[str]
     items: list[PublicSearchItem]
+    intent: str = "instrument_search"
+    answer: str | None = None
+    resources: tuple[PublicResourceLink, ...] = ()
     source: str = "local_market_store"
     is_delayed: bool = True
 
@@ -68,10 +80,15 @@ class PublicResearchService:
         self.store = store or MarketStore()
 
     def search(self, query: str, limit: int = 10) -> PublicSearchResult:
-        query = query.strip()
-        if not query:
-            raise ValueError("query is required")
+        intent = parse_query(query)
+        query = intent.normalized_query
         limit = min(max(int(limit), 1), 10)
+        if intent.kind is IntentKind.MARKET_QUESTION:
+            return self._market_answer(query)
+        if intent.kind is IntentKind.API_DOCS:
+            return self._docs_answer(query)
+        if intent.kind is IntentKind.FUND_SEARCH:
+            return self._fund_search(query, limit)
         interpretations: list[str] = []
         clauses = ["s.is_active=1"]
         params: list[object] = []
@@ -115,6 +132,81 @@ class PublicResearchService:
                 )
                 for row in rows
             ],
+            intent=intent.kind.value,
+        )
+
+    def _market_answer(self, query: str) -> PublicSearchResult:
+        with self.store._lock:
+            row = self.store._conn.execute(
+                "SELECT trade_date, COUNT(*) AS instruments, "
+                "SUM(CASE WHEN close > open THEN 1 ELSE 0 END) AS advances, "
+                "SUM(CASE WHEN close < open THEN 1 ELSE 0 END) AS declines "
+                "FROM bars_daily WHERE trade_date=(SELECT MAX(trade_date) FROM bars_daily) GROUP BY trade_date"
+            ).fetchone()
+        if row is None:
+            answer = "市场概览数据暂不可用。"
+        else:
+            answer = (
+                f"{row['trade_date']} 可用样本 {int(row['instruments'] or 0)} 个，"
+                f"上涨 {int(row['advances'] or 0)} 个，下跌 {int(row['declines'] or 0)} 个。"
+            )
+        return PublicSearchResult(
+            query=query,
+            interpretation=["识别为市场概览问题"],
+            items=[],
+            intent=IntentKind.MARKET_QUESTION.value,
+            answer=answer,
+        )
+
+    @staticmethod
+    def _docs_answer(query: str) -> PublicSearchResult:
+        resources = (
+            PublicResourceLink("股票日线接口", "/docs/data-hub/stocks-daily", "历史日线、复权与质量字段"),
+            PublicResourceLink("Data Hub 快速开始", "/docs/data-hub/quickstart", "认证、SDK 和 Data Credit 计费"),
+        )
+        return PublicSearchResult(
+            query=query,
+            interpretation=["识别为 Data Hub 文档问题"],
+            items=[],
+            intent=IntentKind.API_DOCS.value,
+            answer="可从股票日线接口文档和快速开始继续。",
+            resources=resources,
+        )
+
+    def _fund_search(self, query: str, limit: int) -> PublicSearchResult:
+        text = query
+        for marker in ("ETF", "etf", "LOF", "lof", "基金", "折溢价"):
+            text = text.replace(marker, " ")
+        terms = [term for term in text.split() if term]
+        clauses = []
+        params: list[object] = []
+        for term in terms:
+            clauses.append("(code LIKE ? OR name LIKE ? OR type LIKE ?)")
+            params.extend([f"%{term}%"] * 3)
+        where = " AND ".join(clauses) if clauses else "1=1"
+        params.append(limit)
+        with self.store._lock:
+            masters = self.store._conn.execute(
+                f"SELECT code,name,type FROM fund_master WHERE {where} ORDER BY code LIMIT ?", params
+            ).fetchall()
+            items = []
+            for master in masters:
+                table = "etf_daily" if str(master["type"] or "").upper() == "ETF" else "fund_daily"
+                daily = self.store._conn.execute(
+                    f"SELECT close,trade_date FROM {table} WHERE code=? ORDER BY trade_date DESC LIMIT 1",
+                    (master["code"],),
+                ).fetchone()
+                items.append(PublicSearchItem(
+                    code=master["code"], name=master["name"], industry=master["type"],
+                    close=self._float(daily["close"]) if daily else None,
+                    pe_ttm=None, pb=None, dividend_yield=None, total_market_value=None,
+                    as_of=daily["trade_date"] if daily else None, instrument_type="fund",
+                ))
+        return PublicSearchResult(
+            query=query,
+            interpretation=["识别为 ETF/LOF/基金搜索"],
+            items=items,
+            intent=IntentKind.FUND_SEARCH.value,
         )
 
     def stock(self, code: str) -> PublicStockSummary:

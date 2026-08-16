@@ -8,10 +8,14 @@ export interface PublicSearchItem {
   code: string; name: string; industry: string | null; close: number | null;
   pe_ttm: number | null; pb: number | null; dividend_yield: number | null;
   total_market_value: number | null; as_of: string | null;
+  instrument_type?: "stock" | "fund";
 }
 
 export interface PublicSearchResult {
   query: string; interpretation: string[]; items: PublicSearchItem[];
+  intent?: "instrument" | "instrument_search" | "screener" | "market_question" | "api_docs" | "fund_search";
+  answer?: string | null;
+  resources?: Array<{ title: string; url: string; description: string }>;
   source: string; is_delayed: boolean;
 }
 

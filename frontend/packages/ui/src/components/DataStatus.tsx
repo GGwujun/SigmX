@@ -22,9 +22,13 @@ export function DataStatus({
   message?: string;
   onRetry?: () => void;
 }) {
-  const timestamp = asOf
-    ? new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(new Date(asOf))
-    : "时间未知";
+  const compactDate = asOf?.match(/^(\d{4})(\d{2})(\d{2})$/);
+  const parsed = asOf
+    ? new Date(compactDate ? `${compactDate[1]}-${compactDate[2]}-${compactDate[3]}T00:00:00+08:00` : asOf)
+    : null;
+  const timestamp = parsed && !Number.isNaN(parsed.getTime())
+    ? new Intl.DateTimeFormat("zh-CN", compactDate ? { dateStyle: "medium" } : { dateStyle: "medium", timeStyle: "short" }).format(parsed)
+    : asOf || "时间未知";
   return (
     <div role="status" className={`data-status data-status--${quality}`}>
       <span className="data-status__quality">{QUALITY_LABEL[quality]}</span>
