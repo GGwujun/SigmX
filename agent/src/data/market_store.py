@@ -988,6 +988,19 @@ class MarketStore:
         return df
 
     @_synchronized
+    def get_adjustment_factors(self, code: str, *, start: str, end: str) -> pd.Series | None:
+        """Return exact-date corporate-action factors for an OHLCV range."""
+        rows = self._conn.execute(
+            "SELECT trade_date,adj_factor FROM fq_factors "
+            "WHERE code=? AND trade_date>=? AND trade_date<=? ORDER BY trade_date",
+            (code, start, end),
+        ).fetchall()
+        if not rows:
+            return None
+        index = pd.to_datetime([row["trade_date"] for row in rows])
+        return pd.Series([float(row["adj_factor"]) for row in rows], index=index, name="adj_factor")
+
+    @_synchronized
     def get_index_daily_bars(self, code: str, days: int | None = None) -> pd.DataFrame | None:
         """Return index OHLCV DataFrame from index_daily table.
 

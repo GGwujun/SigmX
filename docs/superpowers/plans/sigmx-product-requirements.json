@@ -188,7 +188,10 @@
   {
     "id": "5.3",
     "title": "Adjustment and trading-day handling",
-    "evidence": []
+    "evidence": [
+      "runtime:agent/src/data/market_data_service.py",
+      "test:agent/tests/test_market_data_service.py"
+    ]
   },
   {
     "id": "5.4",

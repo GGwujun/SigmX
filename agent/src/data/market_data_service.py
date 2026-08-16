@@ -49,13 +49,37 @@ def daily_bars(
     days: int | None = None,
     start: str | None = None,
     end: str | None = None,
+    adjustment: str = "raw",
 ) -> Optional[pd.DataFrame]:
-    """Return daily OHLCV from the local DB only."""
+    """Return daily OHLCV with an explicit raw/qfq/hfq price convention."""
+    if adjustment not in {"raw", "qfq", "hfq"}:
+        raise ValueError("adjustment must be raw, qfq, or hfq")
     store = get_market_store()
     if store is None:
         logger.debug("market data service: store unavailable")
         return None
-    return store.get_daily_bars(normalize_code(code), days=days, start=start, end=end)
+    normalized = normalize_code(code)
+    frame = store.get_daily_bars(normalized, days=days, start=start, end=end)
+    if frame is None or frame.empty:
+        return frame
+    frame.attrs["adjustment"] = adjustment
+    if adjustment == "raw":
+        return frame
+    range_start = frame.index.min().strftime("%Y-%m-%d")
+    range_end = frame.index.max().strftime("%Y-%m-%d")
+    factors = store.get_adjustment_factors(normalized, start=range_start, end=range_end)
+    if factors is None:
+        raise ValueError(f"adjustment factors unavailable for {normalized} {range_start}..{range_end}")
+    aligned = factors.reindex(frame.index).ffill().bfill()
+    if aligned.isna().any() or (aligned <= 0).any():
+        raise ValueError(f"adjustment factors incomplete for {normalized}")
+    anchor = float(aligned.iloc[-1] if adjustment == "qfq" else aligned.iloc[0])
+    multiplier = aligned / anchor
+    adjusted = frame.copy()
+    adjusted.loc[:, ["open", "high", "low", "close"]] = adjusted[["open", "high", "low", "close"]].mul(multiplier, axis=0)
+    adjusted.attrs["adjustment"] = adjustment
+    adjusted.attrs["factor_version"] = factors.index.max().strftime("%Y-%m-%d")
+    return adjusted
 
 
 def daily_bars_batch(codes: list[str], days: int = 90) -> dict[str, pd.DataFrame]:
