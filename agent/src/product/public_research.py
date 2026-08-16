@@ -57,6 +57,13 @@ class PublicStockSummary:
     dividend_yield: float | None
     total_market_value: float | None
     as_of: str | None
+    quote: dict[str, object]
+    finance: dict[str, object]
+    capital_flows: tuple[dict[str, object], ...]
+    events: tuple[dict[str, object], ...]
+    risks: tuple[str, ...]
+    research_summary: str
+    quality: dict[str, object]
     source: str = "local_market_store"
     is_delayed: bool = True
 
@@ -69,6 +76,12 @@ class PublicFundSummary:
     close: float | None
     change_percent: float | None
     as_of: str | None
+    premium: dict[str, object]
+    scale: dict[str, object]
+    liquidity: dict[str, object]
+    risks: tuple[str, ...]
+    research_summary: str
+    quality: dict[str, object]
     source: str = "local_market_store"
     is_delayed: bool = True
 
@@ -219,13 +232,54 @@ class PublicResearchService:
                 "WHERE s.code=? OR s.symbol=? ORDER BY b.trade_date DESC LIMIT 1",
                 (lookup, lookup),
             ).fetchone()
+            if row is not None:
+                bar = self.store._conn.execute(
+                    "SELECT open,high,low,close,volume,total_amt,rise_rate,source,sync_run_id,quality_status,trade_date,updated_at "
+                    "FROM bars_daily WHERE code=? ORDER BY trade_date DESC LIMIT 1", (row["code"],)
+                ).fetchone()
+                finance = self.store._conn.execute(
+                    "SELECT trade_date,eps,bvps,roe,profit,income,updated_at FROM financial_snapshot WHERE code=?",
+                    (row["code"],),
+                ).fetchone()
+                flows = self.store._conn.execute(
+                    "SELECT trade_date,period,m_net,r_net FROM stock_capital_flow WHERE code=? ORDER BY trade_date DESC LIMIT 10",
+                    (row["code"],),
+                ).fetchall()
+                events = self.store._conn.execute(
+                    "SELECT ann_date AS event_date,title,ann_type AS category,url FROM announcement "
+                    "WHERE code=? ORDER BY ann_date DESC LIMIT 10", (row["code"],)
+                ).fetchall()
         if row is None:
             raise InstrumentNotFound(lookup)
+        quote = self._row_dict(bar) if bar else {"close": self._float(row["close"]), "trade_date": row["trade_date"]}
+        finance_values = self._row_dict(finance) if finance else {}
+        quality = {
+            "status": str(bar["quality_status"]) if bar else "unverified",
+            "source": str(bar["source"]) if bar else "local_market_store",
+            "sync_run_id": str(bar["sync_run_id"]) if bar else None,
+            "updated_at": bar["updated_at"] if bar else None,
+        }
+        risks = ["公开页面为延迟数据，不构成投资建议"]
+        if row["pe_ttm"] is not None and float(row["pe_ttm"]) > 40:
+            risks.append("滚动市盈率处于较高水平")
+        if quality["status"] != "verified":
+            risks.append("最新行情尚未完成质量校验")
         return PublicStockSummary(
             code=row["code"], name=row["name"], industry=row["industry"], market=row["market"],
             close=self._float(row["close"]), pe_ttm=self._float(row["pe_ttm"]), pb=self._float(row["pb"]),
             dividend_yield=self._float(row["dv_ttm"]), total_market_value=self._float(row["total_mv"]),
             as_of=row["trade_date"],
+            quote=quote,
+            finance=finance_values,
+            capital_flows=tuple({"trade_date": item["trade_date"], "period": item["period"], "main_net": self._float(item["m_net"]), "retail_net": self._float(item["r_net"])} for item in flows),
+            events=tuple(self._row_dict(item) for item in events),
+            risks=tuple(risks),
+            research_summary=(
+                f"{row['name']}最新公开收盘价为{self._float(row['close']) if row['close'] is not None else '未知'}，"
+                f"滚动市盈率{self._float(row['pe_ttm']) if row['pe_ttm'] is not None else '暂无'}；"
+                "结论需结合财务、资金和近期事件继续验证。"
+            ),
+            quality=quality,
         )
 
     def fund(self, code: str) -> PublicFundSummary:
@@ -242,13 +296,43 @@ class PublicResearchService:
                 f"FROM {table} WHERE code=? ORDER BY trade_date DESC LIMIT 1",
                 (lookup,),
             ).fetchone()
+            premium = self.store._conn.execute(
+                "SELECT trade_date,price,nav,premium_rate,amount,change_pct,signal,iopv,updated_at "
+                "FROM fund_premium_snapshot WHERE code=? ORDER BY trade_date DESC LIMIT 1", (lookup,)
+            ).fetchone()
+            scale = self.store._conn.execute(
+                "SELECT trade_date,total_share,total_size,nav,close,exchange,updated_at "
+                "FROM etf_share_size WHERE code=? ORDER BY trade_date DESC LIMIT 1", (lookup,)
+            ).fetchone()
+        premium_values = self._row_dict(premium) if premium else {}
+        scale_values = self._row_dict(scale) if scale else {}
+        amount = self._float(premium["amount"]) if premium else None
+        premium_rate = self._float(premium["premium_rate"]) if premium else None
+        risks = ["公开页面为延迟数据，不构成投资建议"]
+        if premium_rate is not None and abs(premium_rate) >= 1:
+            risks.append("当前折溢价幅度较高")
+        if amount is not None and amount < 10_000_000:
+            risks.append("成交额偏低，需关注流动性")
         return PublicFundSummary(
             code=master["code"], name=master["name"], fund_type=master["type"],
             close=self._float(row["close"]) if row else None,
             change_percent=self._float(row["change_percent"]) if row else None,
             as_of=row["trade_date"] if row else None,
+            premium=premium_values,
+            scale=scale_values,
+            liquidity={"amount": amount, "assessment": "充足" if amount is not None and amount >= 100_000_000 else "需关注"},
+            risks=tuple(risks),
+            research_summary=(
+                f"{master['name']}最新公开价格为{self._float(row['close']) if row else '未知'}，"
+                f"折溢价率{premium_rate if premium_rate is not None else '暂无'}%；需结合规模和流动性评估。"
+            ),
+            quality={"status": "verified" if row and row["trade_date"] else "unverified", "source": "local_market_store", "updated_at": premium["updated_at"] if premium else None},
         )
 
     @staticmethod
     def _float(value) -> float | None:
         return float(value) if value is not None else None
+
+    @staticmethod
+    def _row_dict(row) -> dict[str, object]:
+        return {key: row[key] for key in row.keys()}

@@ -30,6 +30,9 @@ def test_public_search_and_stock_routes_need_no_user_argument() -> None:
     assert result.items[0].code == "600519.SH"
     stock = asyncio.run(routes.public_stock("600519"))
     assert stock.name == "贵州茅台"
+    assert stock.quality["status"] == "unverified"
+    assert "贵州茅台" in stock.research_summary
+    assert stock.risks
 
 
 def test_unknown_public_instrument_returns_404() -> None:

@@ -42,6 +42,26 @@ def research(tmp_path: Path) -> PublicResearchService:
         "INSERT INTO etf_daily (code,trade_date,close,rise,updated_at) VALUES (?,?,?,?,?)",
         ("510300", "20260814", 4.21, 0.5, "2026-08-15T10:00:00+08:00"),
     )
+    conn.execute(
+        "INSERT INTO financial_snapshot (code,trade_date,eps,bvps,roe,profit,income,updated_at) VALUES (?,?,?,?,?,?,?,?)",
+        ("600519.SH", "20260814", 62.1, 210.5, 31.2, 86_000_000_000, 174_000_000_000, "2026-08-15T10:00:00+08:00"),
+    )
+    conn.execute(
+        "INSERT INTO stock_capital_flow (code,trade_date,period,m_net,r_net,updated_at) VALUES (?,?,?,?,?,?)",
+        ("600519.SH", "20260814", 1, 120_000_000, -20_000_000, "2026-08-15T10:00:00+08:00"),
+    )
+    conn.execute(
+        "INSERT INTO announcement (code,ann_date,title,ann_type,url,updated_at) VALUES (?,?,?,?,?,?)",
+        ("600519.SH", "20260813", "2026 年半年度报告", "定期报告", "https://example.test/a", "2026-08-15T10:00:00+08:00"),
+    )
+    conn.execute(
+        "INSERT INTO fund_premium_snapshot (code,trade_date,name,type,price,nav,premium_rate,amount,change_pct,signal,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        ("510300", "20260814", "沪深300ETF", "ETF", 4.21, 4.20, 0.24, 1_500_000_000, 0.5, "NEUTRAL", "2026-08-15T10:00:00+08:00"),
+    )
+    conn.execute(
+        "INSERT INTO etf_share_size (code,trade_date,name,total_share,total_size,nav,close,exchange,updated_at) VALUES (?,?,?,?,?,?,?,?,?)",
+        ("510300", "20260814", "沪深300ETF", 50_000_000_000, 210_000_000_000, 4.20, 4.21, "SSE", "2026-08-15T10:00:00+08:00"),
+    )
     conn.commit()
     return PublicResearchService(store)
 
@@ -63,11 +83,34 @@ def test_stock_summary_is_delayed_and_source_labelled(research: PublicResearchSe
     assert result.source == "local_market_store"
 
 
+def test_stock_profile_contains_finance_flow_events_risk_summary_and_quality(research: PublicResearchService) -> None:
+    result = research.stock("600519")
+
+    assert result.quote["close"] == 1500
+    assert result.finance["roe"] == 31.2
+    assert result.capital_flows[0]["main_net"] == 120_000_000
+    assert result.events[0]["title"] == "2026 年半年度报告"
+    assert result.quality["status"] == "verified"
+    assert result.quality["source"] == "tushare"
+    assert "贵州茅台" in result.research_summary
+    assert result.risks
+
+
 def test_fund_summary_uses_fund_master_and_latest_daily(research: PublicResearchService) -> None:
     result = research.fund("510300")
     assert result.name == "沪深300ETF"
     assert result.close == 4.21
     assert result.fund_type == "ETF"
+
+
+def test_fund_profile_contains_premium_scale_liquidity_and_risk(research: PublicResearchService) -> None:
+    result = research.fund("510300")
+
+    assert result.premium["premium_rate"] == 0.24
+    assert result.scale["total_size"] == 210_000_000_000
+    assert result.liquidity["amount"] == 1_500_000_000
+    assert result.quality["status"] in {"verified", "unverified"}
+    assert result.research_summary.startswith("沪深300ETF")
 
 
 def test_unknown_instrument_is_explicit(research: PublicResearchService) -> None:

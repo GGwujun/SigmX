@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel
@@ -51,6 +52,13 @@ class PublicStockResponse(BaseModel):
     dividend_yield: float | None
     total_market_value: float | None
     as_of: str | None
+    quote: dict[str, Any]
+    finance: dict[str, Any]
+    capital_flows: list[dict[str, Any]]
+    events: list[dict[str, Any]]
+    risks: list[str]
+    research_summary: str
+    quality: dict[str, Any]
     source: str
     is_delayed: bool
 
@@ -62,6 +70,12 @@ class PublicFundResponse(BaseModel):
     close: float | None
     change_percent: float | None
     as_of: str | None
+    premium: dict[str, Any]
+    scale: dict[str, Any]
+    liquidity: dict[str, Any]
+    risks: list[str]
+    research_summary: str
+    quality: dict[str, Any]
     source: str
     is_delayed: bool
 

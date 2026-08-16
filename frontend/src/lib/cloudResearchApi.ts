@@ -21,11 +21,16 @@ export interface PublicSearchResult {
 
 export interface PublicStockSummary extends PublicSearchItem {
   market: string | null; source: string; is_delayed: boolean;
+  quote: Record<string, unknown>; finance: Record<string, unknown>;
+  capital_flows: Array<Record<string, unknown>>; events: Array<Record<string, unknown>>;
+  risks: string[]; research_summary: string; quality: Record<string, unknown>;
 }
 
 export interface PublicFundSummary {
   code: string; name: string; fund_type: string | null; close: number | null;
   change_percent: number | null; as_of: string | null; source: string; is_delayed: boolean;
+  premium: Record<string, unknown>; scale: Record<string, unknown>; liquidity: Record<string, unknown>;
+  risks: string[]; research_summary: string; quality: Record<string, unknown>;
 }
 
 export interface CloudReport {
@@ -58,6 +63,7 @@ export const cloudResearchApi = {
   saveQuery: (query: string, resultSummary: Record<string, unknown>) => request("/api/cloud/queries", true, { method: "POST", body: JSON.stringify({ query, result_summary: resultSummary }) }),
   listQueries: async () => (await request<{ items: CloudSavedQuery[] }>("/api/cloud/queries", true)).items,
   listWatchlist: async () => (await request<{ items: CloudWatchlistItem[] }>("/api/cloud/watchlist", true)).items,
+  addWatchlist: (symbol: string, name: string) => request<CloudWatchlistItem>("/api/cloud/watchlist", true, { method: "POST", body: JSON.stringify({ symbol, name }) }),
   listReports: async () => (await request<{ items: CloudReport[] }>("/api/cloud/reports", true)).items,
   publishReport: (title: string, summary: string) => request<CloudReport>("/api/cloud/reports", true, { method: "POST", body: JSON.stringify({ title, summary }) }),
   removeWatchlist: (symbol: string) => request(`/api/cloud/watchlist/${encodeURIComponent(symbol)}`, true, { method: "DELETE" }),

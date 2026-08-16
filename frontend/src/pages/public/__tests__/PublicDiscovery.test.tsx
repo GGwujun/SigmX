@@ -34,20 +34,25 @@ describe("public discovery funnel", () => {
 
   it("renders stock and fund summaries from public APIs", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string) => url.includes("/stocks/")
-      ? Promise.resolve(ok({ code: "600519.SH", name: "贵州茅台", industry: "白酒", market: "主板", close: 1500, pe_ttm: 24, pb: 8, dividend_yield: 2, total_market_value: 1900000, as_of: "20260814", source: "local_market_store", is_delayed: true }))
-      : Promise.resolve(ok({ code: "510300", name: "沪深300ETF", fund_type: "ETF", close: 4.21, change_percent: 0.5, as_of: "20260814", source: "local_market_store", is_delayed: true })));
+      ? Promise.resolve(ok({ code: "600519.SH", name: "贵州茅台", industry: "白酒", market: "主板", close: 1500, pe_ttm: 24, pb: 8, dividend_yield: 2, total_market_value: 1900000, as_of: "20260814", source: "local_market_store", is_delayed: true, quote: { close: 1500, rise_rate: 1.2 }, finance: { roe: 31.2, eps: 62.1 }, capital_flows: [{ trade_date: "20260814", main_net: 120000000 }], events: [{ event_date: "20260813", title: "2026 年半年度报告", category: "定期报告", url: "https://example.test/a" }], risks: ["估值需结合盈利增速验证"], research_summary: "贵州茅台盈利质量较高，需继续验证估值。", quality: { status: "verified", source: "tushare", updated_at: "2026-08-15T10:00:00+08:00" } }))
+      : Promise.resolve(ok({ code: "510300", name: "沪深300ETF", fund_type: "ETF", close: 4.21, change_percent: 0.5, as_of: "20260814", source: "local_market_store", is_delayed: true, premium: { premium_rate: 0.24, nav: 4.2 }, scale: { total_size: 210000000000 }, liquidity: { amount: 1500000000, assessment: "充足" }, risks: ["指数波动风险"], research_summary: "沪深300ETF规模与流动性充足。", quality: { status: "verified", source: "local_market_store", updated_at: "2026-08-15T10:00:00+08:00" } })));
     vi.stubGlobal("fetch", fetchMock);
     const { unmount } = render(<MemoryRouter initialEntries={["/stock/600519"]}><Routes><Route path="/stock/:code" element={<PublicInstrumentPage kind="stock" />} /></Routes></MemoryRouter>);
     expect(await screen.findByText("贵州茅台")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "研究摘要" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "资金动向" })).toBeInTheDocument();
+    expect(screen.getByText("2026 年半年度报告")).toBeInTheDocument();
     unmount();
     render(<MemoryRouter initialEntries={["/fund/510300"]}><Routes><Route path="/fund/:code" element={<PublicInstrumentPage kind="fund" />} /></Routes></MemoryRouter>);
     expect(await screen.findByText("沪深300ETF")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "折溢价与净值" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "规模与流动性" })).toBeInTheDocument();
   });
 
   it("creates an opaque instrument handoff before exposing a Desktop link", async () => {
     window.localStorage.setItem("sigmx_auth_token", "jwt");
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(ok({ code: "600519.SH", name: "贵州茅台", industry: "白酒", market: "主板", close: 1500, pe_ttm: 24, pb: 8, dividend_yield: 2, total_market_value: 1900000, as_of: "20260814", source: "local_market_store", is_delayed: true }))
+      .mockResolvedValueOnce(ok({ code: "600519.SH", name: "贵州茅台", industry: "白酒", market: "主板", close: 1500, pe_ttm: 24, pb: 8, dividend_yield: 2, total_market_value: 1900000, as_of: "20260814", source: "local_market_store", is_delayed: true, quote: { close: 1500 }, finance: {}, capital_flows: [], events: [], risks: ["公开数据为延迟数据"], research_summary: "贵州茅台公开研究摘要。", quality: { status: "verified", source: "tushare", updated_at: "2026-08-15T10:00:00+08:00" } }))
       .mockResolvedValueOnce(ok({ id: "h1", token: "sxrh_abc", deep_link: "sigmx://research/sxrh_abc", expires_at: "2026-08-15T00:10:00Z" }));
     vi.stubGlobal("fetch", fetchMock);
     render(<MemoryRouter initialEntries={["/stock/600519"]}><Routes><Route path="/stock/:code" element={<PublicInstrumentPage kind="stock" />} /></Routes></MemoryRouter>);
