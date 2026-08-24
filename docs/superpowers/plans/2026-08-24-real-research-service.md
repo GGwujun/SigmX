@@ -54,7 +54,7 @@ Scan production `.ts/.tsx` files outside `__tests__`, flag explicit demo markers
 Run: `python -m pytest agent/tests/test_web_runtime_mock_guard.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tools/check_web_runtime_mocks.py agent/tests/test_web_runtime_mock_guard.py
@@ -99,7 +99,7 @@ Reuse latest-trade-date, index, breadth, and fund-summary store queries. If a so
 Run: `python -m pytest agent/tests/test_public_research_api.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add agent/src/product/public_research.py agent/src/api/public_research_routes.py agent/tests/test_public_research_api.py
@@ -121,7 +121,7 @@ git commit -m "feat: serve real public market discovery"
 - `GET /api/research/tasks/{id}/result` returns persisted summary, candidates, evidence, risks, `source`, and `as_of`.
 - `POST /api/research/tasks/{id}/cancel` cancels queued/running tasks.
 
-- [ ] **Step 1: Write failing task lifecycle tests**
+- [x] **Step 1: Write failing task lifecycle tests**
 
 ```python
 def test_research_task_persists_real_result(client, auth_headers, seeded_market_store):
@@ -137,25 +137,25 @@ def test_research_task_persists_real_result(client, auth_headers, seeded_market_
     assert all(item["evidence"] for item in result.json()["candidates"])
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `python -m pytest agent/tests/test_research_task_api.py -q`
 Expected: FAIL because the route and schema do not exist.
 
-- [ ] **Step 3: Add additive SQLite migration**
+- [x] **Step 3: Add additive SQLite migration**
 
 Create `research_tasks`, `research_results`, and `research_evidence` tables and increment `_SCHEMA_VERSION`. Store JSON only for bounded request/result structures; index task owner, status, and creation time.
 
-- [ ] **Step 4: Implement service and routes**
+- [x] **Step 4: Implement service and routes**
 
 Parse supported constraints, call the existing `PublicResearchService.search`, retain only values actually returned by the data store, create evidence rows for every displayed metric, and persist terminal state. Unknown constraints return 422.
 
-- [ ] **Step 5: Verify lifecycle, ownership, idempotency, cancellation, and source tests**
+- [x] **Step 5: Verify lifecycle, ownership, idempotency, cancellation, and source tests**
 
 Run: `python -m pytest agent/tests/test_research_task_api.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add agent/src/product/research_tasks.py agent/src/api/research_task_routes.py agent/src/product/store.py agent/api_server.py agent/tests/test_research_task_api.py

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 16
+_SCHEMA_VERSION = 17
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -540,6 +540,52 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_query_executions_user_time
                 ON query_executions(user_id, executed_at DESC, condition_version DESC);
+
+            CREATE TABLE IF NOT EXISTS research_tasks (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                question TEXT NOT NULL,
+                template_id TEXT,
+                scope_json TEXT NOT NULL,
+                constraints_json TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('queued','running','succeeded','failed','cancelled')),
+                steps_json TEXT NOT NULL,
+                idempotency_key TEXT NOT NULL,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                finished_at TEXT,
+                UNIQUE(user_id, idempotency_key)
+            );
+            CREATE INDEX IF NOT EXISTS idx_research_tasks_user_created
+                ON research_tasks(user_id, created_at DESC);
+
+            CREATE TABLE IF NOT EXISTS research_results (
+                task_id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                summary TEXT NOT NULL,
+                source TEXT NOT NULL,
+                as_of TEXT,
+                scope_json TEXT NOT NULL,
+                candidates_json TEXT NOT NULL,
+                risks_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES research_tasks(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS research_evidence (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                candidate_code TEXT NOT NULL,
+                field TEXT NOT NULL,
+                value_json TEXT NOT NULL,
+                source TEXT NOT NULL,
+                as_of TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES research_tasks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_research_evidence_task_candidate
+                ON research_evidence(task_id, candidate_code);
 
             CREATE TABLE IF NOT EXISTS cloud_watchlist (
                 user_id TEXT NOT NULL,

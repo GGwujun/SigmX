@@ -3400,6 +3400,9 @@ register_cloud_task_routes(app)
 from src.api.public_research_routes import register_public_research_routes  # noqa: E402
 register_public_research_routes(app)
 
+from src.api.research_task_routes import register_research_task_routes  # noqa: E402
+register_research_task_routes(app)
+
 from src.api.harness_routes import register_harness_routes  # noqa: E402
 register_harness_routes(app)
 from src.api.operations_routes import register_operations_routes  # noqa: E402
