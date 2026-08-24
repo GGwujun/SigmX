@@ -30,7 +30,7 @@
 - Consumes: repository path passed to `scan_runtime_mocks(root: Path)`.
 - Produces: `list[Violation]` with `path`, `line`, and `reason`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```python
 def test_detects_runtime_demo_copy_but_ignores_tests(tmp_path):
@@ -40,16 +40,16 @@ def test_detects_runtime_demo_copy_but_ignores_tests(tmp_path):
     assert {item.reason for item in violations} == {"demo-marker", "page-business-array"}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python -m pytest agent/tests/test_web_runtime_mock_guard.py -q`
 Expected: FAIL because `tools.check_web_runtime_mocks` does not exist.
 
-- [ ] **Step 3: Implement scanner and CLI**
+- [x] **Step 3: Implement scanner and CLI**
 
 Scan production `.ts/.tsx` files outside `__tests__`, flag explicit demo markers and exported page-level business fixtures. Support an allowlist for navigation/options/documentation metadata.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `python -m pytest agent/tests/test_web_runtime_mock_guard.py -q`
 Expected: PASS.
