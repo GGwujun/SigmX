@@ -93,6 +93,11 @@ const PricingPage = lazy(() =>
 const LandingPage = lazy(() =>
   import("@/pages/public/LandingPage").then((m) => ({ default: m.LandingPage })),
 );
+const IntelligencePage = lazy(() =>
+  import("@/pages/public/IntelligencePage").then((m) => ({ default: m.IntelligencePage })),
+);
+const ResearchSkillsPage = lazy(() => import("@/pages/public/ResearchSkillsPage").then((m) => ({ default: m.ResearchSkillsPage })));
+const ResearchSkillDetailPage = lazy(() => import("@/pages/public/ResearchSkillDetailPage").then((m) => ({ default: m.ResearchSkillDetailPage })));
 const PublicLayout = lazy(() =>
   import("@/components/public/PublicLayout").then((m) => ({ default: m.PublicLayout })),
 );
@@ -109,6 +114,7 @@ const SampleReportPage = lazy(() =>
   import("@/pages/public/SampleReportPage").then((m) => ({ default: m.SampleReportPage })),
 );
 const PublicSearchPage = lazy(() => import("@/pages/public/PublicSearchPage").then((m) => ({ default: m.PublicSearchPage })));
+const ResearchResultPage = lazy(() => import("@/pages/public/ResearchResultPage").then((m) => ({ default: m.ResearchResultPage })));
 const PublicInstrumentPage = lazy(() => import("@/pages/public/PublicInstrumentPage").then((m) => ({ default: m.PublicInstrumentPage })));
 const PublicReportPage = lazy(() => import("@/pages/public/PublicReportPage").then((m) => ({ default: m.PublicReportPage })));
 const DataHubDocsPage = lazy(() => import("@/pages/public/DataHubDocsPage").then((m) => ({ default: m.DataHubDocsPage })));
@@ -216,12 +222,16 @@ export const router = createBrowserRouter([
     element: wrap(PublicLayout),
     children: [
       { path: "/", element: wrap(LandingPage) },
+      { path: "/intelligence", element: wrap(IntelligencePage) },
+      { path: "/skills", element: wrap(ResearchSkillsPage) },
+      { path: "/skills/:slug", element: wrap(ResearchSkillDetailPage) },
       { path: "/pricing", element: wrap(PricingPage) },
       { path: "/product/data-hub", element: wrap(DataHubProductPage) },
       { path: "/product/desktop", element: wrap(DesktopProductPage) },
       { path: "/download", element: wrap(DownloadPage) },
       { path: "/reports/sample/:slug", element: wrap(SampleReportPage) },
       { path: "/query/:id", element: wrap(PublicSearchPage) },
+      { path: "/research/result/:taskId", element: wrap(ResearchResultPage) },
       { path: "/stock/:code", element: wrap(() => <PublicInstrumentPage kind="stock" />) },
       { path: "/fund/:code", element: wrap(() => <PublicInstrumentPage kind="fund" />) },
       { path: "/research/:slug", element: wrap(PublicReportPage) },

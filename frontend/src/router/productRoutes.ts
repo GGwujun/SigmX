@@ -11,12 +11,16 @@ export const SHARED_ACCOUNT_ROUTE_PATHS = [
 
 export const WEB_ROUTE_PATHS = [
   "/",
+  "/intelligence",
+  "/skills",
+  "/skills/:slug",
   "/pricing",
   "/product/data-hub",
   "/product/desktop",
   "/download",
   "/reports/sample/:slug",
   "/query/:id",
+  "/research/result/:taskId",
   "/stock/:code",
   "/fund/:code",
   "/research/:slug",

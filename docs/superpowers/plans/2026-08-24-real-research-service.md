@@ -175,29 +175,29 @@ git commit -m "feat: persist evidence-backed research tasks"
 - `createResearchTask(input): Promise<ResearchTask>`.
 - `getResearchTask(id): Promise<ResearchTask>`.
 
-- [ ] **Step 1: Replace fixture-oriented tests with API state tests**
+- [x] **Step 1: Replace fixture-oriented tests with API state tests**
 
 Test loading, success, unavailable metrics, empty templates, request failure, task creation, server-confirmed progress, and navigation to `/research/result/{taskId}`.
 
-- [ ] **Step 2: Verify tests fail**
+- [x] **Step 2: Verify tests fail**
 
 Run: `npm test -- --run src/pages/public/__tests__/LandingPage.test.tsx`
 Expected: FAIL because the page still imports runtime fixtures.
 
-- [ ] **Step 3: Implement typed client**
+- [x] **Step 3: Implement typed client**
 
 Use `authHeaders()` for task routes, parse non-2xx responses into `ApiError`, and expose no fallback values.
 
-- [ ] **Step 4: Refactor LandingPage**
+- [x] **Step 4: Refactor LandingPage**
 
 Fetch discovery on mount, render four states, submit a real task, poll its confirmed state, and navigate only when the result is ready. Remove timers, `marketPulse`, `researchCandidates`, `topicPrompts`, and all demo labels.
 
-- [ ] **Step 5: Verify frontend tests**
+- [x] **Step 5: Verify frontend tests**
 
 Run: `npm test -- --run src/pages/public/__tests__/LandingPage.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/lib/researchApi.ts frontend/src/pages/public/LandingPage.tsx frontend/src/pages/public/__tests__/LandingPage.test.tsx
@@ -215,25 +215,25 @@ git commit -m "feat: connect AI discovery to real research service"
 - Consumes: `getResearchResult(taskId): Promise<ResearchResult>` from Task 4.
 - Produces: source-attributed result UI with empty/error/not-ready states.
 
-- [ ] **Step 1: Write failing response-state tests**
+- [x] **Step 1: Write failing response-state tests**
 
 Assert candidate values come only from the API, evidence source links render, unavailable metrics show `—`, and revoked/missing tasks show an error rather than demo content.
 
-- [ ] **Step 2: Verify tests fail**
+- [x] **Step 2: Verify tests fail**
 
 Run: `npm test -- --run src/pages/public/__tests__/ResearchResultPage.test.tsx`
 Expected: FAIL because the page imports `researchWorkbenchData`.
 
-- [ ] **Step 3: Refactor result rendering**
+- [x] **Step 3: Refactor result rendering**
 
 Use route parameter as task ID, fetch the result, render its scope, candidates, evidence, risks, source, and observation time. Remove all hard-coded conclusion and method text that claims a completed analysis.
 
-- [ ] **Step 4: Verify tests**
+- [x] **Step 4: Verify tests**
 
 Run: `npm test -- --run src/pages/public/__tests__/ResearchResultPage.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add frontend/src/pages/public/ResearchResultPage.tsx frontend/src/pages/public/__tests__/ResearchResultPage.test.tsx

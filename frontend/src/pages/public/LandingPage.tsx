@@ -1,136 +1,69 @@
-/**
- * Public acquisition homepage (design §7.1 `/`): brand value, the three product
- * shapes (website / Data Hub / desktop), and primary CTAs. Static content — no
- * API calls — so it renders fast and never breaks on a catalog outage.
- */
 import { useEffect, useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { Search, Database, Monitor, ArrowRight, Globe2 } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowRight, BarChart3, Database, LoaderCircle, Search, Sparkles, X } from "lucide-react";
+import { createResearchTask, getDiscovery, getResearchResult, type PublicDiscovery, type ResearchResult, type ResearchTemplate } from "@/lib/researchApi";
+import { isAuthenticated } from "@/lib/apiAuth";
 import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
-const PRODUCTS = [
-  {
-    icon: Globe2,
-    name: "SigmX Web",
-    desc: "无需安装即可搜索股票、基金与自然语言条件，完成轻量验证并保存到个人云空间。",
-    href: "/query/%E4%BD%8E%E4%BC%B0%E5%80%BC%20%E9%AB%98%E8%82%A1%E6%81%AF",
-    cta: "体验 AI 选股",
-  },
-  {
-    icon: Monitor,
-    name: "桌面客户端",
-    desc: "本地持仓、自选、回测与定时任务。Standalone 模式本地运行，Connected 模式连接 Data Hub。",
-    href: "/product/desktop",
-    cta: "了解桌面端",
-  },
-  {
-    icon: Database,
-    name: "Data Hub",
-    desc: "标准化金融数据 API，可独立于 Desktop 使用；按接口权限和 Data Credit 精确计量。",
-    href: "/product/data-hub",
-    cta: "了解 Data Hub",
-  },
-];
-
-const HIGHLIGHTS = [
-  "产品分离、平台能力共享：统一账号、数据集、指标与权益",
-  "激活码开通套餐，权益与积分立即生效",
-  "Standalone 离线可用，云端不可达时本地功能不中断",
-];
+type RunState = "idle" | "plan" | "running" | "done" | "error";
 
 export function LandingPage() {
-  useEffect(() => trackPersonalFunnel("landing_view"), []);
+  const [params] = useSearchParams();
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    const value = query.trim();
-    if (value) navigate(`/query/${encodeURIComponent(value)}`);
+  const [discovery, setDiscovery] = useState<PublicDiscovery | null>(null);
+  const [loadError, setLoadError] = useState("");
+  const [query, setQuery] = useState(params.get("q") ?? "");
+  const [template, setTemplate] = useState<ResearchTemplate | null>(null);
+  const [phase, setPhase] = useState<RunState>("idle");
+  const [result, setResult] = useState<ResearchResult | null>(null);
+  const [runError, setRunError] = useState("");
+
+  useEffect(() => {
+    trackPersonalFunnel("landing_view");
+    getDiscovery().then(setDiscovery).catch((error: Error) => setLoadError(error.message));
+  }, []);
+
+  const dateLabel = discovery?.as_of ? `数据日期 ${discovery.as_of}` : "等待数据同步";
+  const chooseTemplate = (item: ResearchTemplate) => { setTemplate(item); setQuery(item.prompt); setResult(null); setPhase("idle"); };
+  const submit = (event: FormEvent) => { event.preventDefault(); if (query.trim()) setPhase("plan"); };
+  const run = async () => {
+    if (!isAuthenticated()) { navigate(`/login?next=${encodeURIComponent("/")}`); return; }
+    setPhase("running"); setRunError("");
+    try {
+      const task = await createResearchTask({ question: query.trim(), template_id: template?.id ?? null, scope: { market: "A股", exclude_st: true }, constraints: [] });
+      const completed = await getResearchResult(task.id);
+      setResult(completed); setPhase("done");
+    } catch (error) { setRunError(error instanceof Error ? error.message : "研究运行失败"); setPhase("error"); }
   };
-  return (
-    <div>
-      {/* Hero */}
-      <section className="mx-auto max-w-6xl px-4 py-20 text-center">
-        <h1 className="text-4xl font-bold tracking-tight sm:text-5xl">
-          面向中国 A 股的
-          <span className="text-primary"> 投研数据与 AI</span>
-        </h1>
-        <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-          多源降级采集的行情/基本面/资金流数据，可运营的套餐与积分体系，以及本地优先的桌面客户端。
-        </p>
-        <form onSubmit={submit} className="mx-auto mt-8 flex max-w-2xl gap-2 rounded-xl border bg-card p-2 shadow-sm">
-          <label className="sr-only" htmlFor="public-search">统一搜索</label>
-          <Search className="ml-2 mt-2.5 h-5 w-5 text-muted-foreground" />
-          <input id="public-search" aria-label="统一搜索" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="输入代码、名称，或试试：低估值 高股息 小市值" className="min-w-0 flex-1 bg-transparent px-2 text-sm outline-none" />
-          <button type="submit" className="rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground">开始查询</button>
-        </form>
-        <div className="mt-4 flex items-center justify-center gap-3">
-          <Link
-            to="/register"
-            className="inline-flex h-11 items-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            免费注册
-          </Link>
-          <Link
-            to="/pricing"
-            className="inline-flex h-11 items-center gap-1 rounded-md border px-6 text-sm font-medium hover:bg-muted"
-          >
-            查看套餐 <ArrowRight className="h-4 w-4" />
-          </Link>
-        </div>
-      </section>
 
-      {/* Highlights */}
-      <section className="border-y bg-muted/30">
-        <div className="mx-auto grid max-w-6xl gap-4 px-4 py-8 sm:grid-cols-3">
-          {HIGHLIGHTS.map((h) => (
-            <div key={h} className="text-sm text-muted-foreground">
-              · {h}
-            </div>
-          ))}
-        </div>
-      </section>
+  return <div className="min-h-screen bg-slate-50 text-slate-950">
+    <section className="border-b border-slate-200 bg-white"><div className="mx-auto max-w-[1440px] px-6 py-6">
+      <div className="flex items-end justify-between gap-4"><div><div className="flex items-center gap-2 text-xs font-semibold text-primary"><BarChart3 className="h-4 w-4"/> WEB RESEARCH</div><h1 className="mt-1 text-2xl font-bold">市场发现</h1><p className="mt-1 text-sm text-slate-500">从真实市场数据开始，把问题转成可追溯的研究结果</p></div><div className="text-xs text-slate-500">{dateLabel} · {discovery?.is_delayed ? "延迟数据" : "最新数据"}</div></div>
+      {loadError ? <div className="mt-5 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">市场数据加载失败：{loadError}</div> :
+      <div className="mt-5 grid overflow-hidden rounded-lg border border-slate-200 bg-slate-50 sm:grid-cols-5">{discovery ? discovery.metrics.map(metric => <Metric key={metric.key} metric={metric}/>) : <div className="col-span-5 flex items-center gap-2 p-5 text-sm text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin"/> 正在读取市场数据</div>}</div>}
+    </div></section>
 
-      {/* Three product shapes */}
-      <section className="mx-auto max-w-6xl px-4 py-16">
-        <h2 className="text-center text-2xl font-bold">三种产品形态，共享同一套平台能力</h2>
-        <p className="mt-2 text-center text-sm text-muted-foreground">
-          证券代码、数据集、指标、API、身份与权益统一；页面、运行状态与私有数据分离。
-        </p>
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
-          {PRODUCTS.map(({ icon: Icon, name, desc, href, cta }) => (
-            <div key={name} className="flex flex-col rounded-xl border bg-card p-6 shadow-sm">
-              <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                <Icon className="h-5 w-5 text-primary" />
-              </div>
-              <h3 className="text-lg font-semibold">{name}</h3>
-              <p className="mt-2 flex-1 text-sm text-muted-foreground">{desc}</p>
-              <Link
-                to={href}
-                className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-              >
-                {cta} <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            </div>
-          ))}
-        </div>
-      </section>
+    <main className="mx-auto max-w-[1440px] px-6 py-6">
+      <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"><div className="flex items-center gap-3"><Search className="ml-2 h-5 w-5 text-primary"/><input aria-label="研究问题" value={query} onChange={e => { setQuery(e.target.value); setTemplate(null); setResult(null); }} placeholder="输入股票、行业或研究问题" className="h-11 flex-1 bg-transparent text-sm outline-none"/><button className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground">运行研究 <ArrowRight className="h-4 w-4"/></button></div><div className="border-t border-slate-100 px-2 pt-2 text-xs text-slate-500">研究范围：A 股 · 非 ST {template ? `· 已采用“${template.label}”模板` : "· 自定义问题"}</div></form>
+      <div className="mt-5 grid gap-5 md:grid-cols-[240px_minmax(0,1fr)]">
+        <aside className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"><div className="px-2 py-2"><h2 className="text-sm font-semibold">研究模板</h2><p className="mt-1 text-xs text-slate-400">选择后会生成可继续编辑的研究问题</p></div><div className="space-y-1">{discovery?.templates.map(item => <button key={item.id} type="button" aria-pressed={template?.id === item.id} onClick={() => chooseTemplate(item)} className={`w-full rounded-lg px-3 py-3 text-left ${template?.id === item.id ? "bg-primary/10 text-primary" : "hover:bg-slate-50"}`}><div className="text-sm font-medium">{item.label}</div><div className="mt-1 text-xs opacity-70">{item.description}</div></button>)}</div><Link to="/product/data-hub" className="mt-4 flex items-center gap-1 border-t px-2 pt-4 text-xs font-semibold text-primary"><Database className="h-3.5 w-3.5"/> 查看数据能力</Link></aside>
+        {!result ? <section className="grid min-h-[430px] place-items-center rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center"><div className="max-w-md"><span className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-primary/10 text-primary"><Sparkles className="h-5 w-5"/></span><h2 className="mt-4 text-lg font-semibold">从一个研究问题开始</h2><p className="mt-2 text-sm leading-6 text-slate-500">选择模板或直接提问。提交后由服务端读取已入库数据、执行筛选并保存结果与证据。</p></div></section> : <ResultPanel result={result}/>} 
+      </div>
+    </main>
+    {phase !== "idle" && phase !== "done" && <RunDialog phase={phase} question={query} error={runError} onRun={run} onClose={() => setPhase("idle")}/>} 
+  </div>;
+}
 
-      {/* Bottom CTA */}
-      <section className="mx-auto max-w-6xl px-4 pb-20">
-        <div className="rounded-2xl border bg-card p-10 text-center shadow-sm">
-          <h2 className="text-2xl font-bold">开始使用 SigmX</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            注册即获免费版、50 研究积分和每月 1,000 Data Credit。
-          </p>
-          <Link
-            to="/register"
-            className="mt-6 inline-flex h-11 items-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            免费注册
-          </Link>
-        </div>
-      </section>
-    </div>
-  );
+function Metric({ metric }: { metric: PublicDiscovery["metrics"][number] }) {
+  const value = metric.quality !== "available" || metric.value == null ? "暂无数据" : `${metric.value.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}${metric.unit ?? ""}`;
+  const change = metric.change == null ? null : `${metric.change > 0 ? "+" : ""}${metric.change.toFixed(2)}%`;
+  return <div className="border-r border-slate-200 px-4 py-3"><div className="text-xs text-slate-500">{metric.label}</div><div className="mt-1 flex items-baseline gap-2"><span className="font-semibold tabular-nums">{value}</span>{change && <span className={metric.change! < 0 ? "text-xs text-red-500" : "text-xs text-success"}>{change}</span>}</div></div>;
+}
+
+function ResultPanel({ result }: { result: ResearchResult }) {
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b p-5"><h2 className="font-semibold">研究结果</h2><p className="mt-2 text-sm text-slate-600">{result.summary}</p><div className="mt-2 text-xs text-slate-400">数据日期 {result.as_of ?? "未知"} · {result.source}</div></div><div className="divide-y">{result.candidates.map(item => <Link key={item.code} to={`/stock/${item.code}`} className="flex items-start justify-between gap-4 p-5 hover:bg-slate-50"><div><div className="font-semibold">{item.name} <span className="font-mono text-xs text-slate-400">{item.code}</span></div><p className="mt-2 text-xs text-slate-500">{item.reason}</p></div><div className="shrink-0 text-right text-xs text-slate-500"><div>PE {item.pe_ttm ?? "—"}</div><div>股息率 {item.dividend_yield == null ? "—" : `${item.dividend_yield}%`}</div></div></Link>)}</div><div className="flex justify-end border-t bg-slate-50 p-4"><Link to={`/research/result/${result.task_id}`} className="font-semibold text-primary">查看完整结果</Link></div></section>;
+}
+
+function RunDialog({ phase, question, error, onRun, onClose }: { phase: RunState; question: string; error: string; onRun: () => void; onClose: () => void }) {
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/40 p-4"><section role="dialog" aria-label="研究流程" className="w-full max-w-2xl rounded-2xl bg-white p-6 shadow-2xl"><div className="flex justify-between"><div><h2 className="text-xl font-bold">{phase === "plan" ? "研究计划" : phase === "running" ? "正在执行研究" : "研究运行失败"}</h2><p className="mt-2 text-sm text-slate-500">{question}</p></div><button aria-label="关闭" onClick={onClose}><X className="h-5 w-5"/></button></div>{phase === "plan" && <><ol className="mt-6 grid gap-3 text-sm"><li>1. 解析自然语言问题与研究范围</li><li>2. 查询行情、估值和分红等已入库数据</li><li>3. 保存候选、证据来源及数据日期</li></ol><button onClick={onRun} className="mt-6 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white">开始执行</button></>}{phase === "running" && <div className="mt-8 flex items-center gap-3 text-sm text-slate-600"><LoaderCircle className="h-5 w-5 animate-spin text-primary"/> 服务端正在执行并持久化研究结果</div>}{phase === "error" && <div className="mt-6 rounded-lg bg-red-50 p-4 text-sm text-red-700">{error}</div>}</section></div>;
 }
