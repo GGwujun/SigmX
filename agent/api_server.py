@@ -3404,6 +3404,8 @@ from src.api.research_task_routes import register_research_task_routes  # noqa: 
 register_research_task_routes(app)
 from src.api.admin_module_routes import register_admin_module_routes  # noqa: E402
 register_admin_module_routes(app)
+from src.api.public_skill_routes import register_public_skill_routes  # noqa: E402
+register_public_skill_routes(app)
 
 from src.api.harness_routes import register_harness_routes  # noqa: E402
 register_harness_routes(app)
