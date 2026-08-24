@@ -57,6 +57,21 @@ class PublicDiscoveryResponse(BaseModel):
     templates: list[ResearchTemplateResponse]
 
 
+class PublicIntelligenceArticleResponse(BaseModel):
+    title: str
+    url: str = ""
+    source: str = ""
+    published: str = ""
+    snippet: str = ""
+
+
+class PublicIntelligenceResponse(BaseModel):
+    articles: list[PublicIntelligenceArticleResponse]
+    query: str
+    sources: list[str]
+    updated_at: str
+
+
 class PublicSearchResponse(BaseModel):
     query: str
     interpretation: list[str]
@@ -130,6 +145,16 @@ async def public_search(q: str = Query(..., min_length=1, max_length=200), limit
 @router.get("/api/public/discovery", response_model=PublicDiscoveryResponse)
 async def public_discovery() -> PublicDiscoveryResponse:
     return PublicDiscoveryResponse(**asdict(_get_service().discovery()))
+
+
+@router.get("/api/public/intelligence", response_model=PublicIntelligenceResponse)
+async def public_intelligence(q: str = Query("", max_length=100), limit: int = Query(30, ge=1, le=60)) -> PublicIntelligenceResponse:
+    import asyncio
+    from src.api.news_routes import _build_news_list
+
+    payload = await asyncio.get_running_loop().run_in_executor(None, _build_news_list, q.strip())
+    payload["articles"] = payload.get("articles", [])[:limit]
+    return PublicIntelligenceResponse(**payload)
 
 
 @router.get("/api/public/stocks/{code}", response_model=PublicStockResponse)

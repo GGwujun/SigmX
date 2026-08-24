@@ -95,3 +95,16 @@ def test_discovery_does_not_invent_values_when_store_is_empty(tmp_path: Path) ->
     assert result.as_of is None
     assert all(item.value is None for item in result.metrics)
     assert all(item.quality == "unavailable" for item in result.metrics)
+
+
+def test_public_intelligence_returns_aggregated_articles(monkeypatch) -> None:
+    from src.api import news_routes
+
+    monkeypatch.setattr(news_routes, "_build_news_list", lambda keyword: {
+        "articles": [{"title": "交易所发布真实公告", "url": "https://example.com/a", "source": "交易所", "published": "2026-08-24", "snippet": "公告摘要"}],
+        "query": keyword, "sources": ["交易所"], "updated_at": "2026-08-24T10:00:00Z",
+    })
+    response = asyncio.run(routes.public_intelligence(q="公告", limit=10))
+    assert response.articles[0].title == "交易所发布真实公告"
+    assert response.articles[0].url == "https://example.com/a"
+    assert response.sources == ["交易所"]
