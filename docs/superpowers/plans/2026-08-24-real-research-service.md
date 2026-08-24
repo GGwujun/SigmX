@@ -73,7 +73,7 @@ git commit -m "test: guard against web runtime mock data"
 - Each metric is `{key, label, value, change, unit, quality}`.
 - Each template is `{id, label, description, prompt, data_domains}`.
 
-- [ ] **Step 1: Write failing API tests**
+- [x] **Step 1: Write failing API tests**
 
 ```python
 def test_discovery_has_source_time_and_no_fabricated_fallback(client, monkeypatch):
@@ -85,16 +85,16 @@ def test_discovery_has_source_time_and_no_fabricated_fallback(client, monkeypatc
     assert all(item["quality"] in {"fresh", "delayed", "unavailable"} for item in body["metrics"])
 ```
 
-- [ ] **Step 2: Verify failure**
+- [x] **Step 2: Verify failure**
 
 Run: `python -m pytest agent/tests/test_public_research_api.py -q`
 Expected: FAIL with 404 for `/api/public/discovery`.
 
-- [ ] **Step 3: Implement discovery DTO and service aggregation**
+- [x] **Step 3: Implement discovery DTO and service aggregation**
 
 Reuse latest-trade-date, index, breadth, and fund-summary store queries. If a source is unavailable, return a metric with `quality="unavailable"` and `value=None`; do not insert a numeric default.
 
-- [ ] **Step 4: Verify API tests**
+- [x] **Step 4: Verify API tests**
 
 Run: `python -m pytest agent/tests/test_public_research_api.py -q`
 Expected: PASS.

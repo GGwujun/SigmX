@@ -34,6 +34,36 @@ class PublicResourceLink:
 
 
 @dataclass(frozen=True)
+class DiscoveryMetric:
+    key: str
+    label: str
+    value: float | None
+    change: float | None
+    unit: str | None
+    quality: str
+    secondary_value: float | None = None
+
+
+@dataclass(frozen=True)
+class ResearchTemplate:
+    id: str
+    label: str
+    description: str
+    prompt: str
+    data_domains: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PublicDiscovery:
+    as_of: str | None
+    source: str
+    is_delayed: bool
+    market_status: str
+    metrics: tuple[DiscoveryMetric, ...]
+    templates: tuple[ResearchTemplate, ...]
+
+
+@dataclass(frozen=True)
 class PublicSearchResult:
     query: str
     interpretation: list[str]
@@ -146,6 +176,78 @@ class PublicResearchService:
                 for row in rows
             ],
             intent=intent.kind.value,
+        )
+
+    def discovery(self) -> PublicDiscovery:
+        index_specs = (
+            ("shanghai_index", "上证指数", "000001.SH"),
+            ("shenzhen_index", "深证成指", "399001.SZ"),
+            ("chinext_index", "创业板指", "399006.SZ"),
+        )
+        metrics: list[DiscoveryMetric] = []
+        observed_dates: list[str] = []
+        with self.store._lock:
+            for key, label, code in index_specs:
+                row = self.store._conn.execute(
+                    "SELECT trade_date,close,pct_chg FROM index_daily WHERE code=? "
+                    "ORDER BY trade_date DESC LIMIT 1",
+                    (code,),
+                ).fetchone()
+                if row and row["trade_date"]:
+                    observed_dates.append(str(row["trade_date"]))
+                metrics.append(DiscoveryMetric(
+                    key=key,
+                    label=label,
+                    value=self._float(row["close"]) if row else None,
+                    change=self._float(row["pct_chg"]) if row else None,
+                    unit=None,
+                    quality="delayed" if row else "unavailable",
+                ))
+            breadth = self.store._conn.execute(
+                "SELECT trade_date,"
+                "SUM(CASE WHEN close>open THEN 1 ELSE 0 END) AS advances,"
+                "SUM(CASE WHEN close<open THEN 1 ELSE 0 END) AS declines,"
+                "SUM(total_amt) AS turnover FROM bars_daily "
+                "WHERE trade_date=(SELECT MAX(trade_date) FROM bars_daily) GROUP BY trade_date"
+            ).fetchone()
+        if breadth and breadth["trade_date"]:
+            observed_dates.append(str(breadth["trade_date"]))
+        metrics.extend((
+            DiscoveryMetric(
+                key="market_breadth",
+                label="上涨 / 下跌",
+                value=self._float(breadth["advances"]) if breadth else None,
+                secondary_value=self._float(breadth["declines"]) if breadth else None,
+                change=None,
+                unit="家",
+                quality="delayed" if breadth else "unavailable",
+            ),
+            DiscoveryMetric(
+                key="turnover",
+                label="两市成交",
+                value=self._float(breadth["turnover"]) if breadth else None,
+                change=None,
+                unit="元",
+                quality="delayed" if breadth else "unavailable",
+            ),
+        ))
+        return PublicDiscovery(
+            as_of=max(observed_dates) if observed_dates else None,
+            source="local_market_store",
+            is_delayed=True,
+            market_status="closed" if observed_dates else "unknown",
+            metrics=tuple(metrics),
+            templates=self._research_templates(),
+        )
+
+    @staticmethod
+    def _research_templates() -> tuple[ResearchTemplate, ...]:
+        return (
+            ResearchTemplate("quality", "质量与现金流", "寻找盈利质量可靠且现金流改善的公司", "寻找经营现金流持续改善、盈利质量高于行业中位数的 A 股公司", ("财务", "行情", "公告")),
+            ResearchTemplate("dividend", "低估值高股息", "寻找估值与持续分红兼具吸引力的公司", "寻找估值处于历史低位、股息率连续三年高于 4% 的 A 股公司", ("估值", "分红", "财务")),
+            ResearchTemplate("growth", "盈利拐点", "寻找营收利润同步恢复的公司", "寻找营收与利润同步恢复、出现盈利拐点的 A 股公司", ("财务", "预测", "公告")),
+            ResearchTemplate("industry", "产业趋势", "寻找产业升级中的基本面受益者", "寻找研发投入领先、订单增长受益于制造业升级的 A 股公司", ("行业", "公告", "财务")),
+            ResearchTemplate("fund", "机构新关注", "寻找机构关注度与基本面同步改善的公司", "寻找机构覆盖与持仓连续提升、基本面同步改善的 A 股公司", ("机构", "资金", "财务")),
         )
 
     def _market_answer(self, query: str) -> PublicSearchResult:

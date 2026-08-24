@@ -30,6 +30,33 @@ class PublicResourceResponse(BaseModel):
     description: str
 
 
+class DiscoveryMetricResponse(BaseModel):
+    key: str
+    label: str
+    value: float | None
+    change: float | None
+    unit: str | None
+    quality: str
+    secondary_value: float | None = None
+
+
+class ResearchTemplateResponse(BaseModel):
+    id: str
+    label: str
+    description: str
+    prompt: str
+    data_domains: list[str]
+
+
+class PublicDiscoveryResponse(BaseModel):
+    as_of: str | None
+    source: str
+    is_delayed: bool
+    market_status: str
+    metrics: list[DiscoveryMetricResponse]
+    templates: list[ResearchTemplateResponse]
+
+
 class PublicSearchResponse(BaseModel):
     query: str
     interpretation: list[str]
@@ -98,6 +125,11 @@ async def public_search(q: str = Query(..., min_length=1, max_length=200), limit
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return PublicSearchResponse(**asdict(result))
+
+
+@router.get("/api/public/discovery", response_model=PublicDiscoveryResponse)
+async def public_discovery() -> PublicDiscoveryResponse:
+    return PublicDiscoveryResponse(**asdict(_get_service().discovery()))
 
 
 @router.get("/api/public/stocks/{code}", response_model=PublicStockResponse)
