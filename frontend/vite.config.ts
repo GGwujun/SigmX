@@ -23,7 +23,6 @@ const API_ONLY_PATHS = [
   "/data-health",
   "/market-sync",
   "/tracking",
-  "/admin",
   "/rsshub",
   // Fund API uses specific sub-paths (NOT bare "/fund" — that prefix would
   // swallow the /fund-opportunity and /fund-arbitrage SPA pages on refresh).
@@ -48,7 +47,8 @@ const SPA_WITH_API_PATHS = [
   "/tail-strategy",
   "/close-review",
   "/tracking-dashboard",
-  "/account"
+  "/account",
+  "/admin"
 ];
 
 export default defineConfig(({ mode }) => {

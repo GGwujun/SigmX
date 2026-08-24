@@ -18,7 +18,6 @@ export const WEB_ROUTE_PATHS = [
   "/product/data-hub",
   "/product/desktop",
   "/download",
-  "/reports/sample/:slug",
   "/query/:id",
   "/research/result/:taskId",
   "/stock/:code",

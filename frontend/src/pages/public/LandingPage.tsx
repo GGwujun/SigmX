@@ -55,8 +55,9 @@ export function LandingPage() {
 }
 
 function Metric({ metric }: { metric: PublicDiscovery["metrics"][number] }) {
-  const value = metric.quality !== "available" || metric.value == null ? "暂无数据" : `${metric.value.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}${metric.unit ?? ""}`;
-  const change = metric.change == null ? null : `${metric.change > 0 ? "+" : ""}${metric.change.toFixed(2)}%`;
+  const unavailable = metric.quality === "unavailable" || metric.value == null;
+  const value = unavailable ? "暂无数据" : `${metric.value!.toLocaleString("zh-CN", { maximumFractionDigits: 2 })}${metric.unit ?? ""}`;
+  const change = unavailable || metric.change == null ? null : `${metric.change > 0 ? "+" : ""}${metric.change.toFixed(2)}%`;
   return <div className="border-r border-slate-200 px-4 py-3"><div className="text-xs text-slate-500">{metric.label}</div><div className="mt-1 flex items-baseline gap-2"><span className="font-semibold tabular-nums">{value}</span>{change && <span className={metric.change! < 0 ? "text-xs text-red-500" : "text-xs text-success"}>{change}</span>}</div></div>;
 }
 

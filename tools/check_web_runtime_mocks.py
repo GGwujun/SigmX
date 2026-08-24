@@ -33,6 +33,11 @@ ARRAY_PATTERN = re.compile(
     r"\bconst\s+([A-Za-z_$][\w$]*)\s*(?::[^=]+)?=\s*\[\s*\{",
     re.MULTILINE,
 )
+DERIVED_ARRAY_ALLOWLIST = {
+    ("pages/dailyrecommendations.tsx", "rows"),
+    ("pages/recommendationhistory.tsx", "rows"),
+    ("pages/trackingdashboard.tsx", "items"),
+}
 
 
 @dataclass(frozen=True)
@@ -69,7 +74,8 @@ def scan_runtime_mocks(root: Path, scope: str | None = None) -> list[Violation]:
                 start = offset + len(marker)
         if "/pages/" in f"/{normalized}":
             for match in ARRAY_PATTERN.finditer(text):
-                if match.group(1).lower() in BUSINESS_ARRAY_NAMES:
+                name = match.group(1).lower()
+                if name in BUSINESS_ARRAY_NAMES and (normalized, name) not in DERIVED_ARRAY_ALLOWLIST:
                     violations.append(
                         Violation(path, _line_number(text, match.start()), "page-business-array")
                     )

@@ -13,7 +13,6 @@ const PricingPage = lazy(() => import("@/pages/public/PricingPage").then(m => ({
 const DataHubProductPage = lazy(() => import("@/pages/public/DataHubProductPage").then(m => ({ default: m.DataHubProductPage })));
 const DesktopProductPage = lazy(() => import("@/pages/public/DesktopProductPage").then(m => ({ default: m.DesktopProductPage })));
 const DownloadPage = lazy(() => import("@/pages/public/DownloadPage").then(m => ({ default: m.DownloadPage })));
-const SampleReportPage = lazy(() => import("@/pages/public/SampleReportPage").then(m => ({ default: m.SampleReportPage })));
 const PublicSearchPage = lazy(() => import("@/pages/public/PublicSearchPage").then(m => ({ default: m.PublicSearchPage })));
 const ResearchResultPage = lazy(() => import("@/pages/public/ResearchResultPage").then(m => ({ default: m.ResearchResultPage })));
 const PublicInstrumentPage = lazy(() => import("@/pages/public/PublicInstrumentPage").then(m => ({ default: m.PublicInstrumentPage })));
@@ -43,7 +42,6 @@ export const webRouter = createBrowserRouter([
     { path: "/product/data-hub", element: wrap(DataHubProductPage) },
     { path: "/product/desktop", element: wrap(DesktopProductPage) },
     { path: "/download", element: wrap(DownloadPage) },
-    { path: "/reports/sample/:slug", element: wrap(SampleReportPage) },
     { path: "/query/:id", element: wrap(PublicSearchPage) },
     { path: "/research/result/:taskId", element: wrap(ResearchResultPage) },
     { path: "/stock/:code", element: wrap(() => <PublicInstrumentPage kind="stock" />) },
