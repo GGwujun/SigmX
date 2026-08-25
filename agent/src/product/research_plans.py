@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import json
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -68,6 +69,9 @@ class ResearchPlan:
     steps: tuple[ResearchPlanStep, ...]
     executable: bool
     suggested_question: str | None
+    execution_mode: str = "rules_fallback"
+    model: str | None = None
+    skills: tuple[str, ...] = ()
 
     def to_constraints(self, use_alternatives: bool = False) -> list[dict[str, Any]]:
         del use_alternatives  # Alternatives are converted into a new plan, never trusted in-place.
@@ -238,3 +242,102 @@ class ResearchPlanService:
     @staticmethod
     def _operator_label(operator: str) -> str:
         return {"<=": "不高于", "<": "低于", ">=": "不低于", ">": "高于"}[operator]
+
+
+AI_RESEARCH_METRICS = frozenset({
+    *METRICS.keys(),
+    "operating_cashflow_trend",
+    "cashflow_profit_ratio_industry",
+    "pe_historical_percentile",
+    "roe_trend",
+    "revenue_growth",
+    "profit_growth",
+    "gross_margin_stability",
+    "debt_ratio",
+    "rd_intensity",
+    "institutional_holding",
+    "news_sentiment",
+    "announcement_event",
+})
+
+
+class AIResearchPlanService:
+    """Use an LLM for semantic planning, then validate every executable field."""
+
+    def __init__(self, llm_factory, *, timeout_seconds: int = 90) -> None:
+        self.llm_factory = llm_factory
+        self.timeout_seconds = timeout_seconds
+
+    def create(self, question: str, template_id: str | None, scope: dict[str, Any]) -> ResearchPlan:
+        normalized = " ".join(question.strip().split())
+        if not normalized:
+            raise ValueError("研究问题不能为空")
+        llm = self.llm_factory()
+        response = llm.chat([
+            {"role": "system", "content": self._prompt()},
+            {"role": "user", "content": json.dumps({"question": normalized, "template_id": template_id, "scope": scope}, ensure_ascii=False)},
+        ], timeout=self.timeout_seconds)
+        payload = self._parse(response.content or "")
+        conditions = tuple(self._condition(item) for item in payload.get("conditions", []))
+        if not conditions:
+            raise ValueError("AI research plan contains no conditions")
+        datasets = tuple(
+            ResearchDataset(str(item.get("key") or "dataset"), str(item.get("name") or "研究数据"), "supported")
+            for item in payload.get("datasets", []) if isinstance(item, dict)
+        )
+        return ResearchPlan(
+            id=uuid.uuid4().hex,
+            question=normalized,
+            template_id=template_id,
+            scope={"market": "A股", "exclude_st": True, **scope, **(payload.get("scope") or {})},
+            conditions=conditions,
+            ranking=tuple(item for item in payload.get("ranking", []) if isinstance(item, dict)),
+            datasets=datasets,
+            steps=_STEPS,
+            executable=all(item.status == "supported" for item in conditions),
+            suggested_question=None,
+            execution_mode="agent",
+            model=getattr(llm, "model_name", None),
+            skills=tuple(str(item) for item in payload.get("skills", []) if item),
+        )
+
+    @staticmethod
+    def _parse(content: str) -> dict[str, Any]:
+        value = content.strip()
+        if value.startswith("```"):
+            value = re.sub(r"^```(?:json)?\s*|\s*```$", "", value, flags=re.IGNORECASE)
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError("AI research plan is not valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("AI research plan must be an object")
+        return payload
+
+    @staticmethod
+    def _condition(item: dict[str, Any]) -> ResearchCondition:
+        metric = str(item.get("metric") or "")
+        if metric not in AI_RESEARCH_METRICS:
+            raise ValueError(f"unsupported AI research metric: {metric}")
+        return ResearchCondition(
+            id=uuid.uuid4().hex,
+            metric=metric,
+            label=str(item.get("label") or metric),
+            operator=str(item["operator"]) if item.get("operator") is not None else None,
+            value=item.get("value"),
+            period=str(item["period"]) if item.get("period") is not None else None,
+            benchmark=str(item["benchmark"]) if item.get("benchmark") is not None else None,
+            status="supported",
+            reason=None,
+        )
+
+    @staticmethod
+    def _prompt() -> str:
+        metrics = ", ".join(sorted(AI_RESEARCH_METRICS))
+        return (
+            "你是 SigmX 投研规划器。把问题转换为严格 JSON，不输出解释。"
+            f"metric 只能从以下列表选择：{metrics}。"
+            "结构为 scope、conditions、ranking、datasets、skills。"
+            "conditions 每项包含 metric,label,operator,value,period,benchmark。"
+            "不要承诺交易、账户、持仓或影子账户能力。"
+        )

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 17
+_SCHEMA_VERSION = 18
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -619,6 +619,39 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_research_handoffs_user_created
                 ON research_handoffs(user_id, created_at);
+
+            CREATE TABLE IF NOT EXISTS ai_model_providers (
+                code TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                api_key_ciphertext TEXT,
+                models_json TEXT NOT NULL DEFAULT '[]',
+                enabled INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_model_strategy (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                planning_provider TEXT NOT NULL,
+                planning_model TEXT NOT NULL,
+                execution_provider TEXT NOT NULL,
+                execution_model TEXT NOT NULL,
+                summary_provider TEXT NOT NULL,
+                summary_model TEXT NOT NULL,
+                temperature REAL NOT NULL DEFAULT 0.2,
+                max_tokens INTEGER NOT NULL DEFAULT 8000,
+                timeout_seconds INTEGER NOT NULL DEFAULT 90,
+                max_retries INTEGER NOT NULL DEFAULT 2,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS ai_data_sources (
+                code TEXT PRIMARY KEY,
+                enabled INTEGER NOT NULL DEFAULT 0,
+                priority INTEGER NOT NULL,
+                markets_json TEXT NOT NULL DEFAULT '[]',
+                updated_at TEXT NOT NULL
+            );
 
             -- Operator audit log (design §9).
             CREATE TABLE IF NOT EXISTS audit_log (

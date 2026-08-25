@@ -9,6 +9,7 @@ import src.api.research_task_routes as routes
 from src.data.market_store import MarketStore
 from src.product.public_research import PublicResearchService
 from src.product.research_tasks import ResearchTaskService
+from src.product.research_plans import ResearchPlanService
 from src.product.store import ProductStore
 
 
@@ -29,8 +30,10 @@ def research_service(tmp_path: Path):
     )
     market_store._conn.commit()
     routes._service = ResearchTaskService(product_store, PublicResearchService(market_store))
+    routes._plan_service = ResearchPlanService()
     yield
     routes._service = None
+    routes._plan_service = None
 
 
 def _body(key: str = "research-1") -> routes.CreateResearchTaskRequest:
@@ -57,6 +60,7 @@ def test_create_plan_reports_unavailable_conditions_before_task_creation() -> No
     assert statuses["operating_cashflow_trend"] == "unavailable"
     assert statuses["pe_ttm"] == "supported"
     assert plan.suggested_question
+    assert plan.execution_mode == "rules_fallback"
 
 
 def test_create_plan_returns_normalized_constraints_for_supported_question() -> None:

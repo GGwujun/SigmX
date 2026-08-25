@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_user
-from src.product.research_plans import ResearchPlanService
+from src.product.research_plans import AIResearchPlanService, ResearchPlanService
 from src.product.research_tasks import InvalidResearchConstraint, ResearchDataUnavailable, ResearchTaskService
 
 
@@ -77,6 +77,9 @@ class ResearchPlanResponse(BaseModel):
     constraints: list[dict[str, Any]]
     executable: bool
     suggested_question: str | None
+    execution_mode: str
+    model: str | None
+    skills: list[str]
 
 
 class ResearchStepResponse(BaseModel):
@@ -143,7 +146,30 @@ plan_router = APIRouter(
     tags=["research-plans"],
 )
 _service: ResearchTaskService | None = None
-_plan_service = ResearchPlanService()
+_plan_service = None
+
+
+def _get_plan_service():
+    global _plan_service
+    if _plan_service is not None:
+        return _plan_service
+    try:
+        from src.api.product_routes import _get_store
+        from src.product.ai_runtime_config import AIRuntimeConfigService, build_configured_chat
+
+        config = AIRuntimeConfigService(_get_store()).get_effective()
+        _plan_service = AIResearchPlanService(
+            lambda: build_configured_chat(
+                config.planning,
+                temperature=config.temperature,
+                timeout_seconds=config.timeout_seconds,
+                max_retries=config.max_retries,
+            ),
+            timeout_seconds=config.timeout_seconds,
+        )
+    except Exception:
+        _plan_service = ResearchPlanService()
+    return _plan_service
 
 
 def _get_service() -> ResearchTaskService:
@@ -161,7 +187,7 @@ async def create_research_plan(
     body: CreateResearchPlanRequest,
 ) -> ResearchPlanResponse:
     try:
-        plan = _plan_service.create(body.question, body.template_id, body.scope)
+        plan = _get_plan_service().create(body.question, body.template_id, body.scope)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return ResearchPlanResponse(**asdict(plan), constraints=plan.to_constraints())
