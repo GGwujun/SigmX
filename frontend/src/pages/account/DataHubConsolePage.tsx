@@ -159,7 +159,7 @@ export function DataHubConsolePage() {
       <header className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold"><Database className="h-5 w-5 text-primary" />Data Hub</h1>
-          <p className="text-sm text-muted-foreground">个人数据凭证、接口权限与 Data Credit 用量</p>
+          <p className="text-sm text-muted-foreground">当前套餐的数据凭证、接口权限与调用用量</p>
         </div>
         <div className="flex items-center gap-2"><Link to="/docs/data-hub/" className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">接口文档与在线调试</Link><button aria-label="刷新" className="rounded-lg border p-2" onClick={() => void reload()}><RefreshCw className="h-4 w-4" /></button></div>
       </header>
@@ -167,15 +167,15 @@ export function DataHubConsolePage() {
       {error && <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
       {loading ? <p className="text-sm text-muted-foreground">加载中…</p> : (
         <section className="grid gap-4 sm:grid-cols-3">
-          <Metric label="可用 Data Credit" value={(balance?.available ?? 0).toLocaleString()} />
+          <Metric label="可用数据调用额度" value={(balance?.available ?? 0).toLocaleString()} />
           <Metric label="7 日内到期" value={(balance?.expiring_soon ?? 0).toLocaleString()} />
-          <Metric label="调用与消耗" value={`${usage?.total_requests ?? 0} 次`} detail={`本期已扣 ${usage?.credits_charged ?? 0} Data Credit`} />
+          <Metric label="调用与消耗" value={`${usage?.total_requests ?? 0} 次`} detail={`本期消耗 ${usage?.credits_charged ?? 0} 数据额度`} />
         </section>
       )}
 
       <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">Data Credit 积分包</h2>
-        <p className="mt-1 text-xs text-muted-foreground">积分包独立于套餐，兑换后有效期 12 个月。</p>
+        <h2 className="font-semibold">数据调用加量包</h2>
+        <p className="mt-1 text-xs text-muted-foreground">套餐额度不足时可追加，仅扩充 Data Hub 调用量，不产生新的账户积分体系。</p>
         <div className="mt-3 grid gap-3 sm:grid-cols-3">
           {packs.map((pack) => <div key={pack.code} className="rounded-lg border p-3"><strong>{pack.name_zh}</strong><div className="mt-1 text-lg font-bold">{pack.credits.toLocaleString()}</div><div className="text-xs text-muted-foreground">¥{(pack.price_cny_fen / 100).toFixed(2)} · {pack.valid_days} 天</div></div>)}
         </div>
@@ -197,7 +197,7 @@ export function DataHubConsolePage() {
       </section>
 
       <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">积分批次与账本</h2>
+        <h2 className="font-semibold">数据用量明细</h2>
         <div className="mt-3 grid gap-4 lg:grid-cols-2">
           <div className="space-y-2">
             <h3 className="text-sm font-medium">Data Credit 批次</h3>

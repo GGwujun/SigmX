@@ -10,7 +10,7 @@ const ITEMS = [
   { to: "/me", label: "概览", end: true },
   { to: "/account", label: "账户与安全", end: true },
   { to: "/account/subscription", label: "套餐与激活", end: false },
-  { to: "/account/credits", label: "研究积分", end: false },
+  { to: "/account/credits", label: "AI 研究额度", end: false },
   { to: "/account/orders", label: "订单", end: false },
   { to: "/account/data-hub", label: "Data Hub", end: false },
   { to: "/account/devices", label: "设备", end: false },

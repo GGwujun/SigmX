@@ -59,8 +59,8 @@ export function CreditsPage() {
     <AccountPage>
       <header className="flex items-center justify-between">
         <div>
-          <h1 className="text-lg font-bold">积分中心</h1>
-          <p className="text-xs text-muted-foreground">月度积分月底到期；购买/补偿积分永久有效</p>
+          <h1 className="text-lg font-bold">AI 研究额度</h1>
+          <p className="text-xs text-muted-foreground">展示当前套餐包含的 AI 研究用量及到期规则</p>
         </div>
         <button
           onClick={() => {
@@ -78,7 +78,7 @@ export function CreditsPage() {
 
       {/* Credit lots */}
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">积分批次</h2>
+        <h2 className="text-sm font-semibold">额度批次</h2>
         {loading ? (
           <div className="flex items-center py-6 text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载批次…

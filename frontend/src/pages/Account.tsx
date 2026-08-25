@@ -112,7 +112,7 @@ export function Account() {
           </div>
           <div>
             <h1 className="text-lg font-bold">账户与安全</h1>
-            <p className="text-xs text-muted-foreground">身份信息 · 密码 · 兑换码 · 历史积分流水</p>
+            <p className="text-xs text-muted-foreground">身份信息 · 密码 · 套餐激活 · 历史额度流水</p>
           </div>
         </div>
         <button onClick={() => reload()} className="p-2 rounded-lg hover:bg-muted transition-colors" title="刷新">
@@ -133,7 +133,7 @@ export function Account() {
               </div>
               <div className="flex flex-col items-start justify-center rounded-lg bg-primary/5 border border-primary/15 p-4">
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                  <Coins className="h-3.5 w-3.5" /> 积分余额
+                  <Coins className="h-3.5 w-3.5" /> 套餐额度
                 </div>
                 <div className="mt-1 text-3xl font-bold text-primary tabular-nums">{account.balance}</div>
               </div>
@@ -149,7 +149,7 @@ export function Account() {
           <section className="rounded-xl border bg-card p-5">
             <div className="flex items-center gap-2 mb-3">
               <Gift className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold">兑换积分</h2>
+              <h2 className="text-sm font-semibold">激活套餐或加量包</h2>
             </div>
             <form onSubmit={doRedeem} className="flex gap-2">
               <input
@@ -192,7 +192,7 @@ export function Account() {
           <section className="rounded-xl border bg-card p-5">
             <div className="flex items-center gap-2 mb-3">
               <Coins className="h-4 w-4 text-primary" />
-              <h2 className="text-sm font-semibold">积分流水</h2>
+              <h2 className="text-sm font-semibold">额度流水</h2>
             </div>
             {transactions.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">暂无记录</p>

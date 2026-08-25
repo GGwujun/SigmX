@@ -40,8 +40,8 @@ describe("DataHubConsolePage", () => {
     installFetch();
     render(<MemoryRouter><DataHubConsolePage /></MemoryRouter>);
     expect(await screen.findByText("1,000")).toBeInTheDocument();
-    expect(screen.getByText(/本期已扣 3 Data Credit/)).toBeInTheDocument();
-    expect(screen.getByText("积分批次与账本")).toBeInTheDocument();
+    expect(screen.getByText(/本期消耗 3 数据额度/)).toBeInTheDocument();
+    expect(screen.getByText("数据用量明细")).toBeInTheDocument();
     expect(screen.getByText(/剩余 997 \/ 1,000/)).toBeInTheDocument();
     expect(screen.getByText("-3")).toBeInTheDocument();
   });

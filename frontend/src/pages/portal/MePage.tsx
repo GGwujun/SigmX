@@ -236,15 +236,15 @@ export function MePage() {
         />
         <StatusCard
           icon={Coins}
-          label="研究积分"
+          label="AI 研究额度"
           value={loading ? "加载中…" : state.credits ? formatNumber(state.credits.available) : "暂不可用"}
-          detail={state.credits ? `${formatNumber(state.credits.expiring_soon)} 积分即将到期` : "用于 AI 研究与云任务"}
+          detail={state.credits ? `${formatNumber(state.credits.expiring_soon)} 额度即将到期` : "当前套餐包含的 AI 研究用量"}
         />
         <StatusCard
           icon={Database}
-          label="Data Credit"
+          label="数据调用额度"
           value={loading ? "加载中…" : state.dataCredits ? formatNumber(state.dataCredits.available) : "暂不可用"}
-          detail={state.usage ? `${formatNumber(state.usage.total_requests)} 次调用，已扣 ${formatNumber(state.usage.credits_charged)}` : "数据积分独立计量"}
+          detail={state.usage ? `${formatNumber(state.usage.total_requests)} 次调用，本期消耗 ${formatNumber(state.usage.credits_charged)}` : "当前套餐包含的 Data Hub 用量"}
           to="/account/data-hub"
         />
         <StatusCard

@@ -51,8 +51,8 @@ describe("OrdersPage", () => {
     expect(screen.getByText("已支付")).toBeInTheDocument();
     expect(screen.getByText("3 个月")).toBeInTheDocument();
     expect(screen.getAllByText("¥268.00")).toHaveLength(2);
-    expect(screen.getByText("70 研究积分")).toBeInTheDocument();
-    expect(screen.getByText("120 Data Credit")).toBeInTheDocument();
+    expect(screen.getByText("套餐内研究额度消耗")).toBeInTheDocument();
+    expect(screen.getByText("套餐内数据调用额度消耗")).toBeInTheDocument();
   });
 
   it("shows the empty state when there are no orders", async () => {

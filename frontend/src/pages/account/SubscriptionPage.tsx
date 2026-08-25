@@ -40,7 +40,7 @@ export function SubscriptionPage() {
       } else {
         toast.success(
           `已开通 ${planNames[res.plan_code] ?? res.plan_code}（${res.months} 个月）` +
-            (res.credits_granted ? `，获得 ${res.credits_granted} 积分` : ""),
+            (res.credits_granted ? `，获得 ${res.credits_granted} 套餐额度` : ""),
         );
       }
       setCode("");

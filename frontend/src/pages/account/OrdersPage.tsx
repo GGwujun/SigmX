@@ -74,8 +74,8 @@ export function OrdersPage() {
       {summary && (
         <section className="grid gap-3 sm:grid-cols-3">
           <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">近 30 日实付</div><div className="mt-1 text-xl font-bold">{cny(summary.paid_cny_fen)}</div><div className="text-xs text-muted-foreground">{summary.paid_orders} 笔已支付订单</div></div>
-          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">AI 研究消费</div><div className="mt-1 text-xl font-bold">{summary.research_credits_consumed.toLocaleString()}</div><div className="text-xs text-muted-foreground">{summary.research_credits_consumed.toLocaleString()} 研究积分</div></div>
-          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">数据消费</div><div className="mt-1 text-xl font-bold">{summary.data_credits_consumed.toLocaleString()}</div><div className="text-xs text-muted-foreground">{summary.data_credits_consumed.toLocaleString()} Data Credit</div></div>
+          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">AI 研究用量</div><div className="mt-1 text-xl font-bold">{summary.research_credits_consumed.toLocaleString()}</div><div className="text-xs text-muted-foreground">套餐内研究额度消耗</div></div>
+          <div className="rounded-xl border bg-card p-4"><div className="text-xs text-muted-foreground">Data Hub 用量</div><div className="mt-1 text-xl font-bold">{summary.data_credits_consumed.toLocaleString()}</div><div className="text-xs text-muted-foreground">套餐内数据调用额度消耗</div></div>
         </section>
       )}
 

@@ -27,8 +27,8 @@ export function HarnessOverview({ status, runs, dataMode }: {
       <div className="grid gap-3 p-4 md:grid-cols-4">
         <Status icon={Database} label="数据源" value={connected ? "Data Hub + 本地" : "本地数据"} />
         <Status icon={ShieldCheck} label="治理边界" value={`最高治理级别：${GOVERNANCE_LABELS[status.governance_ceiling] || status.governance_ceiling}`} />
-        <Status icon={Coins} label="研究积分" value={String(status.research_credits)} />
-        <Status icon={Cloud} label="Data Credits" value={String(status.data_credits)} />
+        <Status icon={Coins} label="AI 研究额度" value={String(status.research_credits)} />
+        <Status icon={Cloud} label="数据调用额度" value={String(status.data_credits)} />
       </div>
       {status.degradations.length > 0 && (
         <div className="mx-4 mb-4 rounded-md border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-muted-foreground">
