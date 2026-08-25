@@ -82,6 +82,11 @@ class ResearchResult:
     candidates: list[ResearchCandidate]
     risks: list[str]
     created_at: str
+    conclusions: list[dict[str, Any]] | None = None
+    agent_evidence: list[dict[str, Any]] | None = None
+    skills: list[str] | None = None
+    model: str | None = None
+    execution_mode: str = "rules_fallback"
 
 
 class ResearchTaskService:
@@ -108,56 +113,60 @@ class ResearchTaskService:
         constraints: list[dict[str, Any]],
         idempotency_key: str,
     ) -> ResearchTask:
+        task = self.create(user_id, question=question, template_id=template_id, scope=scope,
+                           constraints=constraints, idempotency_key=idempotency_key)
+        if task.status != "queued":
+            return task
+        return self.run(user_id, task.id)
+
+    def create(self, user_id: str, *, question: str, template_id: str | None,
+               scope: dict[str, Any], constraints: list[dict[str, Any]], idempotency_key: str) -> ResearchTask:
         self._validate_constraints(constraints)
         self._validate_research_capability(question, template_id)
         existing = self._by_key(user_id, idempotency_key)
         if existing:
             return existing
-        task_id = uuid.uuid4().hex
-        created_at = self._now()
-        steps = self._steps("queued")
+        task_id, created_at = uuid.uuid4().hex, self._now()
         with self.store.transaction() as conn:
             conn.execute(
                 "INSERT INTO research_tasks "
                 "(id,user_id,question,template_id,scope_json,constraints_json,status,steps_json,idempotency_key,created_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (
-                    task_id,
-                    user_id,
-                    question,
-                    template_id,
-                    json.dumps(scope, ensure_ascii=False),
-                    json.dumps(constraints, ensure_ascii=False),
-                    "queued",
-                    json.dumps([asdict(step) for step in steps], ensure_ascii=False),
-                    idempotency_key,
-                    created_at,
-                ),
+                (task_id, user_id, question, template_id, json.dumps(scope, ensure_ascii=False),
+                 json.dumps(constraints, ensure_ascii=False), "queued",
+                 json.dumps([asdict(step) for step in self._steps("queued")], ensure_ascii=False),
+                 idempotency_key, created_at),
             )
+        return self.get(user_id, task_id)
+
+    def run(self, user_id: str, task_id: str) -> ResearchTask:
         return self._run(user_id, task_id)
 
     def get(self, user_id: str, task_id: str) -> ResearchTask:
-        row = self.store._get_conn().execute(
-            "SELECT * FROM research_tasks WHERE id=? AND user_id=?", (task_id, user_id)
-        ).fetchone()
+        with self.store._lock:
+            row = self.store._get_conn().execute(
+                "SELECT * FROM research_tasks WHERE id=? AND user_id=?", (task_id, user_id)
+            ).fetchone()
         if row is None:
             raise KeyError(task_id)
         return self._task(row)
 
     def list(self, user_id: str, limit: int = 20) -> list[ResearchTask]:
-        rows = self.store._get_conn().execute(
-            "SELECT * FROM research_tasks WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
-            (user_id, min(max(int(limit), 1), 50)),
-        ).fetchall()
+        with self.store._lock:
+            rows = self.store._get_conn().execute(
+                "SELECT * FROM research_tasks WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+                (user_id, min(max(int(limit), 1), 50)),
+            ).fetchall()
         return [self._task(row) for row in rows]
 
     def result(self, user_id: str, task_id: str) -> ResearchResult:
         task = self.get(user_id, task_id)
         if task.status != "succeeded":
             raise RuntimeError(f"research task is {task.status}")
-        row = self.store._get_conn().execute(
-            "SELECT * FROM research_results WHERE task_id=? AND user_id=?", (task_id, user_id)
-        ).fetchone()
+        with self.store._lock:
+            row = self.store._get_conn().execute(
+                "SELECT * FROM research_results WHERE task_id=? AND user_id=?", (task_id, user_id)
+            ).fetchone()
         if row is None:
             raise KeyError(task_id)
         candidates = [
@@ -169,6 +178,10 @@ class ResearchTaskService:
             )
             for item in json.loads(row["candidates_json"])
         ]
+        with self.store._lock:
+            agent = self.store._get_conn().execute(
+                "SELECT * FROM research_agent_outputs WHERE task_id=?", (task_id,)
+            ).fetchone()
         return ResearchResult(
             task_id=task.id,
             question=task.question,
@@ -180,7 +193,34 @@ class ResearchTaskService:
             candidates=candidates,
             risks=json.loads(row["risks_json"]),
             created_at=row["created_at"],
+            conclusions=json.loads(agent["conclusions_json"]) if agent else [],
+            agent_evidence=json.loads(agent["evidence_json"]) if agent else [],
+            skills=json.loads(agent["skills_json"]) if agent else [],
+            model=agent["model"] if agent else None,
+            execution_mode="agent" if agent else "rules_fallback",
         )
+
+    def save_agent_result(self, user_id: str, task_id: str, output: Any, *, skills: list[str]) -> ResearchTask:
+        task = self.get(user_id, task_id)
+        now = self._now()
+        observed = [item.get("as_of") for item in output.evidence if item.get("as_of")]
+        source = ", ".join(sorted({str(item.get("source")) for item in output.evidence if item.get("source")})) or "Data Hub"
+        with self.store.transaction() as conn:
+            conn.execute(
+                "INSERT INTO research_results(task_id,user_id,summary,source,as_of,scope_json,candidates_json,risks_json,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                (task_id, user_id, output.summary, source, max(observed) if observed else None,
+                 json.dumps(task.scope, ensure_ascii=False), "[]", json.dumps(output.risks, ensure_ascii=False), now),
+            )
+            conn.execute(
+                "INSERT INTO research_agent_outputs(task_id,conclusions_json,evidence_json,skills_json,model) VALUES (?,?,?,?,?)",
+                (task_id, json.dumps(output.conclusions, ensure_ascii=False), json.dumps(output.evidence, ensure_ascii=False),
+                 json.dumps(skills, ensure_ascii=False), output.model),
+            )
+            conn.execute(
+                "UPDATE research_tasks SET status='succeeded',steps_json=?,finished_at=? WHERE id=? AND user_id=?",
+                (json.dumps([asdict(step) for step in self._steps("succeeded")], ensure_ascii=False), now, task_id, user_id),
+            )
+        return self.get(user_id, task_id)
 
     def cancel(self, user_id: str, task_id: str) -> ResearchTask:
         task = self.get(user_id, task_id)
@@ -333,10 +373,11 @@ class ResearchTaskService:
         return [ResearchStep(key, label, status) for (key, label), status in zip(labels, statuses)]
 
     def _by_key(self, user_id: str, idempotency_key: str) -> ResearchTask | None:
-        row = self.store._get_conn().execute(
-            "SELECT * FROM research_tasks WHERE user_id=? AND idempotency_key=?",
-            (user_id, idempotency_key),
-        ).fetchone()
+        with self.store._lock:
+            row = self.store._get_conn().execute(
+                "SELECT * FROM research_tasks WHERE user_id=? AND idempotency_key=?",
+                (user_id, idempotency_key),
+            ).fetchone()
         return self._task(row) if row else None
 
     @staticmethod

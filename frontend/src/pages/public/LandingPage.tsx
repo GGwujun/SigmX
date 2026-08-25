@@ -3,7 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowRight, BarChart3, Database, LoaderCircle, Search, Sparkles } from "lucide-react";
 import { ResearchPlanPanel } from "@/components/public/ResearchPlanPanel";
 import { ResearchProgress } from "@/components/public/ResearchProgress";
-import { createResearchPlan, createResearchTask, getDiscovery, getResearchResult, listResearchTasks, type PublicDiscovery, type ResearchPlan, type ResearchResult, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
+import { createResearchPlan, createResearchTask, getDiscovery, getResearchResult, listResearchTasks, waitForResearchTask, type PublicDiscovery, type ResearchPlan, type ResearchResult, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
 import { clearPendingResearchPlan, loadPendingResearchPlan, savePendingResearchPlan } from "@/lib/pendingResearchPlan";
 import { isAuthenticated } from "@/lib/apiAuth";
 import { trackPersonalFunnel } from "@/lib/personalFunnel";
@@ -22,6 +22,7 @@ export function LandingPage() {
   const [result, setResult] = useState<ResearchResult | null>(null);
   const [runError, setRunError] = useState("");
   const [recentTasks, setRecentTasks] = useState<ResearchTask[]>([]);
+  const [activeTask, setActiveTask] = useState<ResearchTask | null>(null);
 
   useEffect(() => {
     trackPersonalFunnel("landing_view");
@@ -51,8 +52,10 @@ export function LandingPage() {
     if (!isAuthenticated()) { savePendingResearchPlan({ question: plan.question, templateId: plan.template_id, plan }); navigate(`/login?next=${encodeURIComponent("/")}`); return; }
     setPhase("running"); setRunError("");
     try {
-      const task = await createResearchTask({ question: plan.question, template_id: plan.template_id, scope: plan.scope, constraints: plan.constraints });
+      const task = await createResearchTask({ question: plan.question, template_id: plan.template_id, scope: plan.scope, constraints: plan.constraints, plan });
+      setActiveTask(task);
       clearPendingResearchPlan();
+      await waitForResearchTask(task, setActiveTask);
       const completed = await getResearchResult(task.id);
       setResult(completed); setPhase("done");
     } catch (error) {
@@ -77,7 +80,7 @@ export function LandingPage() {
       <form onSubmit={submit} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"><div className="flex items-center gap-3"><Search className="ml-2 h-5 w-5 text-primary"/><input aria-label="研究问题" value={query} onChange={e => { setQuery(e.target.value); setTemplate(null); setPlan(null); setResult(null); setPhase("idle"); }} placeholder="输入股票、行业或研究问题" className="h-11 flex-1 bg-transparent text-sm outline-none"/><button disabled={phase === "planning" || !query.trim()} className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50">{phase === "planning" ? "正在解析" : "生成研究计划"} {phase === "planning" ? <LoaderCircle className="h-4 w-4 animate-spin"/> : <ArrowRight className="h-4 w-4"/>}</button></div><div className="border-t border-slate-100 px-2 pt-2 text-xs text-slate-500">研究范围：A 股 · 非 ST {template ? `· 已采用“${template.label}”研究起点` : "· 自定义问题"}</div></form>
       <div className="mt-5 grid gap-5 md:grid-cols-[240px_minmax(0,1fr)]">
         <aside className="space-y-4"><section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"><div className="px-2 py-2"><h2 className="text-sm font-semibold">研究起点</h2><p className="mt-1 text-xs text-slate-400">选择后生成完整问题，可继续编辑</p></div><div className="space-y-1">{discovery?.templates.map(item => <button key={item.id} type="button" aria-pressed={template?.id === item.id} onClick={() => chooseTemplate(item)} className={`w-full rounded-lg px-3 py-3 text-left ${template?.id === item.id ? "bg-primary/10 text-primary" : "hover:bg-slate-50"}`}><div className="text-sm font-medium">{item.label}</div><div className="mt-1 text-xs opacity-70">{item.description}</div></button>)}</div><Link to="/product/data-hub" className="mt-4 flex items-center gap-1 border-t px-2 pt-4 text-xs font-semibold text-primary"><Database className="h-3.5 w-3.5"/> 查看数据能力</Link></section>{recentTasks.length > 0 && <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm"><h2 className="px-2 py-2 text-sm font-semibold">最近研究</h2><div className="space-y-1">{recentTasks.filter(item => item.status === "succeeded").map(item => <Link key={item.id} to={`/research/result/${item.id}`} className="block rounded-lg px-3 py-2 text-xs leading-5 text-slate-600 hover:bg-slate-50 hover:text-primary">{item.question}</Link>)}</div></section>}</aside>
-        {result ? <ResultPanel result={result}/> : plan && phase === "plan" ? <ResearchPlanPanel plan={plan} onUseSuggested={(question) => { setTemplate(null); void buildPlan(question, null); }} onRun={run} onClose={() => { setPlan(null); setPhase("idle"); clearPendingResearchPlan(); }}/> : phase === "running" || phase === "error" ? <ResearchProgress question={query} steps={plan?.steps ?? []} status={phase === "running" ? "running" : "error"} error={runError} onRetry={plan?.executable ? run : () => void buildPlan()} onEdit={() => setPhase(plan ? "plan" : "idle")}/> : <EmptyResearchState/>}
+        {result ? <ResultPanel result={result}/> : plan && phase === "plan" ? <ResearchPlanPanel plan={plan} onUseSuggested={(question) => { setTemplate(null); void buildPlan(question, null); }} onRun={run} onClose={() => { setPlan(null); setPhase("idle"); clearPendingResearchPlan(); }}/> : phase === "running" || phase === "error" ? <ResearchProgress question={query} steps={activeTask?.steps ?? plan?.steps ?? []} status={phase === "running" ? "running" : "error"} error={runError} onRetry={plan?.executable ? run : () => void buildPlan()} onEdit={() => setPhase(plan ? "plan" : "idle")}/> : <EmptyResearchState/>}
       </div>
     </main>
   </div>;

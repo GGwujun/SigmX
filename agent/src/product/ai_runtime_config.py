@@ -156,6 +156,14 @@ class AIRuntimeConfigService:
             )
             self._audit(conn, actor, "ai.strategy.save", "default", {key: values[key] for key in columns})
 
+    def get_strategy(self) -> dict | None:
+        row = self.store._get_conn().execute("SELECT * FROM ai_model_strategy WHERE id=1").fetchone()
+        return dict(row) if row else None
+
+    def list_sources(self) -> list[AIDataSource]:
+        rows = self.store._get_conn().execute("SELECT * FROM ai_data_sources ORDER BY priority,code").fetchall()
+        return [AIDataSource(row["code"], bool(row["enabled"]), row["priority"], json.loads(row["markets_json"])) for row in rows]
+
     def save_source(self, code: str, *, enabled: bool, priority: int, markets: list[str], actor: str) -> AIDataSource:
         if priority < 0:
             raise ValueError("priority must be non-negative")

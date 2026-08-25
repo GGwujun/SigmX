@@ -31,6 +31,7 @@ const CloudAccountPage = lazy(() => import("@/pages/account/CloudAccountPage").t
 const OperationsPage = lazy(() => import("@/pages/admin/OperationsPage").then(m => ({ default: m.OperationsPage })));
 const AdminLayout = lazy(() => import("@/components/admin/AdminLayout").then(m => ({ default: m.AdminLayout })));
 const AdminModulePage = lazy(() => import("@/pages/admin/AdminModulePage").then(m => ({ default: m.AdminModulePage })));
+const AISettingsPage = lazy(() => import("@/pages/admin/AISettingsPage").then(m => ({ default: m.AISettingsPage })));
 
 export const webRouter = createBrowserRouter([
   { element: wrap(PublicLayout), children: [
@@ -71,6 +72,7 @@ export const webRouter = createBrowserRouter([
         { path: "orders", element: wrap(() => <OperationsPage view="commerce" />) },
         { path: "plans", element: wrap(() => <OperationsPage view="governance" />) },
         { path: "data-hub", element: wrap(() => <AdminModulePage module="dataHub" />) },
+        { path: "ai", element: wrap(AISettingsPage) },
         { path: "content", element: wrap(() => <AdminModulePage module="content" />) },
         { path: "support", element: wrap(() => <OperationsPage view="support" />) },
         { path: "audit", element: wrap(() => <AdminModulePage module="audit" />) },

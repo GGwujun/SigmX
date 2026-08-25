@@ -10,6 +10,7 @@ from src.data.market_store import MarketStore
 from src.product.public_research import PublicResearchService
 from src.product.research_tasks import ResearchTaskService
 from src.product.research_plans import ResearchPlanService
+from src.product.research_orchestrator import ResearchOrchestrator
 from src.product.store import ProductStore
 
 
@@ -30,9 +31,11 @@ def research_service(tmp_path: Path):
     )
     market_store._conn.commit()
     routes._service = ResearchTaskService(product_store, PublicResearchService(market_store))
+    routes._orchestrator = ResearchOrchestrator(product_store, routes._service)
     routes._plan_service = ResearchPlanService()
     yield
     routes._service = None
+    routes._orchestrator = None
     routes._plan_service = None
 
 
@@ -161,3 +164,15 @@ def test_lists_only_current_users_research_tasks() -> None:
     tasks = asyncio.run(routes.list_research_tasks(limit=10, user={"id": "u1"}))
 
     assert [task.id for task in tasks] == [first.id]
+
+
+def test_confirmed_plan_uses_async_task_and_exposes_events_and_retry() -> None:
+    body = _body("async-task")
+    body.plan = {"execution_mode": "rules_fallback", "conditions": []}
+    task = asyncio.run(routes.create_research_task(body, user={"id": "u1"}))
+    assert task.status in {"queued", "running", "succeeded"}
+
+    events = asyncio.run(routes.list_research_events(task.id, after=0, user={"id": "u1"}))
+    assert events
+    retried = asyncio.run(routes.retry_research_task(task.id, user={"id": "u1"}))
+    assert retried.id != task.id

@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
-import { Activity, BookOpenText, Boxes, CircleDollarSign, Database, FileClock, Headphones, LayoutDashboard, Settings, Users } from "lucide-react";
+import { Activity, Bot, BookOpenText, Boxes, CircleDollarSign, Database, FileClock, Headphones, LayoutDashboard, Settings, Users } from "lucide-react";
 
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import { AccountMenu } from "@/components/navigation/AccountMenu";
@@ -12,6 +12,7 @@ const MODULES = [
   { to: "/admin/orders", label: "订单与兑换", icon: CircleDollarSign },
   { to: "/admin/plans", label: "套餐与商品", icon: Boxes },
   { to: "/admin/data-hub", label: "Data Hub", icon: Database },
+  { to: "/admin/ai", label: "AI 投研配置", icon: Bot },
   { to: "/admin/content", label: "内容运营", icon: BookOpenText },
   { to: "/admin/support", label: "客服工单", icon: Headphones },
   { to: "/admin/audit", label: "审计日志", icon: FileClock },

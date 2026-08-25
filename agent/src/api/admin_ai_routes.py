@@ -94,6 +94,18 @@ def save_strategy(body: StrategyInput, admin: dict = Depends(require_admin)) -> 
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.get("/strategy")
+def get_strategy(admin: dict = Depends(require_admin)) -> dict:
+    del admin
+    return _get_service().get_strategy() or {}
+
+
+@router.get("/sources")
+def list_sources(admin: dict = Depends(require_admin)) -> list[dict]:
+    del admin
+    return [asdict(item) for item in _get_service().list_sources()]
+
+
 @router.put("/sources/{code}")
 def save_source(code: str, body: SourceInput, admin: dict = Depends(require_admin)) -> dict:
     try:

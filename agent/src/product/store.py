@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 18
+_SCHEMA_VERSION = 19
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -586,6 +586,34 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_research_evidence_task_candidate
                 ON research_evidence(task_id, candidate_code);
+
+            CREATE TABLE IF NOT EXISTS research_task_runtime (
+                task_id TEXT PRIMARY KEY,
+                plan_json TEXT NOT NULL,
+                parent_task_id TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES research_tasks(id)
+            );
+
+            CREATE TABLE IF NOT EXISTS research_task_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                payload_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES research_tasks(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_research_task_events_task_id
+                ON research_task_events(task_id, id);
+
+            CREATE TABLE IF NOT EXISTS research_agent_outputs (
+                task_id TEXT PRIMARY KEY,
+                conclusions_json TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                skills_json TEXT NOT NULL,
+                model TEXT,
+                FOREIGN KEY (task_id) REFERENCES research_tasks(id)
+            );
 
             CREATE TABLE IF NOT EXISTS cloud_watchlist (
                 user_id TEXT NOT NULL,
