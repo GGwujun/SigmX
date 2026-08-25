@@ -26,6 +26,14 @@ function responseFor(input: RequestInfo | URL, init?: RequestInit): Response {
 }
 
 describe("LandingPage research planning flow", () => {
+  it("presents AI Discovery as a visible research agent workspace", async () => {
+    vi.stubGlobal("fetch", vi.fn(responseFor));
+    render(<MemoryRouter><LandingPage /></MemoryRouter>);
+    expect(await screen.findByRole("heading", { name: "AI 投研智能体" })).toBeInTheDocument();
+    expect(screen.getByText(/通用研究 Agent/)).toBeInTheDocument();
+    expect(screen.getByText("Data Hub 工具")).toBeInTheDocument();
+    expect(screen.getByText("自动匹配 Skills")).toBeInTheDocument();
+  });
   beforeEach(() => {
     localStorage.setItem("sigmx_auth_token", "jwt-token");
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => responseFor(input, init)));
