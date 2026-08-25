@@ -161,22 +161,19 @@ def _get_plan_service():
     global _plan_service
     if _plan_service is not None:
         return _plan_service
-    try:
-        from src.api.product_routes import _get_store
-        from src.product.ai_runtime_config import AIRuntimeConfigService, build_configured_chat
+    from src.api.product_routes import _get_store
+    from src.product.ai_runtime_config import AIRuntimeConfigService, build_configured_chat
 
-        config = AIRuntimeConfigService(_get_store()).get_effective()
-        _plan_service = AIResearchPlanService(
-            lambda: build_configured_chat(
-                config.planning,
-                temperature=config.temperature,
-                timeout_seconds=config.timeout_seconds,
-                max_retries=config.max_retries,
-            ),
+    config = AIRuntimeConfigService(_get_store()).get_effective()
+    _plan_service = AIResearchPlanService(
+        lambda: build_configured_chat(
+            config.planning,
+            temperature=config.temperature,
             timeout_seconds=config.timeout_seconds,
-        )
-    except Exception:
-        _plan_service = ResearchPlanService()
+            max_retries=config.max_retries,
+        ),
+        timeout_seconds=config.timeout_seconds,
+    )
     return _plan_service
 
 
@@ -245,6 +242,11 @@ async def create_research_plan(
         plan = _get_plan_service().create(body.question, body.template_id, body.scope)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        from src.product.ai_runtime_config import AIConfigurationError
+        if isinstance(exc, AIConfigurationError):
+            raise HTTPException(status_code=503, detail="AI 投研尚未配置，请管理员先在运营后台完成模型连接与模型策略配置。") from exc
+        raise HTTPException(status_code=503, detail="AI 研究规划暂时不可用") from exc
     return ResearchPlanResponse(**asdict(plan), constraints=plan.to_constraints())
 
 
