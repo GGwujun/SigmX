@@ -51,6 +51,12 @@ export function setUser(user: AuthUser | null): void {
   else window.localStorage.removeItem(USER_KEY);
 }
 
+/** Refresh mutable account fields without dropping authorization metadata. */
+export function updateStoredUserProfile(profile: Omit<AuthUser, "is_admin">): void {
+  const current = getUser();
+  setUser({ ...current, ...profile, is_admin: current?.is_admin });
+}
+
 export function disclaimerAccepted(): boolean {
   return !!getUser()?.disclaimer_accepted_at;
 }

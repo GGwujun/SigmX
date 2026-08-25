@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, Database, KeyRound, RefreshCw, RotateCw, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
 
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountPage } from "@/components/layout/AccountPage";
 import {
   createDataHubCredential,
   getDataCreditBalance,
   getDataCreditLedger,
   getDataCreditLots,
   getDataCreditPacks,
-  getDataHubCatalog,
   getDataHubUsage,
   getDataHubLogs,
   getDataHubBudgetAlerts,
@@ -24,7 +24,6 @@ import {
   type DataCreditLot,
   type DataCreditPack,
   type DataHubCredential,
-  type DataHubEndpoint,
   type DataHubUsage,
   type DataHubRequestLog,
   type DataHubBudgetAlert,
@@ -37,7 +36,6 @@ export function DataHubConsolePage() {
   const [lots, setLots] = useState<DataCreditLot[]>([]);
   const [ledger, setLedger] = useState<DataCreditLedgerEntry[]>([]);
   const [credentials, setCredentials] = useState<DataHubCredential[]>([]);
-  const [catalog, setCatalog] = useState<DataHubEndpoint[]>([]);
   const [name, setName] = useState("");
   const [scopeText, setScopeText] = useState("");
   const [ipText, setIpText] = useState("");
@@ -49,11 +47,6 @@ export function DataHubConsolePage() {
   const [alerts, setAlerts] = useState<DataHubBudgetAlert[]>([]);
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({});
   const [budgets, setBudgets] = useState<Record<string, DataHubBudget>>({});
-  const [debugKey, setDebugKey] = useState("");
-  const [debugEndpoint, setDebugEndpoint] = useState("");
-  const [debugQuery, setDebugQuery] = useState("");
-  const [debugResult, setDebugResult] = useState("");
-  const [debugging, setDebugging] = useState(false);
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [packs, setPacks] = useState<DataCreditPack[]>([]);
   const [packCode, setPackCode] = useState("");
@@ -62,13 +55,12 @@ export function DataHubConsolePage() {
   const reload = useCallback(async () => {
     setError("");
     try {
-      const [nextBalance, nextUsage, nextCredentials, nextCatalog, nextLots, nextLedger, nextLogs, nextAlerts, nextBudgets, nextPacks] = await Promise.all([
-        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataHubCatalog(), getDataCreditLots(), getDataCreditLedger(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(), getDataCreditPacks(),
+      const [nextBalance, nextUsage, nextCredentials, nextLots, nextLedger, nextLogs, nextAlerts, nextBudgets, nextPacks] = await Promise.all([
+        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataCreditLots(), getDataCreditLedger(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(), getDataCreditPacks(),
       ]);
       setBalance(nextBalance);
       setUsage(nextUsage);
       setCredentials(nextCredentials);
-      setCatalog(nextCatalog);
       setLots(nextLots);
       setLedger(nextLedger);
       setLogs(nextLogs);
@@ -76,7 +68,6 @@ export function DataHubConsolePage() {
       setBudgets(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, item])));
       setBudgetInputs(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, String(item.daily_limit)])));
       setPacks(nextPacks);
-      setDebugEndpoint((current) => current || nextCatalog.find((item) => item.enabled && item.http_method === "GET")?.endpoint_code || "");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "加载 Data Hub 控制台失败");
     } finally {
@@ -145,21 +136,6 @@ export function DataHubConsolePage() {
     } catch (reason) { setError(reason instanceof Error ? reason.message : "保存预算失败"); }
   };
 
-  const debugRequest = async () => {
-    const endpoint = catalog.find((item) => item.endpoint_code === debugEndpoint && item.enabled && item.http_method === "GET");
-    if (!endpoint || !debugKey.trim()) { setError("请选择可调试接口并输入 Credential"); return; }
-    setDebugging(true); setDebugResult(""); setError("");
-    try {
-      const query = debugQuery.trim().replace(/^\?/, "");
-      const response = await fetch(`${endpoint.path_pattern}${query ? `?${new URLSearchParams(query).toString()}` : ""}`, {
-        method: "GET", headers: { Authorization: `Bearer ${debugKey.trim()}` },
-      });
-      const body = await response.text();
-      setDebugResult(`HTTP ${response.status} · Request ${response.headers.get("X-Request-ID") || "—"} · Data Credit ${response.headers.get("X-DataHub-Credits-Charged") || "0"}\n${body}`);
-    } catch (reason) { setDebugResult(`请求失败：${reason instanceof Error ? reason.message : String(reason)}`); }
-    finally { setDebugging(false); }
-  };
-
   const filterLogs = async (onlyErrors: boolean) => {
     setErrorsOnly(onlyErrors);
     try { setLogs(await getDataHubLogs(onlyErrors)); }
@@ -179,14 +155,13 @@ export function DataHubConsolePage() {
   };
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6 p-6">
-      <AccountNav />
+    <AccountPage>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold"><Database className="h-5 w-5 text-primary" />Data Hub</h1>
           <p className="text-sm text-muted-foreground">个人数据凭证、接口权限与 Data Credit 用量</p>
         </div>
-        <button aria-label="刷新" className="rounded-lg border p-2" onClick={() => void reload()}><RefreshCw className="h-4 w-4" /></button>
+        <div className="flex items-center gap-2"><Link to="/docs/data-hub/" className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">接口文档与在线调试</Link><button aria-label="刷新" className="rounded-lg border p-2" onClick={() => void reload()}><RefreshCw className="h-4 w-4" /></button></div>
       </header>
 
       {error && <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
@@ -264,31 +239,17 @@ export function DataHubConsolePage() {
         <div className="mt-3 overflow-x-auto"><table className="w-full text-left text-xs"><thead><tr className="border-b"><th className="py-2">时间</th><th>Credential</th><th>接口</th><th>状态</th><th>耗时</th><th>扣分</th><th>错误</th></tr></thead><tbody>{logs.map((item) => <tr key={item.request_id} className="border-b"><td className="py-2">{new Date(item.created_at).toLocaleString()}</td><td>{item.credential_name}</td><td><code>{item.endpoint_code}</code></td><td>{item.status_code}</td><td>{item.duration_ms}ms</td><td>{item.credits_charged}</td><td className="text-destructive">{item.error_code || "—"}</td></tr>)}</tbody></table>{logs.length === 0 && <p className="py-4 text-sm text-muted-foreground">暂无请求日志。</p>}</div>
       </section>
 
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">在线调试</h2><p className="mt-1 text-xs text-muted-foreground">Credential 只保存在当前页面内存，不会写入浏览器存储。仅允许调用目录中的已启用 GET 接口。</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3"><label className="text-sm">接口<select aria-label="调试接口" value={debugEndpoint} onChange={(event) => setDebugEndpoint(event.target.value)} className="mt-1 w-full rounded border bg-background px-3 py-2">{catalog.filter((item) => item.enabled && item.http_method === "GET").map((item) => <option key={item.endpoint_code} value={item.endpoint_code}>{item.endpoint_code} · {item.path_pattern}</option>)}</select></label><label className="text-sm">Credential<input aria-label="调试 Credential" type="password" value={debugKey} onChange={(event) => setDebugKey(event.target.value)} className="mt-1 w-full rounded border bg-background px-3 py-2" /></label><label className="text-sm">Query 参数<input aria-label="调试 Query 参数" value={debugQuery} onChange={(event) => setDebugQuery(event.target.value)} placeholder="code=600519.SH&limit=10" className="mt-1 w-full rounded border bg-background px-3 py-2" /></label></div>
-        <button aria-label="发送调试请求" disabled={debugging} onClick={() => void debugRequest()} className="mt-3 rounded bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-40">{debugging ? "请求中…" : "发送调试请求"}</button>{debugResult && <pre className="mt-3 max-h-72 overflow-auto rounded border bg-muted/30 p-3 text-xs whitespace-pre-wrap">{debugResult}</pre>}
-      </section>
-
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">接口目录</h2>
-        <div className="mt-3 grid gap-2 md:grid-cols-2">
-          {catalog.map((item) => <div key={item.endpoint_code} className="rounded border p-3 text-sm"><code>{item.endpoint_code}</code><div className="text-xs text-muted-foreground">{item.dataset_group} · {item.pricing_mode} · 基础 {item.base_cost} 分</div></div>)}
-        </div>
-      </section>
-
       {secret && (
         <div role="dialog" aria-modal="true" className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4">
           <div className="w-full max-w-xl rounded-xl bg-background p-6 shadow-xl">
             <h2 className="font-semibold">保存你的 Data Hub Key</h2>
             <p className="mt-2 text-sm text-amber-600">该密钥仅显示一次，关闭后无法再次查看。</p>
             <div className="mt-4 flex items-center gap-2 rounded-lg border bg-muted p-3"><code className="min-w-0 flex-1 break-all">{secret.plaintext}</code><button aria-label="复制 Key" onClick={() => void navigator.clipboard?.writeText(secret.plaintext)}><Copy className="h-4 w-4" /></button></div>
-            <button className="mt-3 rounded-md border px-4 py-2 text-sm" onClick={() => { setDebugKey(secret.plaintext); setSecret(null); }}>用于在线调试</button>
-            <button className="mt-5 rounded-md bg-primary px-4 py-2 text-primary-foreground" onClick={() => setSecret(null)}>我已保存</button>
+            <div className="mt-5 flex flex-wrap gap-2"><button className="rounded-md bg-primary px-4 py-2 text-primary-foreground" onClick={() => setSecret(null)}>我已保存</button><Link to="/docs/data-hub/" onClick={() => setSecret(null)} className="rounded-md border px-4 py-2 text-sm">前往接口文档调试</Link></div>
           </div>
         </div>
       )}
-    </div>
+    </AccountPage>
   );
 }
 

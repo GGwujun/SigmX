@@ -1,8 +1,31 @@
 ---
 name: fundamental-filter
-description: Fundamental factor screening — filter stocks by PE/PB/ROE, financial statement fields, and other metrics for value or growth selection. Supports A-shares (via tushare extra_fields or fundamental_fields) and HK/US stocks (via yfinance Ticker info).
+description: Fundamental factor screening — filter stocks by PE/PB/ROE, financial statement fields, and other metrics for value or growth selection. Supports A-shares (via Data Hub extra_fields or fundamental_fields) and HK/US stocks (via yfinance Ticker info).
 category: flow
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: executable
+  primary_source: data_hub
+  datahub_endpoints:
+    - stocks.financial_statement
+    - stocks.financial_snapshot
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
+
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli stocks.financial_statement --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # Fundamental Factor Screening
 
 ## Purpose
@@ -13,8 +36,8 @@ Filter stocks using fundamental financial data (PE/PB/ROE, etc.) to build value 
 
 | Market | Data Source | Method | Supported Metrics |
 |--------|-----------|--------|------------------|
-| A-shares | tushare `daily_basic` | `extra_fields` in config.json | pe, pb, pe_ttm, ps_ttm, dv_ttm, total_mv, circ_mv, roe |
-| A-shares | Tushare statements | `fundamental_fields` in config.json | income, balancesheet, cashflow, fina_indicator fields |
+| A-shares | Data Hub `daily_basic` | `extra_fields` in config.json | pe, pb, pe_ttm, ps_ttm, dv_ttm, total_mv, circ_mv, roe |
+| A-shares | Data Hub statements | `fundamental_fields` in config.json | income, balancesheet, cashflow, fina_indicator fields |
 | US stocks | yfinance `Ticker.info` | Direct API call | trailingPE, forwardPE, priceToBook, returnOnEquity, marketCap, dividendYield |
 | HK stocks | yfinance `Ticker.info` | Direct API call | trailingPE, priceToBook, returnOnEquity, marketCap |
 
@@ -159,7 +182,7 @@ results = screen_us_stocks(hk_tickers, criteria)  # Same function works
 - `fundamental_fields` columns are prefixed by table and may be NaN before the first statement is published in the backtest window
 - Do not forward-fill statement rows manually before their `ann_date` / `f_ann_date`; the runner's merge already enforces point-in-time visibility
 - Negative PE means loss-making — always filter with `pe > 0`
-- ROE units differ: tushare uses percentage (e.g., 15 = 15%), yfinance uses decimal (e.g., 0.15 = 15%)
+- ROE units differ: Data Hub uses percentage (e.g., 15 = 15%), yfinance uses decimal (e.g., 0.15 = 15%)
 - For portfolio strategies: N stocks passing the screen each get weight 1/N
 - yfinance `Ticker.info` is a point-in-time snapshot, not historical time-series — cannot directly use for daily rebalancing backtests on US/HK stocks
 - For US/HK daily fundamental backtests, consider using the screening results as a stock universe, then applying technical signals within that universe

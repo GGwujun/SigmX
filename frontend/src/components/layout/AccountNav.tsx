@@ -7,7 +7,7 @@ import { NavLink } from "react-router-dom";
 import { cn } from "@/lib/utils";
 
 const ITEMS = [
-  { to: "/me", label: "返回我的 SigmX", end: true },
+  { to: "/me", label: "概览", end: true },
   { to: "/account", label: "账户与安全", end: true },
   { to: "/account/subscription", label: "套餐与激活", end: false },
   { to: "/account/credits", label: "研究积分", end: false },

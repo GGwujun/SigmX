@@ -10,6 +10,7 @@ import { ApiError } from "@/lib/api";
 import { formatPlanPrice, getPlans, type PlanView } from "@/lib/productApi";
 import { cn } from "@/lib/utils";
 import { trackPersonalFunnel } from "@/lib/personalFunnel";
+import { isAuthenticated } from "@/lib/apiAuth";
 
 // Human labels for the stable entitlement keys (design §6). Keys themselves are
 // stable; only the display label is localized here.
@@ -43,6 +44,7 @@ function quotaLabel(key: string, value: number | boolean | string[]): string {
 }
 
 export function PricingPage() {
+  const signedIn = isAuthenticated();
   const [plans, setPlans] = useState<PlanView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,13 +145,13 @@ export function PricingPage() {
               </ul>
 
               <Link
-                to="/register"
+                to={signedIn ? "/account/subscription" : "/register"}
                 onClick={() => { if (plan.code !== "free") trackPersonalFunnel("checkout_intent"); }}
                 className={cn(
                   "mt-6 inline-flex h-10 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90",
                 )}
               >
-                注册体验
+                {signedIn ? "管理套餐" : "注册体验"}
               </Link>
             </div>
           );

@@ -32,6 +32,16 @@ function renderPage() {
 }
 
 describe("OperationsPage", () => {
+  it("shows an empty state instead of a zero-percent success rate when Data Hub has no requests", async () => {
+    mockFetch(
+      { body: { plans: [] } },
+      { body: { items: [] } },
+      { body: { period_days: 30, active_entitled_users: 1, plan_distribution: {}, paid_orders: 0, revenue_cny_fen: 0, active_datahub_credentials: 0, datahub_requests: 0, datahub_success_rate: 0, data_credits_charged: 0, weekly_effective_research_users: 1, personal_funnel: {} } },
+    );
+    render(<MemoryRouter><OperationsPage view="dashboard" /></MemoryRouter>);
+    expect(await screen.findByText("暂无调用")).toBeInTheDocument();
+    expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
+  });
   it("generates codes and shows plaintext exactly once", async () => {
     const fetchMock = mockFetch(
       { body: { plans: [{ code: "desktop_pro", name_zh: "桌面专业研究版", price_cny_fen: 26800, billing_period: "quarter", monthly_credits: 300, welcome_credits: 0, description: "", entitlements: {}, sort_order: 2 }] } },
@@ -45,8 +55,7 @@ describe("OperationsPage", () => {
     renderPage();
 
     await screen.findByText(/桌面专业研究版/);
-    expect(screen.getByText("8")).toBeInTheDocument();
-    expect(screen.getByText("98.0%")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /订单与兑换/ })).toBeInTheDocument();
     fireEvent.click(screen.getByText("生成"));
 
     await waitFor(() => {

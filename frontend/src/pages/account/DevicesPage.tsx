@@ -9,7 +9,7 @@ import { Laptop, Loader2, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/lib/api";
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountPage } from "@/components/layout/AccountPage";
 import { getMyEntitlements, listDevices, revokeDevice, type DeviceItem } from "@/lib/productApi";
 import { cn } from "@/lib/utils";
 
@@ -60,8 +60,7 @@ export function DevicesPage() {
   const revoked = devices.filter((d) => d.revoked_at);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <AccountNav />
+    <AccountPage>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">设备管理</h1>
@@ -140,6 +139,6 @@ export function DevicesPage() {
           )}
         </>
       )}
-    </div>
+    </AccountPage>
   );
 }

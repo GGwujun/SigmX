@@ -19,7 +19,7 @@ import {
   type DataCreditPack, type PlanView,
 } from "@/lib/productApi";
 
-export function OperationsPage() {
+export function OperationsPage({ view = "commerce" }: { view?: "dashboard" | "commerce" | "governance" | "support" }) {
   const [planCode, setPlanCode] = useState("");
   const [plans, setPlans] = useState<PlanView[]>([]);
   const [months, setMonths] = useState(3);
@@ -98,31 +98,31 @@ export function OperationsPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
+    <div className="mx-auto max-w-6xl space-y-6 p-5 lg:p-8">
       <header>
         <h1 className="flex items-center gap-2 text-lg font-bold">
-          <KeyRound className="h-5 w-5 text-primary" /> 运营后台 · 激活码
+          <KeyRound className="h-5 w-5 text-primary" /> {{ dashboard: "运营总览", commerce: "订单与兑换", governance: "套餐与商品", support: "客服工单" }[view]}
         </h1>
-        <p className="text-xs text-muted-foreground">生成套餐激活码。明文仅在此处显示一次，请立即复制保存。</p>
+        <p className="text-xs text-muted-foreground">{{ dashboard: "经营指标、用户转化与 Data Hub 服务状态。", commerce: "管理订单和兑换码；新生成的明文仅展示一次。", governance: "管理商品、价格、接口成本与运营内容。", support: "处理用户额度补偿和安全撤销，所有操作永久审计。" }[view]}</p>
       </header>
 
-      {metrics && <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      {view === "dashboard" && metrics && <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Metric label="周有效研究用户" value={metrics.weekly_effective_research_users.toLocaleString()} />
         <Metric label="近 30 日实付" value={`¥${(metrics.revenue_cny_fen / 100).toFixed(2)}`} detail={`${metrics.paid_orders} 笔订单`} />
         <Metric label="活跃 Data Hub Credential" value={metrics.active_datahub_credentials.toLocaleString()} />
-        <Metric label="Data Hub 成功率" value={`${(metrics.datahub_success_rate * 100).toFixed(1)}%`} detail={`${metrics.datahub_requests} 次调用 · ${metrics.data_credits_charged} Data Credit`} />
+        <Metric label="Data Hub 成功率" value={metrics.datahub_requests === 0 ? "暂无调用" : `${(metrics.datahub_success_rate * 100).toFixed(1)}%`} detail={`${metrics.datahub_requests} 次调用 · ${metrics.data_credits_charged} Data Credit`} />
       </section>}
 
-      {metrics && <section className="rounded-xl border bg-card p-5">
+      {view === "dashboard" && metrics && <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">个人用户转化漏斗 · 近 30 日</h2>
         <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
           {(["landing_view", "search_submitted", "result_view", "register_completed", "download_clicked", "checkout_intent"] as const).map((stage) => <Metric key={stage} label={({ landing_view: "访问首页", search_submitted: "发起搜索", result_view: "查看结果", register_completed: "完成注册", download_clicked: "下载 Desktop", checkout_intent: "购买意向" })[stage]} value={(metrics.personal_funnel?.[stage] ?? 0).toLocaleString()} />)}
         </div>
       </section>}
 
-      <OperationsGovernance />
+      {view === "governance" && <OperationsGovernance />}
 
-      <section className="rounded-xl border bg-card p-5">
+      {view === "support" && <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">个人用户支持</h2>
         <p className="mt-1 text-xs text-muted-foreground">仅支持正向积分补偿和安全撤销；每次操作必须填写原因并永久审计。</p>
         <form onSubmit={runSupportAction} className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -132,9 +132,9 @@ export function OperationsPage() {
           <label className="text-xs text-muted-foreground">操作原因<input aria-label="操作原因" required minLength={5} value={supportReason} onChange={(event) => setSupportReason(event.target.value)} className="mt-1 w-full rounded-md border bg-background px-2 py-2 text-sm" /></label>
           <button type="submit" disabled={creating} className="mt-4 h-10 rounded-md border px-4 text-sm font-medium hover:bg-muted disabled:opacity-50 sm:mt-auto">确认并审计</button>
         </form>
-      </section>
+      </section>}
 
-      <section className="rounded-xl border bg-card p-5">
+      {view === "commerce" && <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">生成激活码</h2>
         <form onSubmit={doCreate} className="mt-4 grid gap-3 sm:grid-cols-4">
           <label className="text-xs text-muted-foreground">
@@ -182,17 +182,17 @@ export function OperationsPage() {
             生成
           </button>
         </form>
-      </section>
+      </section>}
 
-      <section className="rounded-xl border bg-card p-5">
+      {view === "commerce" && <section className="rounded-xl border bg-card p-5">
         <h2 className="text-sm font-semibold">生成 Data Credit 积分包码</h2>
         <div className="mt-4 flex flex-wrap items-end gap-3">
           <label className="text-xs text-muted-foreground">积分包<select aria-label="Data Credit 积分包" value={packCode} onChange={(event) => setPackCode(event.target.value)} className="mt-1 block rounded-md border bg-background px-2 py-2 text-sm">{packs.map((pack) => <option key={pack.code} value={pack.code}>{pack.name_zh}（¥{(pack.price_cny_fen / 100).toFixed(2)}）</option>)}</select></label>
           <button type="button" onClick={() => void createPackCodes()} disabled={creating || !packCode} className="inline-flex h-10 items-center gap-1 rounded-md bg-primary px-4 text-sm text-primary-foreground disabled:opacity-50"><Plus className="h-4 w-4" />生成积分包码</button>
         </div>
-      </section>
+      </section>}
 
-      {created.length > 0 && (
+      {view === "commerce" && created.length > 0 && (
         <section className="rounded-xl border bg-card p-5">
           <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-amber-600">
             <ShieldAlert className="h-4 w-4" /> 新生成的激活码（仅此一次可见）

@@ -2,8 +2,30 @@
 name: dividend-analysis
 description: Dividend stock analysis for income, dividend-growth, and shareholder-return strategies, including yield quality, payout sustainability, ex-dividend mechanics, and yield-trap checks.
 category: analysis
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: instructional
+  primary_source: data_hub
+  datahub_endpoints:
+    - stocks.financial_statement
+    - stocks.financial_snapshot
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
 
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli stocks.financial_statement --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # Dividend Analysis
 
 ## Purpose
@@ -150,7 +172,7 @@ Use this only as an event-risk analysis, not as a default recommendation.
 
 | Market | Useful Fields |
 |--------|---------------|
-| A-shares | Tushare `dividend`, `daily_basic.dv_ttm`, `fina_indicator`, `cashflow` |
+| A-shares | Data Hub `dividend`, `daily_basic.dv_ttm`, `fina_indicator`, `cashflow` |
 | US/HK | yfinance `Ticker.dividends`, `Ticker.info`, financial statements, cash flow |
 | ETFs | distribution yield, SEC yield, holdings yield, expense ratio, distribution history |
 | REITs | FFO, AFFO, occupancy, debt maturities, AFFO payout |

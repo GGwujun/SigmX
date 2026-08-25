@@ -5,16 +5,26 @@ import { describe, expect, it } from "vitest";
 import { PortalNav } from "../PortalNav";
 
 describe("PortalNav", () => {
-  it("separates cloud assets, account settings, and public products", () => {
+  it("keeps portal navigation focused on personal destinations", () => {
     render(
       <MemoryRouter initialEntries={["/me"]}>
         <PortalNav />
       </MemoryRouter>,
     );
 
-    expect(screen.getByRole("link", { name: "我的 SigmX" })).toHaveAttribute("href", "/me");
-    expect(screen.getByRole("link", { name: "账户中心" })).toHaveAttribute("href", "/account");
-    expect(screen.getByRole("link", { name: "Data Hub" })).toHaveAttribute("href", "/product/data-hub");
-    expect(screen.getByRole("link", { name: "Desktop" })).toHaveAttribute("href", "/product/desktop");
+    expect(screen.getByRole("link", { name: "个人中心" })).toHaveAttribute("href", "/me");
+    expect(screen.queryByRole("link", { name: "账户中心" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Data Hub" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Desktop" })).not.toBeInTheDocument();
+  });
+
+  it("treats account settings as part of the personal center", () => {
+    render(
+      <MemoryRouter initialEntries={["/account/data-hub"]}>
+        <PortalNav />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "个人中心" })).toHaveAttribute("aria-current", "page");
   });
 });

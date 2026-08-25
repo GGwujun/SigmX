@@ -19,6 +19,7 @@ def research(tmp_path: Path) -> PublicResearchService:
         [
             ("600519.SH", "600519", "贵州茅台", "白酒", "主板", "SSE", "L", 0, 0, 0, 1, "2026-08-15T10:00:00+08:00"),
             ("000001.SZ", "000001", "平安银行", "银行", "主板", "SZSE", "L", 0, 0, 0, 1, "2026-08-15T10:00:00+08:00"),
+            ("000002.SZ", "000002", "ST 测试", "测试", "主板", "SZSE", "L", 1, 0, 0, 1, "2026-08-15T10:00:00+08:00"),
         ],
     )
     conn.executemany(
@@ -27,6 +28,7 @@ def research(tmp_path: Path) -> PublicResearchService:
         [
             ("600519.SH", "20260814", 1500, 24, 8, 2, 1_900_000, "2026-08-15T10:00:00+08:00"),
             ("000001.SZ", "20260814", 12, 6, 0.7, 5, 230_000, "2026-08-15T10:00:00+08:00"),
+            ("000002.SZ", "20260814", 3, 8, 0.5, 6, 20_000, "2026-08-15T10:00:00+08:00"),
         ],
     )
     conn.execute(
@@ -72,6 +74,23 @@ def test_search_supports_code_name_and_limited_natural_language(research: Public
     filtered = research.search("低估值 高股息 小市值")
     assert [item.code for item in filtered.items] == ["000001.SZ"]
     assert filtered.interpretation == ["市盈率 0-20", "股息率 ≥ 3%", "按总市值升序"]
+
+
+def test_factor_question_ignores_natural_language_filler_instead_of_false_empty(research: PublicResearchService) -> None:
+    result = research.search("寻找低估值且高股息的 A 股公司")
+
+    assert [item.code for item in result.items] == ["000001.SZ"]
+    assert result.interpretation == ["市盈率 0-20", "股息率 ≥ 3%"]
+
+
+def test_discovery_only_advertises_templates_the_research_executor_can_run(research: PublicResearchService) -> None:
+    templates = research.discovery().templates
+
+    assert {item.id for item in templates} == {"dividend", "value", "small_dividend"}
+    for template in templates:
+        result = research.search(template.prompt)
+        assert result.interpretation
+        assert result.items
 
 
 def test_stock_summary_is_delayed_and_source_labelled(research: PublicResearchService) -> None:

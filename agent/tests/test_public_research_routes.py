@@ -82,7 +82,8 @@ def test_discovery_uses_latest_stored_market_data_with_provenance() -> None:
     assert metrics["shanghai_index"].value == 3381.21
     assert metrics["market_breadth"].value == 1
     assert metrics["market_breadth"].secondary_value == 1
-    assert metrics["turnover"].value == 80_000_000
+    assert metrics["turnover"].value == 0.8
+    assert metrics["turnover"].unit == "亿元"
     assert all(item.quality in {"fresh", "delayed", "unavailable"} for item in result.metrics)
     assert result.templates
 
@@ -97,14 +98,25 @@ def test_discovery_does_not_invent_values_when_store_is_empty(tmp_path: Path) ->
     assert all(item.quality == "unavailable" for item in result.metrics)
 
 
-def test_public_intelligence_returns_aggregated_articles(monkeypatch) -> None:
+def test_public_intelligence_returns_cached_aggregated_articles(monkeypatch, tmp_path: Path) -> None:
     from src.api import news_routes
+    from src.data.market_store import MarketStore
 
-    monkeypatch.setattr(news_routes, "_build_news_list", lambda keyword: {
-        "articles": [{"title": "交易所发布真实公告", "url": "https://example.com/a", "source": "交易所", "published": "2026-08-24", "snippet": "公告摘要"}],
-        "query": keyword, "sources": ["交易所"], "updated_at": "2026-08-24T10:00:00Z",
-    })
+    calls = 0
+    def fetch(keyword: str) -> dict:
+        nonlocal calls
+        calls += 1
+        return {
+            "articles": [{"title": "交易所发布真实公告", "url": "https://example.com/a", "source": "交易所", "published": "2026-08-24", "snippet": "公告摘要"}],
+            "query": keyword, "sources": ["交易所"], "updated_at": "2026-08-24T10:00:00Z",
+        }
+    monkeypatch.setattr(news_routes, "_NEWS_STORE", MarketStore(tmp_path / "news.db"))
+    monkeypatch.setattr(news_routes, "_build_news_list", fetch)
     response = asyncio.run(routes.public_intelligence(q="公告", limit=10))
+    cached = asyncio.run(routes.public_intelligence(q="公告", limit=10))
     assert response.articles[0].title == "交易所发布真实公告"
     assert response.articles[0].url == "https://example.com/a"
     assert response.sources == ["交易所"]
+    assert response.cache_status == "live"
+    assert cached.cache_status == "fresh_cache"
+    assert calls == 1

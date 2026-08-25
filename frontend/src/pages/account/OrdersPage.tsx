@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountPage } from "@/components/layout/AccountPage";
 import { ApiError } from "@/lib/api";
 import {
   getBillingSummary, getDataCreditPacks, getPlans, listOrders, type BillingSummary, type OrderItem,
@@ -58,8 +58,7 @@ export function OrdersPage() {
   }, [reload]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <AccountNav />
+    <AccountPage>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-lg font-bold">
@@ -114,6 +113,6 @@ export function OrdersPage() {
           </table>
         </div>
       )}
-    </div>
+    </AccountPage>
   );
 }

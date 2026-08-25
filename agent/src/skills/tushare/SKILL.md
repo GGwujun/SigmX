@@ -2,7 +2,28 @@
 name: tushare
 description: tushare是一个财经数据接口包，拥有丰富的数据内容，如股票、基金、期货、数字货币等行情数据，公司财务、基金经理等基本面数据。该模块通过标准化API方式统一了数据资产的对外服务方式，以帮助有需要的技术用户更实时、简洁、轻量的使用相关数据。
 category: data-source
+sigmx:
+  schema_version: 1
+  ownership: third_party
+  execution: executable
+  primary_source: user_source
+  datahub_endpoints:
+    []
+  fallback_sources:
+    []
+  markets:
+    - CN_A
+  credentials:
+    - TUSHARE_TOKEN
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
+
+当前能力使用用户自备数据源；只有用户本地配置凭证后才可执行。 不得读取、记录或回显用户的完整数据源凭证。
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # Tushare
 
 ## 概述

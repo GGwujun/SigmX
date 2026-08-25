@@ -4,6 +4,9 @@ import { DESKTOP_ROUTE_PATHS, WEB_ROUTE_PATHS } from "@/router/productRoutes";
 
 const PUBLIC_WEB_ROUTES = [
   "/",
+  "/intelligence",
+  "/skills",
+  "/skills/:slug",
   "/pricing",
   "/product/data-hub",
   "/product/desktop",

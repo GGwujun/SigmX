@@ -61,7 +61,7 @@ describe("DataHubConsolePage", () => {
     expect(JSON.parse(call?.[1]?.body as string)).toMatchObject({ name: "研究脚本", scopes: ["health"], expires_at: new Date("2026-12-31T18:30").toISOString() });
   });
 
-  it("shows logs and budget alerts, saves a daily credit budget, and debugs an allowlisted endpoint", async () => {
+  it("shows logs and budget alerts, saves a daily credit budget, and links to API docs for debugging", async () => {
     const fetchMock = installFetch();
     render(<MemoryRouter><DataHubConsolePage /></MemoryRouter>);
     expect(await screen.findByText("handler_error")).toBeInTheDocument();
@@ -69,11 +69,9 @@ describe("DataHubConsolePage", () => {
     fireEvent.change(screen.getByLabelText("研究脚本每日预算"), { target: { value: "100" } });
     fireEvent.click(screen.getByRole("button", { name: "保存研究脚本预算" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith("/api/datahub/credentials/k1/budget", expect.objectContaining({ method: "PUT", body: JSON.stringify({ daily_limit: 100 }) })));
-    fireEvent.change(screen.getByLabelText("调试 Credential"), { target: { value: "sxd_live_debug_only" } });
-    fireEvent.click(screen.getByRole("button", { name: "发送调试请求" }));
-    expect(await screen.findByText(/HTTP 200/)).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith("/api/v1/health", expect.objectContaining({ headers: expect.objectContaining({ Authorization: "Bearer sxd_live_debug_only" }) }));
-    expect(JSON.stringify(localStorage)).not.toContain("sxd_live_debug_only");
+    expect(screen.queryByRole("heading", { name: "在线调试" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "接口目录" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "接口文档与在线调试" })).toHaveAttribute("href", "/docs/data-hub/");
   });
 
   it("shows server-driven Data Credit packs and redeems a prepaid pack code", async () => {

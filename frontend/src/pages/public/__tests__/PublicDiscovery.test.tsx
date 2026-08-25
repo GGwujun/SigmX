@@ -18,6 +18,16 @@ afterEach(() => {
 });
 
 describe("public discovery funnel", () => {
+  it("accepts an already-decoded route parameter containing a literal percent sign", async () => {
+    const question = "股息率连续三年高于 4% 的 A 股公司";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok({
+      query: question, intent: "screener", interpretation: ["股息率 ≥ 4%"], answer: null,
+      resources: [], items: [], source: "demo", is_delayed: true,
+    })));
+    render(<MemoryRouter initialEntries={[`/query/${encodeURIComponent(question)}`]}><Routes><Route path="/query/:id" element={<PublicSearchPage />} /></Routes></MemoryRouter>);
+    expect(await screen.findByRole("heading", { name: question })).toBeInTheDocument();
+  });
+
   it("shows real limited search results and preserves save intent for login", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok({
       query: "低估值 高股息", interpretation: ["市盈率 0-20", "股息率 ≥ 3%"],

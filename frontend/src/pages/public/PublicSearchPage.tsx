@@ -10,7 +10,9 @@ import { recordQueryExecution } from "@/lib/productApi";
 
 export function PublicSearchPage() {
   const { id = "" } = useParams();
-  const query = decodeURIComponent(id);
+  // React Router already decodes path parameters. Decoding again breaks valid
+  // research questions that contain a literal percent sign, such as "4%".
+  const query = id;
   const navigate = useNavigate();
   const [result, setResult] = useState<PublicSearchResult | null>(null);
   const [error, setError] = useState("");

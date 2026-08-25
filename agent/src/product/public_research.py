@@ -133,7 +133,7 @@ class PublicResearchService:
         if intent.kind is IntentKind.FUND_SEARCH:
             return self._fund_search(query, limit)
         interpretations: list[str] = []
-        clauses = ["s.is_active=1"]
+        clauses = ["s.is_active=1", "COALESCE(s.is_st, 0)=0", "COALESCE(s.is_delisting, 0)=0"]
         params: list[object] = []
         if "低估值" in query:
             clauses.append("b.pe_ttm > 0 AND b.pe_ttm <= 20")
@@ -148,12 +148,15 @@ class PublicResearchService:
         text = query
         for marker in ("低估值", "高股息", "小市值"):
             text = text.replace(marker, " ")
+        if interpretations:
+            for filler in ("寻找", "筛选", "帮我", "请", "看看", "其中", "且", "的", "A 股", "A股", "公司", "股票", "标的"):
+                text = text.replace(filler, " ")
         terms = [term for term in text.split() if term]
         for term in terms:
             clauses.append("(s.code LIKE ? OR s.symbol LIKE ? OR s.name LIKE ? OR s.industry LIKE ?)")
             pattern = f"%{term}%"
             params.extend([pattern] * 4)
-        order = "b.total_mv ASC" if small_cap else "s.code ASC"
+        order = "b.total_mv ASC" if small_cap else ("b.dv_ttm DESC, b.pe_ttm ASC" if "高股息" in query else "s.code ASC")
         sql = (
             "SELECT s.code,s.name,s.industry,b.close,b.pe_ttm,b.pb,b.dv_ttm,b.total_mv,b.trade_date "
             "FROM security_master s LEFT JOIN stock_daily_basic b ON b.code=s.code "
@@ -212,6 +215,7 @@ class PublicResearchService:
             ).fetchone()
         if breadth and breadth["trade_date"]:
             observed_dates.append(str(breadth["trade_date"]))
+        turnover_yuan = self._float(breadth["turnover"]) if breadth else None
         metrics.extend((
             DiscoveryMetric(
                 key="market_breadth",
@@ -225,9 +229,9 @@ class PublicResearchService:
             DiscoveryMetric(
                 key="turnover",
                 label="两市成交",
-                value=self._float(breadth["turnover"]) if breadth else None,
+                value=turnover_yuan / 100_000_000 if turnover_yuan is not None else None,
                 change=None,
-                unit="元",
+                unit="亿元",
                 quality="delayed" if breadth else "unavailable",
             ),
         ))
@@ -243,11 +247,9 @@ class PublicResearchService:
     @staticmethod
     def _research_templates() -> tuple[ResearchTemplate, ...]:
         return (
-            ResearchTemplate("quality", "质量与现金流", "寻找盈利质量可靠且现金流改善的公司", "寻找经营现金流持续改善、盈利质量高于行业中位数的 A 股公司", ("财务", "行情", "公告")),
-            ResearchTemplate("dividend", "低估值高股息", "寻找估值与持续分红兼具吸引力的公司", "寻找估值处于历史低位、股息率连续三年高于 4% 的 A 股公司", ("估值", "分红", "财务")),
-            ResearchTemplate("growth", "盈利拐点", "寻找营收利润同步恢复的公司", "寻找营收与利润同步恢复、出现盈利拐点的 A 股公司", ("财务", "预测", "公告")),
-            ResearchTemplate("industry", "产业趋势", "寻找产业升级中的基本面受益者", "寻找研发投入领先、订单增长受益于制造业升级的 A 股公司", ("行业", "公告", "财务")),
-            ResearchTemplate("fund", "机构新关注", "寻找机构关注度与基本面同步改善的公司", "寻找机构覆盖与持仓连续提升、基本面同步改善的 A 股公司", ("机构", "资金", "财务")),
+            ResearchTemplate("dividend", "低估值高股息", "市盈率不高于 20 且股息率不低于 3%", "低估值 高股息", ("估值", "分红")),
+            ResearchTemplate("value", "低估值小市值", "在低估值公司中优先查看较小市值标的", "低估值 小市值", ("估值", "市值")),
+            ResearchTemplate("small_dividend", "高股息小市值", "在高股息公司中优先查看较小市值标的", "高股息 小市值", ("分红", "市值")),
         )
 
     def _market_answer(self, query: str) -> PublicSearchResult:

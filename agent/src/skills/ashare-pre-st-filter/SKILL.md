@@ -2,9 +2,31 @@
 name: ashare-pre-st-filter
 description: A 股 ST/*ST 风险预测框架 — 基于最新中报/三季报或业绩预告/快报，预测下一财年是否会因营收、利润、净资产、分红不达标而被风险警示，并将新浪监管处罚记录作为独立证据面纳入风险等级。仅适用于 A 股，不预测财务造假。
 category: risk-analysis
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: executable
+  primary_source: data_hub
+  datahub_endpoints:
+    - stocks.daily
+    - stocks.daily_basic
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
 
-> **依赖**：本 skill 必须配合 [tushare skill](../tushare/SKILL.md) 使用，缺数据时回退到 [akshare skill](../akshare/SKILL.md)。
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli stocks.daily --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
+> **依赖**：本 skill 必须配合 SigmX Skill Runtime 使用，缺数据时回退到 [akshare skill](../akshare/SKILL.md)。
 
 # A 股 ST/*ST 风险预测
 
@@ -23,18 +45,18 @@ category: risk-analysis
 
 收到此类请求时，按下面"分析流程"执行；其他场景不要主动启用本 skill。
 
-## 数据获取规范（tushare 优先 → akshare 兜底）
+## 数据获取规范（SigmX Data Hub 优先 → 清单候补源兜底）
 
 **铁律**：
 
-1. **所有财务/基本面/分红/审计/ST 状态数据，必须先调用 [tushare skill](../tushare/SKILL.md)**，按下表指定的接口名、`ts_code`、`period` 拉取。
-2. 当 tushare 接口因积分不足、token 缺失或返回空时，**回退到 [akshare skill](../akshare/SKILL.md)** 对应函数。
+1. **所有财务/基本面/分红/审计/ST 状态数据，必须先调用 SigmX Skill Runtime**，按下表指定的接口名、`ts_code`、`period` 拉取。
+2. 当 Data Hub 能力因积分不足、token 缺失或返回空时，**回退到 [akshare skill](../akshare/SKILL.md)** 对应函数。
 3. **akshare 兜底数据必须在最终输出"备注"中显式标注**：`数据源：akshare（非官方聚合，不保证完整性，建议核对原始公告）`。**不允许只用 akshare 给出"高可信度"预测**——akshare 兜底的红线项可信度强制降一档（高→中高，中高→中，中→低）。
 4. 监管处罚（E2）走本 skill 自带的 [scripts/fetch_sina_penalties.py](scripts/fetch_sina_penalties.py)，不经过 tushare/akshare。
 
 ### 数据需求映射表
 
-| 数据需求 | tushare 接口（首选） | 抓取参数 / 时间窗口 | akshare 兜底 | akshare 注意事项 |
+| 数据需求 | Data Hub 能力（首选） | 抓取参数 / 时间窗口 | akshare 兜底 | akshare 注意事项 |
 |---------|---------------------|-------------------|-------------|----------------|
 | 当前 ST 状态 | `stock_st` | 最近一个交易日 | `stock_zh_a_st_em()` | 仅返回当前 ST/退市整理板列表，历史不可查 |
 | 历史改名 | `namechange` | `ts_code` 全历史 | `stock_zh_a_new_em()`（仅新股，无改名） | akshare 无完整改名接口，必要时跳过 |
@@ -48,7 +70,7 @@ category: risk-analysis
 | 审计意见 | `fina_audit` | `ts_code` + 最近 2 个年报 period | **akshare 无对应接口** | 缺失时在输出中标注"审计意见数据缺失"，**不得跳过**——必须提示用户去官网查 |
 | 分红 | `dividend` | `ts_code` + 近 5 年 `div_proc='实施'` | `stock_history_dividend_detail(symbol='600000', indicator='分红')` | 字段中文，需把"派息"金额×总股本得到现金分红总额 |
 | 日线行情（1 元退市预警） | `daily` | `ts_code` + 最近 30 个交易日 | `stock_zh_a_hist(symbol='600000', period='daily', adjust='')` | 必须用**不复权**价格判断 1 元退市线 |
-| 每日指标（市值） | `daily_basic` | `ts_code` + 最近一个交易日 | `stock_zh_a_spot_em()` 全市场快照筛 `代码=600000` | 字段名为"总市值"（**单位：元**，东方财富 push2 原始口径，akshare 不做缩放），换算成亿元需 `/1e8`。⚠️ 不要与 tushare `daily_basic.total_mv`（万元）混淆——本列是 akshare 兜底口径 |
+| 每日指标（市值） | `daily_basic` | `ts_code` + 最近一个交易日 | `stock_zh_a_spot_em()` 全市场快照筛 `代码=600000` | 字段名为"总市值"（**单位：元**，东方财富 push2 原始口径，akshare 不做缩放），换算成亿元需 `/1e8`。⚠️ 不要与 Data Hub `daily_basic.total_mv`（万元）混淆——本列是 akshare 兜底口径 |
 | 财报披露日期 | `disclosure_date` | `ts_code` + 当前年度 | **akshare 无对应接口** | 缺失时按经验估算（4/30 年报、8/31 中报、10/31 三季报） |
 | 监管处罚 | — | — | **走本 skill 自带 sina 脚本** | 见 E2 章节 |
 
@@ -59,14 +81,14 @@ category: risk-analysis
 - **财务报表（income / balancesheet / cashflow / fina_indicator）**：以 `disclosure_date` 实际公告日为准；该接口不可用时按法定截止日（年报 4/30、中报 8/31、三季报 10/31、一季报 4/30）做兜底。在公告日 +1 天起方可视该 period 为"最新可得"。
 - **"过去 N 年年报"**：一律 `period = {Y}1231`，不要用日历年起止。
 - **业绩预告 forecast / 业绩快报 express**：只取 `ann_date ≥ 当前年度 1 月 1 日` 的记录；按 `ann_date` 倒序取最新一条，老 period 的预告对预测无效。
-- **dividend**：按 `(end_date, ann_date, cash_div_tax)` 三元组**强制去重**——tushare 同一笔分红会出现 3-4 行（预案/股东大会通过/实施），直接累加会三倍误算。
+- **dividend**：按 `(end_date, ann_date, cash_div_tax)` 三元组**强制去重**——Data Hub 同一笔分红会出现 3-4 行（预案/股东大会通过/实施），直接累加会三倍误算。
 
 ## 第一步：当前状态核查（M0）
 
 **判断公司当前是否已被风险警示，并据此调整分析方向（不一刀切结束）**：
 
 调用顺序：
-1. 优先调用 `stock_st`（tushare skill，3000 积分），按当前最近交易日查询；记录 `type` / `type_name`。
+1. 优先调用 `stock_st`（Data Hub skill，3000 积分），按当前最近交易日查询；记录 `type` / `type_name`。
 2. 如积分不足，回退到 `namechange`（免费）：拉取 `ts_code` 全部历史改名记录，取按 `start_date` 排序的最新一条；判断 `name` 前缀。
 3. 兜底用 `stock_basic.name` 做名称确认。
 
@@ -171,10 +193,10 @@ forecast / express > 三季报 > 中报 > 去年年报 > 经验外推
 cash_dividend_total = cash_div_tax / 10 × total_share
 ```
 
-其中 `cash_div_tax` 来自 `dividend`（每 10 股派现金额，含税），`total_share` 来自 `daily_basic.total_share`（最新总股本，单位万股 → 需 ×1e4 换成股）或 `stock_basic`。tushare `dividend.base_share` 字段对很多公司为 None，**禁止直接使用**。
+其中 `cash_div_tax` 来自 `dividend`（每 10 股派现金额，含税），`total_share` 来自 `daily_basic.total_share`（最新总股本，单位万股 → 需 ×1e4 换成股）或 `stock_basic`。Data Hub `dividend.base_share` 字段对很多公司为 None，**禁止直接使用**。
 
 **方法**：
-1. 用 `dividend` 拉取该 `ts_code` 近五年记录，按 `(end_date, ann_date, cash_div_tax)` 三元组**强制去重**——同一笔分红 tushare 会返回"预案/股东大会通过/实施"3-4 行。
+1. 用 `dividend` 拉取该 `ts_code` 近五年记录，按 `(end_date, ann_date, cash_div_tax)` 三元组**强制去重**——同一笔分红 Data Hub 会返回"预案/股东大会通过/实施"3-4 行。
 2. 折算系数（按 `div_proc` 状态）：`实施=1.0` / `股东大会通过=0.7` / `预案=0.5`；同一 `end_date` 取系数最高那条。
 3. 用 `income` 拉取近三年完整年度归母净利润（period=YYYY1231）。
 4. 计算考核窗口 = `[当前年-2, 当前年]`，即"过去两年已落地分红 + 本年度预计分红"。
@@ -379,7 +401,7 @@ E2_综合等级 = max(E2_单条等级, E2_频次等级)
 10. 不把 R4 写成"连续三年"；监管原文是"连续两年"。**且 R4 高风险必须叠加营收联动条件**——仅"连续两年亏损"不构成 *ST 财务类强制退市，必须同时满足"营收 < 板块阈值 × 1.5"或 R1 已命中高风险，否则只能给中风险。
 11. 不把 E2 监管处罚"按主体一刀切"计数——必须用 `subject_normalized` 加权（公司 ×1.0 / 股东 ×0.5 / 董监高 ×0.5），否则股东动荡的公司会被系统性高估。
 
-## 依赖的 tushare 接口清单
+## 依赖的 Data Hub 能力清单
 
 | 用途 | 接口 | 备注 |
 |------|------|------|
@@ -421,10 +443,10 @@ python agent/src/skills/ashare-pre-st-filter/scripts/fetch_sina_penalties.py \
 
 ```python
 import os, json, subprocess
-import tushare as ts
+import Data Hub as ts
 
 ts_code = '000729.SZ'
-pro = ts.pro_api(os.environ['TUSHARE_TOKEN'])
+pro = ts.pro_api(os.environ['SIGMX_DATA_HUB_KEY'])
 
 # === Step 0: M0 当前状态 ===
 basic = pro.stock_basic(ts_code=ts_code, fields='ts_code,name,market').to_dict('records')[0]

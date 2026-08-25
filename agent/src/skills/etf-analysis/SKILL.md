@@ -2,8 +2,30 @@
 name: etf-analysis
 description: "ETF分析：产品筛选、费率对比、跟踪误差、流动性评估、策略应用与中国市场ETF量化配置框架。"
 category: asset-class
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: instructional
+  primary_source: data_hub
+  datahub_endpoints:
+    - etf.daily
+    - fund.daily
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
 
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli etf.daily --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # ETF 分析 Skill
 
 ## 定位
@@ -522,10 +544,10 @@ A股：沪深300ETF 510300 / 中证500ETF 510500
 
 ## 7. 数据分析方法
 
-### 7.1 用 Tushare 获取 ETF 数据
+### 7.1 用 Data Hub 获取 ETF 数据
 
 ```python
-import tushare as ts
+import Data Hub as ts
 import pandas as pd
 
 def get_etf_list(pro: ts.pro_api) -> pd.DataFrame:
@@ -533,7 +555,7 @@ def get_etf_list(pro: ts.pro_api) -> pd.DataFrame:
     获取全市场ETF列表。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
 
     Returns:
         ETF基本信息 DataFrame
@@ -547,7 +569,7 @@ def get_etf_nav(pro: ts.pro_api, ts_code: str, start_date: str, end_date: str) -
     获取ETF净值数据（IOPV）。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         ts_code: ETF代码，如 '510300.SH'
         start_date: 开始日期 'YYYYMMDD'
         end_date: 结束日期 'YYYYMMDD'
@@ -564,7 +586,7 @@ def get_etf_daily(pro: ts.pro_api, ts_code: str, start_date: str, end_date: str)
     获取ETF场内日行情（市价）。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         ts_code: ETF代码
         start_date: 开始日期
         end_date: 结束日期
@@ -581,7 +603,7 @@ def get_index_daily(pro: ts.pro_api, index_code: str, start_date: str, end_date:
     获取基准指数日行情（用于计算跟踪误差）。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         index_code: 指数代码，如 '000300.SH'（沪深300）
         start_date: 开始日期
         end_date: 结束日期
@@ -650,7 +672,7 @@ def compare_etfs_same_index(
     Args:
         etf_codes: ETF代码列表
         index_code: 基准指数代码
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         start_date: 开始日期
         end_date: 结束日期
 
@@ -712,7 +734,7 @@ def monitor_qdii_premium(pro, qdii_codes: list[str], date: str) -> pd.DataFrame:
     监控QDII ETF溢价率（溢价过高时发出预警）。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         qdii_codes: QDII ETF代码列表
         date: 查询日期 'YYYYMMDD'
 
@@ -759,7 +781,7 @@ def etf_fund_flow_analysis(
     分析ETF规模变化与资金净流入/流出。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         ts_code: ETF代码
         start_date: 开始日期
         end_date: 结束日期
@@ -803,7 +825,7 @@ def cross_etf_flow_comparison(
     比较同类ETF的资金流向，判断资金偏好。
 
     Args:
-        pro: tushare pro_api 实例
+        pro: Data Hub pro_api 实例
         etf_codes: 同类ETF代码列表
         start_date: 开始日期
         end_date: 结束日期

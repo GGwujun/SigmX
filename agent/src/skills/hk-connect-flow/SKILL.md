@@ -2,7 +2,30 @@
 name: hk-connect-flow
 description: Stock Connect (Shanghai/Shenzhen-Hong Kong) fund flow analysis — Northbound (foreign into A-shares), Southbound (mainland into HK), sector allocation tracking, and cross-border arbitrage signals.
 category: flow
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: instructional
+  primary_source: data_hub
+  datahub_endpoints:
+    - stocks.fund_flow
+    - stocks.unusual
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
+
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli stocks.fund_flow --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # Stock Connect Fund Flow Analysis
 
 ## Overview
@@ -154,10 +177,10 @@ connect_score = {
 
 ## Data Access
 
-### Via Tushare (A-share perspective)
+### Via Data Hub (A-share perspective)
 
 ```python
-import tushare as ts
+import Data Hub as ts
 pro = ts.pro_api()
 
 # Daily Northbound/Southbound aggregate flows
@@ -188,12 +211,12 @@ hsi = yf.download("^HSI", start="2025-01-01", end="2026-03-30", progress=False)
 
 | Metric | Source | Frequency | Threshold |
 |--------|--------|-----------|-----------|
-| Northbound daily net buy | Tushare / HKEX | Daily | >RMB 5B = significant |
+| Northbound daily net buy | Data Hub / HKEX | Daily | >RMB 5B = significant |
 | Northbound 20-day cumulative | Calculated | Daily | >RMB 30B = trend |
-| Southbound daily net buy | Tushare / HKEX | Daily | >HKD 3B = significant |
+| Southbound daily net buy | Data Hub / HKEX | Daily | >HKD 3B = significant |
 | AH Premium Index | Hang Seng | Daily | >130 = H-share value |
 | Quota utilization | HKEX | Intraday | >50% = strong conviction |
-| NB Top 10 concentration | Tushare | Daily | Top 3 names >50% = concentrated bet |
+| NB Top 10 concentration | Data Hub | Daily | Top 3 names >50% = concentrated bet |
 
 ## Output Format
 
@@ -243,5 +266,5 @@ hsi = yf.download("^HSI", start="2025-01-01", end="2026-03-30", progress=False)
 - Quarter-end and MSCI rebalancing dates (Feb/May/Aug/Nov) cause mechanical flow distortions — filter these out for signal purity
 - CNY/USD exchange rate is a key driver of Northbound flow; USD strength typically triggers NB outflows regardless of A-share fundamentals
 - Southbound flow can be distorted by dividend arbitrage (mainland funds buy before ex-div, creating artificial inflow spikes)
-- Stock Connect data is freely available from HKEX website and Tushare API
+- Stock Connect data is freely available from HKEX website and Data Hub API
 - This framework is for research purposes only and does not constitute investment advice

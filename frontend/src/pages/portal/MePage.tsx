@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { Link } from "react-router-dom";
 import {
-  ArrowRight,
   BarChart3,
   Bell,
   Cloud,
@@ -14,6 +13,8 @@ import {
   RefreshCw,
   Settings2,
 } from "lucide-react";
+
+import { AccountPage } from "@/components/layout/AccountPage";
 
 import {
   getMyCredits,
@@ -186,11 +187,11 @@ export function MePage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-6 px-4 py-8">
+    <AccountPage>
       <header className="flex flex-col gap-4 border-b pb-6 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Cloud workspace</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">我的 SigmX</h1>
+          <h1 className="mt-2 text-2xl font-semibold tracking-tight">个人中心</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
             Web 管理云资产与产品权益；Desktop 作为 Financial Harness 完成深度研究、量化验证和持续监控。
           </p>
@@ -320,27 +321,10 @@ export function MePage() {
         {handoffError ? <p className="text-destructive">{handoffError}</p> : <div className="flex flex-wrap items-center gap-3"><span>一次性研究任务已就绪，10 分钟内有效。</span><a href={desktopLink!} className="font-medium text-primary">打开 Desktop</a><Link to="/download" className="text-xs text-muted-foreground underline">尚未安装？下载 Desktop</Link></div>}
       </section>}
 
-      <section className="grid gap-4 md:grid-cols-2">
-        <ProductCard
-          title="SigmX Desktop"
-          eyebrow="Financial Harness"
-          description="连接本地数据、专业工具与多个金融智能体，运行可验证、可复现的完整研究工作流。"
-          to="/product/desktop"
-          action="了解 Desktop"
-        />
-        <ProductCard
-          title="SigmX Data Hub"
-          eyebrow="Financial Data Infrastructure"
-          description="为 Desktop 和个人开发者提供标准化、带质量状态和用量计量的金融数据。"
-          to="/product/data-hub"
-          action="了解 Data Hub"
-        />
-      </section>
-
       <p className="border-t pt-5 text-xs leading-5 text-muted-foreground">
         SigmX 提供研究与信息工具，不构成投资建议、收益承诺或自动交易指令。
       </p>
-    </div>
+    </AccountPage>
   );
 }
 
@@ -384,19 +368,5 @@ function AssetList({ icon: Icon, title, items, empty, unavailable }: { icon: Com
         {items.slice(0, 5).map((item) => <div key={item.key} className="rounded-md border px-3 py-2 hover:border-primary/40"><Link to={item.to} className="block"><div className="truncate text-sm font-medium">{item.title}</div><div className="mt-1 text-xs text-muted-foreground">{item.detail}</div></Link>{item.handoff && <button type="button" aria-label={`在 Desktop 继续：${item.title}`} onClick={item.handoff} className="mt-2 text-xs font-medium text-primary">在 Desktop 继续 →</button>}</div>)}
       </div>
     </div>
-  );
-}
-
-function ProductCard({ title, eyebrow, description, to, action }: { title: string; eyebrow: string; description: string; to: string; action: string }) {
-  return (
-    <Link to={to} className="group rounded-md border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-primary/[0.02]">
-      <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-primary">{eyebrow}</p>
-      <h2 className="mt-2 text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm leading-6 text-muted-foreground">{description}</p>
-      <span className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-primary">
-        {action}
-        <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-      </span>
-    </Link>
   );
 }

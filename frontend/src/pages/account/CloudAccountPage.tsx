@@ -13,7 +13,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Loader2, ShieldCheck, Laptop, RefreshCw, Monitor } from "lucide-react";
 import { toast } from "sonner";
 
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountPage } from "@/components/layout/AccountPage";
 import { ProductStatus } from "@/components/layout/ProductStatus";
 import { useDesktopDeviceFlow } from "@/hooks/useDesktopDeviceFlow";
 import { ApiError } from "@/lib/api";
@@ -99,8 +99,7 @@ export function CloudAccountPage() {
   const active = devices.filter((d) => !d.revoked_at);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <AccountNav />
+    <AccountPage>
       <header>
         <h1 className="flex items-center gap-2 text-lg font-bold">
           <ShieldCheck className="h-5 w-5 text-primary" /> 云账户 · 设备授权
@@ -224,6 +223,6 @@ export function CloudAccountPage() {
           ))
         )}
       </section>
-    </div>
+    </AccountPage>
   );
 }

@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountPage } from "@/components/layout/AccountPage";
 import { ProductStatus } from "@/components/layout/ProductStatus";
 import { ApiError } from "@/lib/api";
 import { getMyLedger, getMyLots, type CreditLot, type LedgerEntry } from "@/lib/productApi";
@@ -56,8 +56,7 @@ export function CreditsPage() {
   }, [reload, refreshKey]);
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <AccountNav />
+    <AccountPage>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-bold">积分中心</h1>
@@ -164,6 +163,6 @@ export function CreditsPage() {
         扣费规则：AlphaForge 报告 <code className="rounded bg-muted px-1">50</code> 积分 / 次，基金套利报告
         <code className="ml-1 rounded bg-muted px-1">20</code> 积分 / 次。失败自动退还，仅退一次。
       </section>
-    </div>
+    </AccountPage>
   );
 }

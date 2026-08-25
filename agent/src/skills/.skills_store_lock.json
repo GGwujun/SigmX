@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "skills": {
+    "announcement-search": {
+      "name": "announcement-search",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=announcement-search",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-astock-selector": {
+      "name": "hithink-astock-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-astock-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-basicinfo-query": {
+      "name": "hithink-basicinfo-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-basicinfo-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-business-query": {
+      "name": "hithink-business-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-business-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-cb-selector": {
+      "name": "hithink-cb-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-cb-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-etf-selector": {
+      "name": "hithink-etf-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-etf-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-event-query": {
+      "name": "hithink-event-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-event-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-finance-query": {
+      "name": "hithink-finance-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-finance-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-fund-query": {
+      "name": "hithink-fund-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-fund-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-fund-selector": {
+      "name": "hithink-fund-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-fund-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-fundcompany-selector": {
+      "name": "hithink-fundcompany-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-fundcompany-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-fundmanager-selector": {
+      "name": "hithink-fundmanager-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-fundmanager-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-futures-query": {
+      "name": "hithink-futures-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-futures-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-futures-selector": {
+      "name": "hithink-futures-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-futures-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-hkstock-selector": {
+      "name": "hithink-hkstock-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-hkstock-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-industry-query": {
+      "name": "hithink-industry-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-industry-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-insresearch-query": {
+      "name": "hithink-insresearch-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-insresearch-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-macro-query": {
+      "name": "hithink-macro-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-macro-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-management-query": {
+      "name": "hithink-management-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-management-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-market-query": {
+      "name": "hithink-market-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-market-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-sector-selector": {
+      "name": "hithink-sector-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-sector-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-usstock-selector": {
+      "name": "hithink-usstock-selector",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-usstock-selector",
+      "source": "skillhub",
+      "version": ""
+    },
+    "hithink-zhishu-query": {
+      "name": "hithink-zhishu-query",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=hithink-zhishu-query",
+      "source": "skillhub",
+      "version": ""
+    },
+    "news-search": {
+      "name": "news-search",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=news-search",
+      "source": "skillhub",
+      "version": ""
+    },
+    "report-search": {
+      "name": "report-search",
+      "zip_url": "http://ms.10jqka.com.cn/gateway/market/api/v1/skills/square/download?name=report-search",
+      "source": "skillhub",
+      "version": ""
+    }
+  }
+}

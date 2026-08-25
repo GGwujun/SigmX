@@ -716,6 +716,15 @@ CREATE TABLE IF NOT EXISTS stock_news (
 );
 CREATE INDEX IF NOT EXISTS idx_stock_news_code ON stock_news(code, trade_date DESC);
 
+-- 情报搜索查询快照：短期命中缓存，过期快照用于外部源故障降级。
+CREATE TABLE IF NOT EXISTS news_query_cache (
+    cache_key TEXT PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_news_query_cache_fetched ON news_query_cache(fetched_at);
+
 -- 限售解禁日历
 CREATE TABLE IF NOT EXISTS lockup_expiry (
     code TEXT NOT NULL, free_date TEXT NOT NULL,
@@ -3851,6 +3860,66 @@ class MarketStore:
                      r.get("summary", ""), r.get("date", ""), _now_iso()),
                 )
         return len(rows)
+
+    @_synchronized
+    def cache_news_query(
+        self,
+        cache_key: str,
+        payload: dict[str, Any],
+        *,
+        ttl_seconds: int,
+        now: datetime | None = None,
+    ) -> None:
+        fetched_at = now or datetime.now(timezone.utc)
+        expires_at = fetched_at + timedelta(seconds=max(ttl_seconds, 1))
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO news_query_cache (cache_key,payload_json,fetched_at,expires_at) VALUES (?,?,?,?)",
+                (cache_key, json.dumps(payload, ensure_ascii=False), fetched_at.isoformat(), expires_at.isoformat()),
+            )
+
+    @_synchronized
+    def get_cached_news_query(
+        self,
+        cache_key: str,
+        *,
+        max_stale_seconds: int,
+        now: datetime | None = None,
+    ) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT payload_json,fetched_at,expires_at FROM news_query_cache WHERE cache_key=?",
+            (cache_key,),
+        ).fetchone()
+        if row is None:
+            return None
+        current = now or datetime.now(timezone.utc)
+        fetched_at = datetime.fromisoformat(row["fetched_at"])
+        expires_at = datetime.fromisoformat(row["expires_at"])
+        if current > fetched_at + timedelta(seconds=max_stale_seconds):
+            return None
+        return {
+            "payload": json.loads(row["payload_json"]),
+            "cache_status": "fresh" if current <= expires_at else "stale",
+            "fetched_at": fetched_at.isoformat(),
+            "expires_at": expires_at.isoformat(),
+        }
+
+    @_synchronized
+    def prune_news_history(self, *, keep_days: int = 90, now: datetime | None = None) -> dict[str, int]:
+        current = now or datetime.now(timezone.utc)
+        cutoff_time = current - timedelta(days=max(keep_days, 1))
+        cutoff_date = cutoff_time.strftime("%Y%m%d")
+        removed: dict[str, int] = {}
+        with self._write_transaction():
+            cursor = self._conn.execute("DELETE FROM news_query_cache WHERE fetched_at < ?", (cutoff_time.isoformat(),))
+            removed["query_cache"] = max(cursor.rowcount, 0)
+            for table in ("stock_news", "premarket_news", "cls_telegraph"):
+                cursor = self._conn.execute(
+                    f"DELETE FROM {table} WHERE REPLACE(trade_date, '-', '') < ?",
+                    (cutoff_date,),
+                )
+                removed[table] = max(cursor.rowcount, 0)
+        return removed
 
     @_synchronized
     def upsert_lockup_expiry(self, code: str, rows: list[dict]) -> int:

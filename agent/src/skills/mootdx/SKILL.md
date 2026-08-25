@@ -2,8 +2,28 @@
 name: mootdx
 category: data-source
 description: Mootdx A-share market data via TCP-direct 通达信 servers. Free, no API key, no IP rate limits. Use as the stable A-share OHLCV fallback when akshare's East Money scrape is throttled.
+sigmx:
+  schema_version: 1
+  ownership: third_party
+  execution: instructional
+  primary_source: public_source
+  datahub_endpoints:
+    []
+  fallback_sources:
+    - mootdx
+  markets:
+    - CN_A
+  credentials:
+    []
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
 
+当前能力由公共数据源（mootdx）提供；不得标记为 Data Hub 返回。 通过统一路由执行，并在结果中标明公共来源、时间和可用性限制。
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 ## Overview
 
 Mootdx talks the native 通达信 (TDX) binary protocol over TCP, bypassing the HTTP scrapers that periodically fail under load (akshare → East Money is the canonical example). Public market data only — no token, no per-IP throttling, no captcha.

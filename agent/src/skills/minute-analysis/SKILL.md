@@ -2,7 +2,30 @@
 name: minute-analysis
 description: Minute-level data analysis and backtesting. Retrieves minute candlesticks through OKX/Tushare/yfinance and can be used both for analysis and as input to the backtest engine.
 category: strategy
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: executable
+  primary_source: data_hub
+  datahub_endpoints:
+    - stocks.daily
+    - stocks.daily_basic
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
+
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli stocks.daily --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # Minute-Level Data Analysis and Backtesting
 
 ## Purpose
@@ -34,7 +57,7 @@ For minute-level backtests, simply add the `interval` field in `config.json`:
 | Data Source | Supported Intervals | Notes |
 |--------|---------|------|
 | OKX | 1m/5m/15m/30m/1H/4H | Cryptocurrency, trades 7x24 |
-| Tushare | 1m/5m/15m/30m/1H | China A-shares, requires score >= 2000 |
+| Data Hub | 1m/5m/15m/30m/1H | China A-shares, requires score >= 2000 |
 | yfinance | 1m/5m/15m/30m/1H | Hong Kong / US equities (free, no key required) |
 
 ## OKX Minute Candlestick API
@@ -90,7 +113,7 @@ hourly_vol = df.set_index("ts").resample("1h")["vol"].sum()
 
 - OKX returns at most 300 rows per request. The loader paginates automatically, but `1m` datasets are still very large
 - The time range for minute-level backtests should not be too long, otherwise both data retrieval and backtesting will become slow or time out
-- Tushare minute endpoints require a score >= 2000. If the score is insufficient, the API returns empty data
+- Data Hub minute endpoints require a score >= 2000. If the score is insufficient, the API returns empty data
 - Timestamps are Unix timestamps in milliseconds and should be converted with `unit="ms"`
 - Transaction costs for minute strategies should be set lower (for example 0.05% instead of 0.1%) because intraday trading is frequent
 

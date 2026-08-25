@@ -1,4 +1,4 @@
-import { getApiAuthKey, setApiAuthKey, authHeaders, authQuerySuffix, withAuthQuery } from "../apiAuth";
+import { getApiAuthKey, getUser, setApiAuthKey, setUser, updateStoredUserProfile, authHeaders, authQuerySuffix, withAuthQuery } from "../apiAuth";
 
 describe("apiAuth", () => {
   beforeEach(() => {
@@ -64,5 +64,13 @@ describe("apiAuth", () => {
       setApiAuthKey("abc");
       expect(withAuthQuery("https://api.com/data?foo=bar")).toBe("https://api.com/data?foo=bar&api_key=abc");
     });
+  });
+
+  it("keeps the administrator flag when account profile data is refreshed", () => {
+    setUser({ id: "u1", email: "admin@sigmx.local", created_at: "2026-08-01", disclaimer_accepted_at: null, is_admin: true });
+
+    updateStoredUserProfile({ id: "u1", email: "admin@sigmx.local", created_at: "2026-08-01", disclaimer_accepted_at: "2026-08-02" });
+
+    expect(getUser()).toMatchObject({ is_admin: true, disclaimer_accepted_at: "2026-08-02" });
   });
 });

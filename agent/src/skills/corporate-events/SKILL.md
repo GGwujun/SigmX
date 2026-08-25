@@ -2,8 +2,30 @@
 name: corporate-events
 description: 公司事件驱动分析：并购套利价差计算、大股东增减持信号、股权激励解读、定增配股影响评估、A股ST/退市预警
 category: flow
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: instructional
+  primary_source: data_hub
+  datahub_endpoints:
+    - stocks.fund_flow
+    - stocks.unusual
+  fallback_sources:
+    - akshare
+  markets:
+    - CN_A
+  credentials:
+    - SIGMX_DATA_HUB_BASE_URL
+    - SIGMX_DATA_HUB_KEY
+  capability_status: full
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
 
+默认且优先使用 SigmX Data Hub；只在清单声明允许且指标口径一致时使用候补源。 `python -m src.skill_runtime.cli stocks.fund_flow --params '<JSON>'`
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 # 公司事件驱动分析
 
 ## 概述
@@ -258,7 +280,7 @@ T+N（长期效应）:
 2. **内幕交易风险**：事件公告前的异常量价可能是内幕交易，跟随介入需谨慎（可能被监管调查）
 3. **事件聚集效应**：同一标的多个事件叠加时信号增强（增持+回购+激励 = 强信号），但需排除"组合拳护盘"
 4. **注册制影响**：借壳上市价值下降，传统壳资源套利空间大幅收缩
-5. **量化可获取性**：tushare 提供增减持/股权激励/定增数据接口，但实时性不足（T+1或更慢）
+5. **量化可获取性**：Data Hub 提供增减持/股权激励/定增数据接口，但实时性不足（T+1或更慢）
 6. **仓位控制**：单一事件驱动策略仓位不超过10%，事件失败（如并购被否）可能导致20%+跌幅
 
 ## 依赖

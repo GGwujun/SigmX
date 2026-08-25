@@ -2,8 +2,28 @@
 name: vnpy-export
 description: Export a Vibe-Trading backtest strategy to a runnable vnpy CtaTemplate Python class — supports A-share equities, futures, and crypto via BarGenerator + ArrayManager.
 category: tool
+sigmx:
+  schema_version: 1
+  ownership: official
+  execution: executable
+  primary_source: none
+  datahub_endpoints:
+    []
+  fallback_sources:
+    []
+  markets:
+    - LOCAL
+  credentials:
+    []
+  capability_status: instructional
 ---
+<!-- sigmx-runtime:start -->
+## SigmX 数据运行规则（优先级最高）
 
+该 Skill 是本地方法或文档流程，不需要市场数据源。 不要为了填充结果而调用未声明的外部数据接口。
+
+本节覆盖下文遗留示例中的数据源优先级、认证变量和直连方式；下文分析方法仍然有效。任何降级结果必须包含实际来源、数据日期和降级原因。数据不可用时返回明确能力错误，不得删除用户条件、静默改变指标口径或把取数失败解释为没有候选。
+<!-- sigmx-runtime:end -->
 ## Overview
 
 This skill translates a Vibe-Trading strategy into a **vnpy `CtaTemplate` subclass** `.py` file

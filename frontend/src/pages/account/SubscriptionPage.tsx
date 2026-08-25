@@ -8,7 +8,7 @@ import { KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ProductStatus } from "@/components/layout/ProductStatus";
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountPage } from "@/components/layout/AccountPage";
 import { ApiError } from "@/lib/api";
 import { activateCode, getPlans } from "@/lib/productApi";
 
@@ -53,8 +53,7 @@ export function SubscriptionPage() {
   };
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 p-6">
-      <AccountNav />
+    <AccountPage>
       <header>
         <h1 className="text-lg font-bold">套餐与激活</h1>
         <p className="text-xs text-muted-foreground">查看套餐状态、使用激活码开通或续期</p>
@@ -87,6 +86,6 @@ export function SubscriptionPage() {
           </button>
         </form>
       </section>
-    </div>
+    </AccountPage>
   );
 }

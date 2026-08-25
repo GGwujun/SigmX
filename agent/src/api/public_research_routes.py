@@ -70,6 +70,8 @@ class PublicIntelligenceResponse(BaseModel):
     query: str
     sources: list[str]
     updated_at: str
+    cache_status: str
+    cached_until: str | None = None
 
 
 class PublicSearchResponse(BaseModel):
@@ -150,9 +152,9 @@ async def public_discovery() -> PublicDiscoveryResponse:
 @router.get("/api/public/intelligence", response_model=PublicIntelligenceResponse)
 async def public_intelligence(q: str = Query("", max_length=100), limit: int = Query(30, ge=1, le=60)) -> PublicIntelligenceResponse:
     import asyncio
-    from src.api.news_routes import _build_news_list
+    from src.api.news_routes import get_cached_news_list
 
-    payload = await asyncio.get_running_loop().run_in_executor(None, _build_news_list, q.strip())
+    payload = await asyncio.get_running_loop().run_in_executor(None, get_cached_news_list, q.strip())
     payload["articles"] = payload.get("articles", [])[:limit]
     return PublicIntelligenceResponse(**payload)
 

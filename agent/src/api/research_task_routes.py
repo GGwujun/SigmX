@@ -9,7 +9,8 @@ from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_user
-from src.product.research_tasks import InvalidResearchConstraint, ResearchTaskService
+from src.product.research_plans import ResearchPlanService
+from src.product.research_tasks import InvalidResearchConstraint, ResearchDataUnavailable, ResearchTaskService
 
 
 class ResearchConstraintRequest(BaseModel):
@@ -24,6 +25,58 @@ class CreateResearchTaskRequest(BaseModel):
     scope: dict[str, Any] = Field(default_factory=dict)
     constraints: list[dict[str, Any]] = Field(default_factory=list)
     idempotency_key: str = Field(min_length=1, max_length=128)
+
+
+class CreateResearchPlanRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
+    template_id: str | None = Field(default=None, max_length=64)
+    scope: dict[str, Any] = Field(default_factory=dict)
+
+
+class ResearchConditionAlternativeResponse(BaseModel):
+    label: str
+    question: str
+
+
+class ResearchConditionResponse(BaseModel):
+    id: str
+    metric: str
+    label: str
+    operator: str | None
+    value: float | str | None
+    period: str | None
+    benchmark: str | None
+    status: str
+    reason: str | None
+    alternatives: list[ResearchConditionAlternativeResponse]
+
+
+class ResearchDatasetResponse(BaseModel):
+    key: str
+    name: str
+    status: str
+    as_of: str | None
+    coverage: str | None
+
+
+class ResearchPlanStepResponse(BaseModel):
+    key: str
+    label: str
+    status: str
+
+
+class ResearchPlanResponse(BaseModel):
+    id: str
+    question: str
+    template_id: str | None
+    scope: dict[str, Any]
+    conditions: list[ResearchConditionResponse]
+    ranking: list[dict[str, Any]]
+    datasets: list[ResearchDatasetResponse]
+    steps: list[ResearchPlanStepResponse]
+    constraints: list[dict[str, Any]]
+    executable: bool
+    suggested_question: str | None
 
 
 class ResearchStepResponse(BaseModel):
@@ -85,7 +138,12 @@ router = APIRouter(
     tags=["research-tasks"],
     dependencies=[Depends(require_user)],
 )
+plan_router = APIRouter(
+    prefix="/api/research/plans",
+    tags=["research-plans"],
+)
 _service: ResearchTaskService | None = None
+_plan_service = ResearchPlanService()
 
 
 def _get_service() -> ResearchTaskService:
@@ -96,6 +154,17 @@ def _get_service() -> ResearchTaskService:
 
         _service = ResearchTaskService(product_routes._get_store(), PublicResearchService())
     return _service
+
+
+@plan_router.post("", response_model=ResearchPlanResponse)
+async def create_research_plan(
+    body: CreateResearchPlanRequest,
+) -> ResearchPlanResponse:
+    try:
+        plan = _plan_service.create(body.question, body.template_id, body.scope)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return ResearchPlanResponse(**asdict(plan), constraints=plan.to_constraints())
 
 
 @router.post("", response_model=ResearchTaskResponse, status_code=status.HTTP_201_CREATED)
@@ -113,10 +182,18 @@ async def create_research_task(
             idempotency_key=body.idempotency_key,
         )
         return ResearchTaskResponse(**asdict(task))
-    except InvalidResearchConstraint as exc:
+    except (InvalidResearchConstraint, ResearchDataUnavailable) as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except Exception as exc:
         raise HTTPException(status_code=503, detail="研究服务暂时不可用") from exc
+
+
+@router.get("", response_model=list[ResearchTaskResponse])
+async def list_research_tasks(
+    limit: int = 20,
+    user: dict = Depends(require_user),
+) -> list[ResearchTaskResponse]:
+    return [ResearchTaskResponse(**asdict(task)) for task in _get_service().list(user["id"], limit)]
 
 
 @router.get("/{task_id}", response_model=ResearchTaskResponse)
@@ -148,6 +225,8 @@ async def cancel_research_task(task_id: str, user: dict = Depends(require_user))
 
 
 def register_research_task_routes(app: FastAPI) -> APIRouter:
+    if not any(getattr(route, "path", "") == "/api/research/plans" for route in app.routes):
+        app.include_router(plan_router)
     if not any(getattr(route, "path", "") == "/api/research/tasks" for route in app.routes):
         app.include_router(router)
     return router

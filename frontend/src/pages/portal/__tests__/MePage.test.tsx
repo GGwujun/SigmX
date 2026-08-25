@@ -105,7 +105,10 @@ describe("MePage", () => {
   it("shows the existing cloud product status and next actions", async () => {
     renderPage();
 
-    expect(await screen.findByRole("heading", { name: "我的 SigmX" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "个人中心" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "账户与安全" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "套餐与激活" })).toHaveAttribute("href", "/account/subscription");
     expect(screen.getByText("pro_bundle")).toBeInTheDocument();
     expect(screen.getByText("900")).toBeInTheDocument();
     expect(screen.getByText("149,880")).toBeInTheDocument();
@@ -113,6 +116,8 @@ describe("MePage", () => {
     expect(screen.getByText("1 / 3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /管理账户/ })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("link", { name: /下载 Desktop/ })).toHaveAttribute("href", "/download");
+    expect(screen.queryByRole("link", { name: "了解 Desktop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "了解 Data Hub" })).not.toBeInTheDocument();
   });
 
   it("keeps successful product cards visible when one status API fails", async () => {

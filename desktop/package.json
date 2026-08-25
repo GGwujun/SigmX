@@ -15,6 +15,7 @@
     "dev": "cross-env SIGMX_DEV=1 electron .",
     "build": "electron-builder",
     "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac dmg",
     "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
@@ -51,6 +52,13 @@
       "target": "nsis",
       "icon": "assets/icon.png",
       "artifactName": "SigmX-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "assets/icon.png",
+      "artifactName": "SigmX-${version}-mac-${arch}.${ext}",
+      "identity": null,
+      "category": "public.app-category.finance"
     },
     "nsis": {
       "oneClick": false,

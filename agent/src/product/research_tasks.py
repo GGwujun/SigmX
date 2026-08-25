@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 
 from src.product.public_research import PublicResearchService, PublicSearchItem
+from src.product.research_plans import EXECUTABLE_FIELDS
 from src.product.store import ProductStore
 
 
@@ -17,6 +18,10 @@ def _now_iso() -> str:
 
 
 class InvalidResearchConstraint(ValueError):
+    pass
+
+
+class ResearchDataUnavailable(ValueError):
     pass
 
 
@@ -80,13 +85,7 @@ class ResearchResult:
 
 
 class ResearchTaskService:
-    _FIELDS = {
-        "close",
-        "pe_ttm",
-        "pb",
-        "dividend_yield",
-        "total_market_value",
-    }
+    _FIELDS = EXECUTABLE_FIELDS | {"close", "pb"}
     _OPS = {">", ">=", "<", "<=", "=", "=="}
 
     def __init__(
@@ -110,6 +109,7 @@ class ResearchTaskService:
         idempotency_key: str,
     ) -> ResearchTask:
         self._validate_constraints(constraints)
+        self._validate_research_capability(question, template_id)
         existing = self._by_key(user_id, idempotency_key)
         if existing:
             return existing
@@ -143,6 +143,13 @@ class ResearchTaskService:
         if row is None:
             raise KeyError(task_id)
         return self._task(row)
+
+    def list(self, user_id: str, limit: int = 20) -> list[ResearchTask]:
+        rows = self.store._get_conn().execute(
+            "SELECT * FROM research_tasks WHERE user_id=? ORDER BY created_at DESC LIMIT ?",
+            (user_id, min(max(int(limit), 1), 50)),
+        ).fetchall()
+        return [self._task(row) for row in rows]
 
     def result(self, user_id: str, task_id: str) -> ResearchResult:
         task = self.get(user_id, task_id)
@@ -199,7 +206,7 @@ class ResearchTaskService:
             search = self.research.search(task.question, limit=10)
             items = [item for item in search.items if self._matches(item, task.constraints)]
             now = self._now()
-            candidates = [self._candidate(item) for item in items]
+            candidates = [self._candidate(item, search.interpretation) for item in items]
             observed = [item.as_of for item in items if item.as_of]
             as_of = max(observed) if observed else None
             summary = (
@@ -246,7 +253,7 @@ class ResearchTaskService:
             raise
         return self.get(user_id, task_id)
 
-    def _candidate(self, item: PublicSearchItem) -> ResearchCandidate:
+    def _candidate(self, item: PublicSearchItem, interpretation: list[str]) -> ResearchCandidate:
         evidence = [
             ResearchEvidence(field=field, value=getattr(item, field), source="local_market_store", as_of=item.as_of)
             for field in ("close", "pe_ttm", "pb", "dividend_yield", "total_market_value")
@@ -261,7 +268,7 @@ class ResearchTaskService:
             pb=item.pb,
             dividend_yield=item.dividend_yield,
             total_market_value=item.total_market_value,
-            reason=f"满足 {len(evidence)} 项当前可核验指标。",
+            reason=(f"满足研究条件：{'；'.join(interpretation)}。" if interpretation else f"匹配研究问题，并提供 {len(evidence)} 项可核验指标。"),
             evidence=evidence,
         )
 
@@ -272,6 +279,22 @@ class ResearchTaskService:
             value = constraint.get("value")
             if field not in self._FIELDS or op not in self._OPS or not isinstance(value, (int, float)):
                 raise InvalidResearchConstraint(f"unsupported research constraint: {field} {op}")
+
+    @staticmethod
+    def _validate_research_capability(question: str, template_id: str | None) -> None:
+        unsupported_templates = {
+            "quality": "经营现金流与行业盈利质量的多期财务数据尚未接入研究执行器，当前无法可靠执行该条件。",
+            "growth": "营收与利润拐点所需的多期财务数据尚未接入研究执行器，当前无法可靠执行该条件。",
+            "industry": "产业订单与研发投入数据尚未接入研究执行器，当前无法可靠执行该条件。",
+            "fund": "机构覆盖与持仓历史数据尚未接入研究执行器，当前无法可靠执行该条件。",
+        }
+        if template_id in unsupported_templates:
+            raise ResearchDataUnavailable(unsupported_templates[template_id])
+        if any(marker in question for marker in ("经营现金流", "盈利质量", "现金流持续改善")):
+            raise ResearchDataUnavailable(unsupported_templates["quality"])
+        unsupported_markers = ("ROE", "净资产收益率", "毛利率", "营收", "净利润", "利润增长", "负债率", "研发投入", "机构持仓", "行业中位数")
+        if any(marker.lower() in question.lower() for marker in unsupported_markers):
+            raise ResearchDataUnavailable("该问题需要的多期财务或行业比较数据尚未接入。当前只支持估值、股息率、小市值以及股票名称/行业检索。")
 
     @staticmethod
     def _matches(item: PublicSearchItem, constraints: list[dict[str, Any]]) -> bool:

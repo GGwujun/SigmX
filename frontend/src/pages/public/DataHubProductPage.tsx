@@ -1,76 +1,15 @@
-/**
- * Data Hub product-boundary page (design §7.1 /product/data-hub, §2.2).
- * Explains what Data Hub owns (public data + read-only API + quotas) and what
- * it deliberately does not (private holdings/watchlists). Static content.
- */
+import { ArrowRight, Bot, CheckCircle2, Code2, Database, FileSearch, Gauge, KeyRound, LineChart, ShieldCheck, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
-import { ArrowRight, Check, Database, X } from "lucide-react";
 
-const OWNS = [
-  "行情、财务、新闻、公告、事件、行业与概念数据",
-  "公共指标、市场宽度、资金流、热门池与公共推荐",
-  "数据采集、标准化、去重、质量校验与新鲜度",
-  "只读 API、基于权益的访问、每日配额与用量记录",
-];
-
-const DOES_NOT = [
-  "用户持仓、自选股与会话",
-  "私人报告、订单或模型配置",
-  "交易授权；Data Hub API Key 不能访问上述私有数据",
-];
+const DOMAINS = [["行情与估值", "股票、指数、基金、复权行情与估值分位", LineChart], ["财务与基本面", "三大报表、财务指标、盈利预测与公司资料", Database], ["公告与情报", "交易所公告、财经新闻、政策与产业链事件", FileSearch], ["资金与市场行为", "资金流、龙虎榜、融资融券与机构持仓", Gauge]] as const;
 
 export function DataHubProductPage() {
-  return (
-    <div className="mx-auto max-w-4xl px-4 py-16">
-      <div className="mb-8 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
-        <Database className="h-6 w-6 text-primary" />
-      </div>
-      <h1 className="text-3xl font-bold tracking-tight">Data Hub</h1>
-      <p className="mt-2 max-w-2xl text-muted-foreground">
-        公共金融数据的权威来源与只读 API。Data Hub 只负责公共数据及其公共计算结果，
-        网站与 Connected 客户端只读访问，按套餐配额计量。
-      </p>
-
-      <div className="mt-10 grid gap-6 md:grid-cols-2">
-        <section className="rounded-xl border bg-card p-6">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-emerald-600">
-            <Check className="h-4 w-4" /> Data Hub 负责
-          </h2>
-          <ul className="space-y-2 text-sm">
-            {OWNS.map((o) => (
-              <li key={o} className="flex gap-2">
-                <span className="text-emerald-600">·</span>
-                {o}
-              </li>
-            ))}
-          </ul>
-        </section>
-        <section className="rounded-xl border bg-card p-6">
-          <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-muted-foreground">
-            <X className="h-4 w-4" /> Data Hub 不负责
-          </h2>
-          <ul className="space-y-2 text-sm text-muted-foreground">
-            {DOES_NOT.map((d) => (
-              <li key={d} className="flex gap-2">
-                <span>·</span>
-                {d}
-              </li>
-            ))}
-          </ul>
-        </section>
-      </div>
-
-      <div className="mt-10 rounded-2xl border bg-card p-8 text-center">
-        <p className="text-sm text-muted-foreground">
-          套餐决定可用接口组、速率、并发和每月 Data Credit；每次成功调用按接口成本扣减积分。
-        </p>
-        <Link
-          to="/pricing"
-          className="mt-4 inline-flex h-10 items-center gap-1 rounded-md bg-primary px-5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          查看套餐 <ArrowRight className="h-4 w-4" />
-        </Link>
-      </div>
-    </div>
-  );
+  return <div className="min-h-screen bg-slate-950 text-slate-100">
+    <section className="relative overflow-hidden border-b border-white/10"><div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(20,184,166,.18),transparent_34%),radial-gradient(circle_at_80%_30%,rgba(59,130,246,.14),transparent_30%)]" /><div className="relative mx-auto grid max-w-6xl gap-12 px-4 py-20 lg:grid-cols-[1.05fr_.95fr] lg:px-8 lg:py-28"><div><p className="text-xs font-bold tracking-[0.22em] text-teal-400">SIGMX DATA HUB</p><h1 className="mt-5 text-4xl font-bold leading-tight sm:text-5xl">让 AI 智能体直接使用<br /><span className="text-teal-400">可信的金融数据</span></h1><p className="mt-6 max-w-xl text-base leading-8 text-slate-300">统一接入行情、财务、公告、新闻、资金与产业数据。无论是本地 AI 智能体、投研 Skills，还是你自己的分析程序，都通过同一套标准接口获得可追溯的数据。</p><div className="mt-8 flex flex-wrap gap-3"><Link to="/account/data-hub" className="inline-flex items-center gap-2 rounded-lg bg-teal-500 px-5 py-3 text-sm font-semibold text-slate-950">进入控制台 <ArrowRight className="h-4 w-4" /></Link><Link to="/docs/data-hub/" className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold">查看 API 文档 <Code2 className="h-4 w-4" /></Link></div><div className="mt-8 flex flex-wrap gap-x-6 gap-y-2 text-xs text-slate-400">{["按量计费", "Credential 独立管理", "来源与时间戳可追溯"].map((item) => <span key={item} className="inline-flex items-center gap-1.5"><CheckCircle2 className="h-3.5 w-3.5 text-teal-400" />{item}</span>)}</div></div><div className="rounded-2xl border border-white/10 bg-slate-900/80 p-5 shadow-2xl"><div className="flex items-center justify-between border-b border-white/10 pb-4"><div className="flex items-center gap-2 text-sm font-semibold"><Bot className="h-4 w-4 text-teal-400" />本地智能体调用</div><span className="rounded-full bg-emerald-400/10 px-2 py-1 text-[10px] font-semibold text-emerald-400">200 OK · 86ms</span></div><pre className="mt-5 overflow-x-auto text-xs leading-7 text-slate-300"><code>{`from sigmx import DataHub\n\nhub = DataHub()\nresult = hub.query(\n  "现金流连续改善且估值低于历史中位数"\n)\n\nprint(result.evidence)`}</code></pre><div className="mt-5 grid grid-cols-3 gap-2">{[["数据域","6"],["标准接口","300+"],["质量监控","持续"]].map(([label,value]) => <div key={label} className="rounded-lg bg-white/[0.04] p-3"><div className="text-[10px] text-slate-500">{label}</div><div className="mt-1 font-semibold text-teal-300">{value}</div></div>)}</div></div></div></section>
+    <section className="mx-auto max-w-6xl px-4 py-16 lg:px-8"><p className="text-xs font-bold tracking-[0.18em] text-teal-400">DATA COVERAGE</p><h2 className="mt-3 text-3xl font-bold">一套接口，覆盖完整研究证据</h2><p className="mt-3 max-w-2xl leading-7 text-slate-400">Data Hub 不是另一个选股页面，而是 Web 投研、投研 Skills 和本地智能体背后的数据基础设施。</p><div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{DOMAINS.map(([title, description, Icon]) => <div key={title} className="rounded-xl border border-white/10 bg-white/[0.03] p-5"><Icon className="h-5 w-5 text-teal-400" /><h3 className="mt-4 font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{description}</p></div>)}</div></section>
+    <section className="border-y border-white/10 bg-white/[0.025]"><div className="mx-auto grid max-w-6xl gap-8 px-4 py-16 lg:grid-cols-3 lg:px-8"><Step icon={KeyRound} title="1. 创建 Credential">在账户控制台创建独立密钥，按智能体或项目隔离。</Step><Step icon={Sparkles} title="2. 安装 Skill 或 SDK">把官方投研 Skill 安装到 Codex、Claude Code 等本地助手。</Step><Step icon={ShieldCheck} title="3. 获取可验证结论">接口返回数据状态、来源和时间戳，便于复核研究过程。</Step></div></section>
+    <section className="mx-auto max-w-4xl px-4 py-20 text-center"><h2 className="text-3xl font-bold">让你的 AI 从可靠数据开始研究</h2><p className="mx-auto mt-4 max-w-2xl leading-7 text-slate-400">先在 Skills 广场体验研究方法，再按需要开通 Data Hub Credential。</p><div className="mt-7 flex justify-center gap-3"><Link to="/skills" className="rounded-lg border border-white/15 px-5 py-3 text-sm font-semibold">浏览投研 Skills</Link><Link to="/account/data-hub" className="rounded-lg bg-teal-500 px-5 py-3 text-sm font-semibold text-slate-950">开通 Data Hub</Link></div></section>
+  </div>;
 }
+
+function Step({ icon: Icon, title, children }: { icon: typeof KeyRound; title: string; children: string }) { return <div><Icon className="h-6 w-6 text-teal-400" /><h3 className="mt-4 text-lg font-semibold">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-400">{children}</p></div>; }

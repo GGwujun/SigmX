@@ -14,10 +14,11 @@ Data sources (all free, no API key):
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable
 # Uses requests library (already a project dependency)
 
@@ -33,6 +34,11 @@ logger = logging.getLogger(__name__)
 _CACHE: dict[str, dict[str, Any]] = {}
 _CACHE_LOCK = threading.Lock()
 _CACHE_TTL = 300  # 5 min
+_DEFAULT_FEED_TTL = 300
+_SEARCH_TTL = 600
+_STALE_FALLBACK_SECONDS = 24 * 60 * 60
+_NEWS_RETENTION_DAYS = 90
+_NEWS_STORE = None
 
 # ---------------------------------------------------------------------------
 # Source 1: 新浪财经 (Sina Finance)
@@ -133,15 +139,19 @@ def _build_news_list(keyword: str = "") -> dict[str, Any]:
     """Aggregate news from RSSHub + Bing, deduplicate by title."""
     # RSSHub wallstreetcn first (fresher, more relevant)
     rss_articles = _fetch_wallstreetcn(limit=25, keyword=keyword)
-    seen = {a["title"].strip().lower()[:60] for a in rss_articles}
+    seen_titles = {a["title"].strip().lower()[:60] for a in rss_articles}
+    seen_urls = {str(a.get("url") or "").strip() for a in rss_articles if a.get("url")}
 
     # DDG as supplement
     bing_query = f"A股 {keyword}" if keyword else "A股"
     bing_articles = _fetch_bing_news(bing_query, max_results=15)
     for a in bing_articles:
-        key = a["title"].strip().lower()[:60]
-        if key not in seen:
-            seen.add(key)
+        title_key = a["title"].strip().lower()[:60]
+        url_key = str(a.get("url") or "").strip()
+        if title_key not in seen_titles and (not url_key or url_key not in seen_urls):
+            seen_titles.add(title_key)
+            if url_key:
+                seen_urls.add(url_key)
             rss_articles.append(a)
 
     # Sort by published date (newest first), unknown dates at bottom
@@ -150,9 +160,71 @@ def _build_news_list(keyword: str = "") -> dict[str, Any]:
     return {
         "articles": rss_articles,
         "query": keyword or "A股",
-        "sources": ["新浪财经", "DuckDuckGo"],
+        "sources": ["华尔街见闻", "Bing"],
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+def _get_news_store():
+    global _NEWS_STORE
+    if _NEWS_STORE is None:
+        from src.data.market_store import MarketStore
+        _NEWS_STORE = MarketStore()
+    return _NEWS_STORE
+
+
+def get_cached_news_list(
+    keyword: str = "",
+    *,
+    store=None,
+    fetcher: Callable[[str], dict[str, Any]] | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Return a persistent cached intelligence feed with bounded stale fallback."""
+    store = store or _get_news_store()
+    fetcher = fetcher or _build_news_list
+    current = now or datetime.now(timezone.utc)
+    normalized = " ".join(keyword.strip().split()).casefold()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    cache_key = f"intelligence:{digest}"
+    cached = store.get_cached_news_query(
+        cache_key,
+        max_stale_seconds=_STALE_FALLBACK_SECONDS,
+        now=current,
+    )
+    if cached and cached["cache_status"] == "fresh":
+        return {
+            **cached["payload"],
+            "cache_status": "fresh_cache",
+            "cached_until": cached["expires_at"],
+        }
+
+    try:
+        payload = fetcher(normalized)
+    except Exception:
+        if cached:
+            return {
+                **cached["payload"],
+                "cache_status": "stale_cache",
+                "cached_until": cached["expires_at"],
+            }
+        raise
+    if payload.get("articles"):
+        ttl = _SEARCH_TTL if normalized else _DEFAULT_FEED_TTL
+        store.cache_news_query(cache_key, payload, ttl_seconds=ttl, now=current)
+        store.prune_news_history(keep_days=_NEWS_RETENTION_DAYS, now=current)
+        return {
+            **payload,
+            "cache_status": "live",
+            "cached_until": (current + timedelta(seconds=ttl)).isoformat(),
+        }
+    if cached:
+        return {
+            **cached["payload"],
+            "cache_status": "stale_cache",
+            "cached_until": cached["expires_at"],
+        }
+    return {**payload, "cache_status": "live", "cached_until": None}
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +245,8 @@ class NewsListResponse(BaseModel):
     query: str
     sources: list[str] = []
     updated_at: str
+    cache_status: str = "live"
+    cached_until: str | None = None
 
 
 class StockNewsResponse(BaseModel):
@@ -210,21 +284,10 @@ def register_news_routes(
         q: str = Query("", max_length=100),
         limit: int = Query(30, ge=5, le=60),
     ) -> dict[str, Any]:
-        cache_key = f"news:{q}:{limit}"
-        now = time.time()
-        with _CACHE_LOCK:
-            cached = _CACHE.get(cache_key)
-            if cached and (now - cached.get("_ts", 0)) < _CACHE_TTL:
-                return {k: v for k, v in cached.items() if not k.startswith("_")}
-
         import asyncio
         loop = asyncio.get_event_loop()
-        payload = await loop.run_in_executor(None, _build_news_list, q if q else "")
+        payload = await loop.run_in_executor(None, get_cached_news_list, q if q else "")
         payload["articles"] = payload["articles"][:limit]
-
-        with _CACHE_LOCK:
-            _CACHE[cache_key] = {**payload, "_ts": time.time()}
-
         return payload
 
     _STOCK_RE = __import__("re").compile(r"^\d{6}\.(SZ|SH)$")

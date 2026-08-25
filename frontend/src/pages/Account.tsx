@@ -4,8 +4,9 @@ import {
   Coins, Gift, KeyRound, Loader2, LogOut, RefreshCw, User,
 } from "lucide-react";
 import { toast } from "sonner";
+import { AccountPage } from "@/components/layout/AccountPage";
 import { api, type AccountInfo, type CreditTransaction } from "@/lib/api";
-import { clearAuth, setUser } from "@/lib/apiAuth";
+import { clearAuth, updateStoredUserProfile } from "@/lib/apiAuth";
 import { cn } from "@/lib/utils";
 
 const TX_TYPE_LABEL: Record<string, string> = {
@@ -41,7 +42,7 @@ export function Account() {
       const [acc, tx] = await Promise.all([api.getAccount(), api.getTransactions(50)]);
       setAccount(acc);
       // keep local user in sync (balance not stored there, but id/email current)
-      setUser({ id: acc.id, email: acc.email, disclaimer_accepted_at: acc.disclaimer_accepted_at, created_at: acc.created_at });
+      updateStoredUserProfile({ id: acc.id, email: acc.email, disclaimer_accepted_at: acc.disclaimer_accepted_at, created_at: acc.created_at });
       setTransactions(tx.items || []);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "加载失败");
@@ -93,14 +94,17 @@ export function Account() {
 
   if (loading || !account) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
+      <AccountPage>
+        <div className="flex min-h-64 items-center justify-center text-muted-foreground">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      </AccountPage>
     );
   }
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <AccountPage>
+    <div className="flex flex-col overflow-hidden">
       <header className="border-b px-6 py-4 flex items-center justify-between shrink-0">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -117,7 +121,7 @@ export function Account() {
       </header>
 
       <div className="flex-1 overflow-auto p-6">
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="space-y-6">
           {/* Account info + balance */}
           <section className="rounded-xl border bg-card p-5">
             <div className="grid gap-4 md:grid-cols-2">
@@ -224,5 +228,6 @@ export function Account() {
         </div>
       </div>
     </div>
+    </AccountPage>
   );
 }
