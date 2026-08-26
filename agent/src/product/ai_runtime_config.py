@@ -66,17 +66,36 @@ class AIConfigurationError(RuntimeError):
 class AIRuntimeConfigService:
     def __init__(self, store: ProductStore, *, encryption_key: bytes | None = None) -> None:
         self.store = store
-        self._fernet = Fernet(encryption_key or self._environment_key())
+        self._fernet = Fernet(encryption_key or self._environment_key(store))
 
     @staticmethod
-    def _environment_key() -> bytes:
+    def _environment_key(store: ProductStore) -> bytes:
         explicit = os.getenv("SIGMX_AI_CONFIG_KEY", "").strip()
         if explicit:
             return explicit.encode("ascii")
         seed = os.getenv("JWT_SECRET", "").strip()
-        if not seed:
-            raise AIConfigurationError("SIGMX_AI_CONFIG_KEY or JWT_SECRET is required")
-        return base64.urlsafe_b64encode(hashlib.sha256(seed.encode("utf-8")).digest())
+        if seed:
+            return base64.urlsafe_b64encode(hashlib.sha256(seed.encode("utf-8")).digest())
+
+        # Local development generates its JWT secret in memory, so it is not
+        # available through os.environ. Keep a separate machine-local Fernet
+        # key beside the product database so the admin page can load and saved
+        # provider secrets remain decryptable after a restart.
+        key_path = store.db_path.with_name(".sigmx-ai-config.key")
+        try:
+            return key_path.read_bytes().strip()
+        except FileNotFoundError:
+            generated = Fernet.generate_key()
+            try:
+                with key_path.open("xb") as handle:
+                    handle.write(generated + b"\n")
+                try:
+                    key_path.chmod(0o600)
+                except OSError:
+                    pass
+                return generated
+            except FileExistsError:
+                return key_path.read_bytes().strip()
 
     @staticmethod
     def _mask(value: str) -> str:

@@ -28,6 +28,28 @@ def test_provider_secret_is_encrypted_at_rest_and_masked_on_read(tmp_path: Path)
     assert service.reveal_api_key("deepseek") == "sk-live-secret-value"
 
 
+def test_local_config_uses_a_persistent_key_when_secret_env_is_unset(tmp_path: Path, monkeypatch) -> None:
+    """Catch the admin AI page returning 500 in an unconfigured local checkout."""
+    monkeypatch.delenv("SIGMX_AI_CONFIG_KEY", raising=False)
+    monkeypatch.delenv("JWT_SECRET", raising=False)
+    store = ProductStore(tmp_path / "product.db")
+
+    first = AIRuntimeConfigService(store)
+    first.save_provider(
+        code="deepseek",
+        name="DeepSeek",
+        base_url="https://api.deepseek.com/v1",
+        api_key="local-secret",
+        models=["deepseek-chat"],
+        enabled=True,
+        actor="admin-1",
+    )
+
+    restarted = AIRuntimeConfigService(store)
+    assert restarted.list_providers()[0].configured is True
+    assert restarted.reveal_api_key("deepseek") == "local-secret"
+
+
 def test_effective_config_uses_enabled_strategy_and_source_priority(tmp_path: Path) -> None:
     store = ProductStore(tmp_path / "product.db")
     service = AIRuntimeConfigService(store, encryption_key=Fernet.generate_key())
