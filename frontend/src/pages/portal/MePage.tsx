@@ -5,7 +5,6 @@ import {
   Bell,
   Cloud,
   Download,
-  Laptop,
   ListChecks,
   History,
   RefreshCw,
@@ -15,8 +14,6 @@ import {
 import { AccountPage } from "@/components/layout/AccountPage";
 
 import {
-  getMyEntitlements,
-  listDevices,
   listNotifications,
   markNotificationRead,
   getNotificationPreferences,
@@ -26,8 +23,6 @@ import {
   deleteSavedQuerySubscription,
   listCloudTasks,
   listQueryExecutions,
-  type DeviceItem,
-  type EntitlementsResponse,
   type NotificationPreferences,
   type PersonalNotification,
   type SavedQuerySubscription,
@@ -37,8 +32,6 @@ import {
 import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@/lib/cloudResearchApi";
 
 interface ProductState {
-  entitlements: EntitlementsResponse | null;
-  devices: DeviceItem[] | null;
   queries: CloudSavedQuery[] | null;
   watchlist: CloudWatchlistItem[] | null;
   reports: CloudReport[] | null;
@@ -50,8 +43,6 @@ interface ProductState {
 }
 
 const EMPTY_STATE: ProductState = {
-  entitlements: null,
-  devices: null,
   queries: null,
   watchlist: null,
   reports: null,
@@ -72,8 +63,6 @@ export function MePage() {
   const load = useCallback(async () => {
     setLoading(true);
     const results = await Promise.allSettled([
-      getMyEntitlements(),
-      listDevices(),
       cloudResearchApi.listQueries(),
       cloudResearchApi.listWatchlist(),
       cloudResearchApi.listReports(),
@@ -85,16 +74,14 @@ export function MePage() {
     ] as const);
 
     setState({
-      entitlements: results[0].status === "fulfilled" ? results[0].value : null,
-      devices: results[1].status === "fulfilled" ? results[1].value : null,
-      queries: results[2].status === "fulfilled" ? results[2].value : null,
-      watchlist: results[3].status === "fulfilled" ? results[3].value : null,
-      reports: results[4].status === "fulfilled" ? results[4].value : null,
-      notifications: results[5].status === "fulfilled" ? results[5].value : null,
-      notificationPreferences: results[6].status === "fulfilled" ? results[6].value : null,
-      querySubscriptions: results[7].status === "fulfilled" ? results[7].value : null,
-      cloudTasks: results[8].status === "fulfilled" ? results[8].value : null,
-      queryExecutions: results[9].status === "fulfilled" ? results[9].value : null,
+      queries: results[0].status === "fulfilled" ? results[0].value : null,
+      watchlist: results[1].status === "fulfilled" ? results[1].value : null,
+      reports: results[2].status === "fulfilled" ? results[2].value : null,
+      notifications: results[3].status === "fulfilled" ? results[3].value : null,
+      notificationPreferences: results[4].status === "fulfilled" ? results[4].value : null,
+      querySubscriptions: results[5].status === "fulfilled" ? results[5].value : null,
+      cloudTasks: results[6].status === "fulfilled" ? results[6].value : null,
+      queryExecutions: results[7].status === "fulfilled" ? results[7].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -103,9 +90,6 @@ export function MePage() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const activeDevices = state.devices?.filter((device) => !device.revoked_at).length;
-  const deviceLimit = state.entitlements?.entitlements["desktop.device_limit"];
 
   const createHandoff = async (kind: "saved_query" | "instrument", payload: Record<string, string>) => {
     setHandoffError(null);
@@ -203,22 +187,6 @@ export function MePage() {
         </div>
       )}
 
-      <section aria-label="产品状态" className="grid gap-3 sm:grid-cols-2">
-        <StatusCard
-          icon={Cloud}
-          label="当前套餐"
-          value={loading ? "加载中…" : state.entitlements?.plan_code ?? "暂不可用"}
-          detail={state.entitlements?.valid_until ? `有效期至 ${state.entitlements.valid_until.slice(0, 10)}` : "由云端权益统一管理"}
-        />
-        <StatusCard
-          icon={Laptop}
-          label="活跃设备"
-          value={loading ? "加载中…" : activeDevices === undefined ? "暂不可用" : `${activeDevices} / ${typeof deviceLimit === "number" ? deviceLimit : "—"}`}
-          detail="Desktop 通过设备授权连接云账户"
-          to="/account/devices"
-        />
-      </section>
-
       <section className="grid gap-4 lg:grid-cols-3">
         <AssetList icon={BarChart3} title="我的自选" empty="尚未同步云自选。" items={(state.watchlist ?? []).map((item) => ({ key: item.symbol, title: item.name || item.symbol, detail: item.symbol, to: `/stock/${item.symbol}`, handoff: () => createHandoff("instrument", { symbol: item.symbol }) }))} unavailable={state.watchlist === null && !loading} />
         <AssetList icon={RefreshCw} title="保存的查询" empty="尚未保存 Web 查询。" items={(state.queries ?? []).map((item) => ({ key: item.id, title: item.query, detail: `${String(item.result_summary.matches ?? 0)} 个结果`, to: `/query/${encodeURIComponent(item.query)}`, handoff: () => createHandoff("saved_query", { query: item.query, saved_query_id: item.id }) }))} unavailable={state.queries === null && !loading} />
@@ -289,33 +257,6 @@ export function MePage() {
       </p>
     </AccountPage>
   );
-}
-
-function StatusCard({
-  icon: Icon,
-  label,
-  value,
-  detail,
-  to,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  detail: string;
-  to?: string;
-}) {
-  const body = (
-    <div className="rounded-md border bg-card p-4 shadow-sm shadow-black/[0.02]">
-      <div className="flex items-center justify-between gap-3 text-muted-foreground">
-        <span className="text-xs font-medium">{label}</span>
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="mt-3 text-2xl font-semibold tracking-tight">{value}</div>
-      <p className="mt-2 text-xs text-muted-foreground">{detail}</p>
-    </div>
-  );
-
-  return to ? <Link to={to}>{body}</Link> : body;
 }
 
 function AssetList({ icon: Icon, title, items, empty, unavailable }: { icon: ComponentType<{ className?: string }>; title: string; items: Array<{ key: string; title: string; detail: string; to: string; handoff?: () => void }>; empty: string; unavailable: boolean }) {

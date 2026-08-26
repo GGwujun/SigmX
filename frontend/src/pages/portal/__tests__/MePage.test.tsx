@@ -102,31 +102,23 @@ describe("MePage", () => {
     expect(screen.getByRole("link", { name: /打开公开快照/ })).toHaveAttribute("href", "/research/public-report");
   });
 
-  it("shows the existing cloud product status and next actions", async () => {
+  it("keeps plan and device status out of the research overview", async () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "个人中心" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "账户与安全" })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("link", { name: "套餐与权益" })).toHaveAttribute("href", "/account/subscription");
-    expect(screen.getByText("pro_bundle")).toBeInTheDocument();
-    expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    expect(screen.queryByText("当前套餐")).not.toBeInTheDocument();
+    expect(screen.queryByText("pro_bundle")).not.toBeInTheDocument();
+    expect(screen.queryByText("活跃设备")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 / 3")).not.toBeInTheDocument();
     expect(screen.queryByText("AI 研究额度")).not.toBeInTheDocument();
     expect(screen.queryByText("数据调用额度")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /管理账户/ })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("link", { name: /下载 Desktop/ })).toHaveAttribute("href", "/download");
     expect(screen.queryByRole("link", { name: "了解 Desktop" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "了解 Data Hub" })).not.toBeInTheDocument();
-  });
-
-  it("keeps successful product cards visible when one status API fails", async () => {
-    productApi.listDevices.mockRejectedValueOnce(new Error("devices unavailable"));
-
-    renderPage();
-
-    expect(await screen.findByText("部分产品状态暂时不可用")).toBeInTheDocument();
-    expect(screen.getByText("pro_bundle")).toBeInTheDocument();
-    expect(screen.getByText("暂不可用")).toBeInTheDocument();
   });
 
   it("shows personal notifications, marks them read, and updates preferences", async () => {
