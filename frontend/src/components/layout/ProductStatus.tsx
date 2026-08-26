@@ -4,10 +4,10 @@
  * Data is fetched on mount and re-fetched when `refreshKey` changes.
  */
 import { useEffect, useState } from "react";
-import { Coins, Crown, Loader2, Timer } from "lucide-react";
+import { BrainCircuit, Crown, Database, Laptop, Loader2 } from "lucide-react";
 
 import { ApiError } from "@/lib/api";
-import { getMyCredits, getMyEntitlements, getPlans } from "@/lib/productApi";
+import { getMyCredits, getMyEntitlements, getPlans, type PlanEntitlements } from "@/lib/productApi";
 import { cn } from "@/lib/utils";
 
 function shortDate(value?: string | null): string {
@@ -26,6 +26,7 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
   const [validUntil, setValidUntil] = useState<string | null>(null);
   const [available, setAvailable] = useState<number>(0);
   const [expiringSoon, setExpiringSoon] = useState<number>(0);
+  const [entitlements, setEntitlements] = useState<PlanEntitlements>({});
   const [planNames, setPlanNames] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
@@ -39,6 +40,7 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
         if (cancelled) return;
         setPlanCode(ent.plan_code ?? "free");
         setValidUntil(ent.valid_until ?? null);
+        setEntitlements(ent.entitlements ?? {});
         // Guard against a malformed/empty response so the card never crashes.
         setAvailable(Number(credits.available ?? 0));
         setExpiringSoon(Number(credits.expiring_soon ?? 0));
@@ -74,21 +76,27 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
       sub: validUntil ? `有效期至 ${shortDate(validUntil)}` : "永久 / 默认",
     },
     {
-      icon: Coins,
-      label: "可用积分",
+      icon: BrainCircuit,
+      label: "AI 研究可用量",
       value: available.toLocaleString(),
-      sub: "积分",
+      sub: expiringSoon > 0 ? `${expiringSoon.toLocaleString()} 将在 7 日内到期` : "套餐内研究用量",
     },
     {
-      icon: Timer,
-      label: "即将到期",
-      value: expiringSoon.toLocaleString(),
-      sub: expiringSoon > 0 ? "7 日内到期，请尽快使用" : "无近期到期",
+      icon: Database,
+      label: "Data Hub 月度用量",
+      value: Number(entitlements["datahub.monthly_credits"] ?? 0).toLocaleString(),
+      sub: "随当前套餐按月发放",
+    },
+    {
+      icon: Laptop,
+      label: "可授权设备",
+      value: Number(entitlements["desktop.device_limit"] ?? 0).toLocaleString(),
+      sub: "Desktop 设备上限",
     },
   ];
 
   return (
-    <div className={cn("grid gap-3 sm:grid-cols-3", className)}>
+    <div className={cn("grid gap-3 sm:grid-cols-2 xl:grid-cols-4", className)}>
       {cards.map(({ icon: Icon, label, value, sub }) => (
         <div key={label} className="rounded-xl border bg-card p-4">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">

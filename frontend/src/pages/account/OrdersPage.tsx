@@ -85,7 +85,7 @@ export function OrdersPage() {
         </div>
       ) : orders.length === 0 ? (
         <p className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
-          暂无订单。在「套餐与激活」页输入激活码即可生成订单。
+          暂无订单。在「套餐与权益」页输入激活码后，相关记录会显示在这里。
         </p>
       ) : (
         <div className="overflow-hidden rounded-xl border">

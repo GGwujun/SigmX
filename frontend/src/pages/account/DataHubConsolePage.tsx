@@ -6,9 +6,6 @@ import { AccountPage } from "@/components/layout/AccountPage";
 import {
   createDataHubCredential,
   getDataCreditBalance,
-  getDataCreditLedger,
-  getDataCreditLots,
-  getDataCreditPacks,
   getDataHubUsage,
   getDataHubLogs,
   getDataHubBudgetAlerts,
@@ -17,12 +14,8 @@ import {
   listDataHubCredentials,
   revokeDataHubCredential,
   rotateDataHubCredential,
-  redeemDataCreditPack,
   type CreatedDataHubCredential,
   type DataCreditBalance,
-  type DataCreditLedgerEntry,
-  type DataCreditLot,
-  type DataCreditPack,
   type DataHubCredential,
   type DataHubUsage,
   type DataHubRequestLog,
@@ -33,8 +26,6 @@ import {
 export function DataHubConsolePage() {
   const [balance, setBalance] = useState<DataCreditBalance | null>(null);
   const [usage, setUsage] = useState<DataHubUsage | null>(null);
-  const [lots, setLots] = useState<DataCreditLot[]>([]);
-  const [ledger, setLedger] = useState<DataCreditLedgerEntry[]>([]);
   const [credentials, setCredentials] = useState<DataHubCredential[]>([]);
   const [name, setName] = useState("");
   const [scopeText, setScopeText] = useState("");
@@ -48,26 +39,20 @@ export function DataHubConsolePage() {
   const [budgetInputs, setBudgetInputs] = useState<Record<string, string>>({});
   const [budgets, setBudgets] = useState<Record<string, DataHubBudget>>({});
   const [errorsOnly, setErrorsOnly] = useState(false);
-  const [packs, setPacks] = useState<DataCreditPack[]>([]);
-  const [packCode, setPackCode] = useState("");
-  const [redeemingPack, setRedeemingPack] = useState(false);
 
   const reload = useCallback(async () => {
     setError("");
     try {
-      const [nextBalance, nextUsage, nextCredentials, nextLots, nextLedger, nextLogs, nextAlerts, nextBudgets, nextPacks] = await Promise.all([
-        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataCreditLots(), getDataCreditLedger(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(), getDataCreditPacks(),
+      const [nextBalance, nextUsage, nextCredentials, nextLogs, nextAlerts, nextBudgets] = await Promise.all([
+        getDataCreditBalance(), getDataHubUsage(), listDataHubCredentials(), getDataHubLogs(false), getDataHubBudgetAlerts(), getDataHubBudgets(),
       ]);
       setBalance(nextBalance);
       setUsage(nextUsage);
       setCredentials(nextCredentials);
-      setLots(nextLots);
-      setLedger(nextLedger);
       setLogs(nextLogs);
       setAlerts(nextAlerts);
       setBudgets(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, item])));
       setBudgetInputs(Object.fromEntries(nextBudgets.map((item) => [item.credential_id, String(item.daily_limit)])));
-      setPacks(nextPacks);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "加载 Data Hub 控制台失败");
     } finally {
@@ -142,24 +127,12 @@ export function DataHubConsolePage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : "加载日志失败"); }
   };
 
-  const redeemPack = async () => {
-    const code = packCode.trim();
-    if (!code || redeemingPack) return;
-    setRedeemingPack(true); setError("");
-    try {
-      await redeemDataCreditPack(code, `data-pack:${code}`);
-      setPackCode("");
-      await reload();
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "兑换数据积分包失败"); }
-    finally { setRedeemingPack(false); }
-  };
-
   return (
     <AccountPage>
       <header className="flex items-center justify-between">
         <div>
           <h1 className="flex items-center gap-2 text-xl font-bold"><Database className="h-5 w-5 text-primary" />Data Hub</h1>
-          <p className="text-sm text-muted-foreground">当前套餐的数据凭证、接口权限与调用用量</p>
+          <p className="text-sm text-muted-foreground">管理接口凭证、调用预算和请求日志；套餐权益统一在「套餐与权益」查看</p>
         </div>
         <div className="flex items-center gap-2"><Link to="/docs/data-hub/" className="rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted">接口文档与在线调试</Link><button aria-label="刷新" className="rounded-lg border p-2" onClick={() => void reload()}><RefreshCw className="h-4 w-4" /></button></div>
       </header>
@@ -167,23 +140,11 @@ export function DataHubConsolePage() {
       {error && <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{error}</div>}
       {loading ? <p className="text-sm text-muted-foreground">加载中…</p> : (
         <section className="grid gap-4 sm:grid-cols-3">
-          <Metric label="可用数据调用额度" value={(balance?.available ?? 0).toLocaleString()} />
-          <Metric label="7 日内到期" value={(balance?.expiring_soon ?? 0).toLocaleString()} />
-          <Metric label="调用与消耗" value={`${usage?.total_requests ?? 0} 次`} detail={`本期消耗 ${usage?.credits_charged ?? 0} 数据额度`} />
+          <Metric label="本期接口调用" value={`${usage?.total_requests ?? 0} 次`} />
+          <Metric label="本期套餐用量" value={(usage?.credits_charged ?? 0).toLocaleString()} detail={`套餐剩余 ${balance?.available ?? 0}`} />
+          <Metric label="7 日内到期用量" value={(balance?.expiring_soon ?? 0).toLocaleString()} />
         </section>
       )}
-
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">数据调用加量包</h2>
-        <p className="mt-1 text-xs text-muted-foreground">套餐额度不足时可追加，仅扩充 Data Hub 调用量，不产生新的账户积分体系。</p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-3">
-          {packs.map((pack) => <div key={pack.code} className="rounded-lg border p-3"><strong>{pack.name_zh}</strong><div className="mt-1 text-lg font-bold">{pack.credits.toLocaleString()}</div><div className="text-xs text-muted-foreground">¥{(pack.price_cny_fen / 100).toFixed(2)} · {pack.valid_days} 天</div></div>)}
-        </div>
-        <div className="mt-4 flex gap-2">
-          <input aria-label="Data Credit 积分包激活码" value={packCode} onChange={(event) => setPackCode(event.target.value)} placeholder="输入已购买的积分包激活码" className="flex-1 rounded-md border bg-background px-3 py-2 text-sm" />
-          <button onClick={() => void redeemPack()} disabled={!packCode.trim() || redeemingPack} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">{redeemingPack ? "兑换中…" : "兑换积分包"}</button>
-        </div>
-      </section>
 
       <section className="rounded-xl border bg-card p-5">
         <h2 className="flex items-center gap-2 font-semibold"><KeyRound className="h-4 w-4" />创建 Credential</h2>
@@ -194,22 +155,6 @@ export function DataHubConsolePage() {
           <label className="text-sm">到期时间（可选）<input aria-label="到期时间" type="datetime-local" value={expiresAt} onChange={(event) => setExpiresAt(event.target.value)} className="mt-1 w-full rounded-md border bg-background px-3 py-2" /></label>
         </div>
         <button onClick={() => void create()} className="mt-4 rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground">创建 Key</button>
-      </section>
-
-      <section className="rounded-xl border bg-card p-5">
-        <h2 className="font-semibold">数据用量明细</h2>
-        <div className="mt-3 grid gap-4 lg:grid-cols-2">
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">Data Credit 批次</h3>
-            {lots.length === 0 && <p className="text-sm text-muted-foreground">暂无积分批次。</p>}
-            {lots.slice(0, 10).map((lot) => <div key={lot.id} className="rounded border p-3 text-sm"><div>剩余 {lot.amount_remaining.toLocaleString()} / {lot.amount_total.toLocaleString()}</div><div className="text-xs text-muted-foreground">{lot.source} · {lot.expires_at ? `到期 ${new Date(lot.expires_at).toLocaleString()}` : "永久有效"}</div></div>)}
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-sm font-medium">最近变动</h3>
-            {ledger.length === 0 && <p className="text-sm text-muted-foreground">暂无账本记录。</p>}
-            {ledger.slice(0, 10).map((entry) => <div key={entry.id} className="flex items-center justify-between rounded border p-3 text-sm"><div><div>{entry.operation}</div><div className="text-xs text-muted-foreground">{new Date(entry.created_at).toLocaleString()}</div></div><strong className={entry.delta < 0 ? "text-destructive" : "text-emerald-600"}>{entry.delta > 0 ? "+" : ""}{entry.delta.toLocaleString()}</strong></div>)}
-          </div>
-        </div>
       </section>
 
       <section className="rounded-xl border bg-card p-5">

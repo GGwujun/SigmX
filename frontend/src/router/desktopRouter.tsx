@@ -35,7 +35,6 @@ const LoginPage = lazy(() => import("@/pages/auth/LoginPage").then(m => ({ defau
 const MePage = lazy(() => import("@/pages/portal/MePage").then(m => ({ default: m.MePage })));
 const Account = lazy(() => import("@/pages/Account").then(m => ({ default: m.Account })));
 const SubscriptionPage = lazy(() => import("@/pages/account/SubscriptionPage").then(m => ({ default: m.SubscriptionPage })));
-const CreditsPage = lazy(() => import("@/pages/account/CreditsPage").then(m => ({ default: m.CreditsPage })));
 const DevicesPage = lazy(() => import("@/pages/account/DevicesPage").then(m => ({ default: m.DevicesPage })));
 const OrdersPage = lazy(() => import("@/pages/account/OrdersPage").then(m => ({ default: m.OrdersPage })));
 const DataHubConsolePage = lazy(() => import("@/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
@@ -82,7 +81,7 @@ export const desktopRouter = createBrowserRouter([
       { path: "/me", element: wrap(MePage) },
       { path: "/account", element: wrap(Account) },
       { path: "/account/subscription", element: wrap(SubscriptionPage) },
-      { path: "/account/credits", element: wrap(CreditsPage) },
+      { path: "/account/credits", element: <Navigate to="/account/subscription" replace /> },
       { path: "/account/devices", element: wrap(DevicesPage) },
       { path: "/account/orders", element: wrap(OrdersPage) },
       { path: "/account/data-hub", element: wrap(DataHubConsolePage) },

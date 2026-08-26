@@ -130,9 +130,6 @@ const CloudAccountPage = lazy(() =>
 const SubscriptionPage = lazy(() =>
   import("@/pages/account/SubscriptionPage").then((m) => ({ default: m.SubscriptionPage })),
 );
-const CreditsPage = lazy(() =>
-  import("@/pages/account/CreditsPage").then((m) => ({ default: m.CreditsPage })),
-);
 const DevicesPage = lazy(() =>
   import("@/pages/account/DevicesPage").then((m) => ({ default: m.DevicesPage })),
 );
@@ -289,7 +286,7 @@ export const router = createBrowserRouter([
           { path: "/me", element: wrap(MePage) },
           { path: "/account", element: wrap(Account) },
           { path: "/account/subscription", element: wrap(SubscriptionPage) },
-          { path: "/account/credits", element: wrap(CreditsPage) },
+          { path: "/account/credits", element: <Navigate to="/account/subscription" replace /> },
           { path: "/account/devices", element: wrap(DevicesPage) },
           { path: "/account/orders", element: wrap(OrdersPage) },
           { path: "/account/data-hub", element: wrap(DataHubConsolePage) },

@@ -5,7 +5,8 @@
  * desktop side; this page manages already-linked devices.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Laptop, Loader2, RefreshCw, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Laptop, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ApiError } from "@/lib/api";
@@ -68,9 +69,14 @@ export function DevicesPage() {
             已链接 {active.length} / {deviceLimit} 台设备
           </p>
         </div>
-        <button onClick={reload} className="rounded-lg p-2 hover:bg-muted" title="刷新">
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <Link to="/account/devices/authorize" className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground">
+            <Plus className="h-4 w-4" /> 授权新设备
+          </Link>
+          <button onClick={reload} className="rounded-lg p-2 hover:bg-muted" title="刷新">
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </header>
 
       {loading ? (

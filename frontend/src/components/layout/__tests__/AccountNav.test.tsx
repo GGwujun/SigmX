@@ -14,7 +14,9 @@ describe("AccountNav", () => {
 
     expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("href", "/me");
     expect(screen.getByRole("link", { name: "账户与安全" })).toHaveAttribute("href", "/account");
-    expect(screen.getByRole("link", { name: "套餐与激活" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "套餐与权益" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Data Hub" })).toHaveAttribute("href", "/account/data-hub");
+    expect(screen.queryByRole("link", { name: "AI 研究额度" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "设备授权" })).not.toBeInTheDocument();
   });
 });

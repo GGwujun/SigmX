@@ -36,14 +36,12 @@ function ok(body: unknown) {
 afterEach(() => vi.restoreAllMocks());
 
 describe("DataHubConsolePage", () => {
-  it("shows Data Credit balance and metered usage", async () => {
+  it("shows operational usage without duplicating the underlying credit ledger", async () => {
     installFetch();
     render(<MemoryRouter><DataHubConsolePage /></MemoryRouter>);
-    expect(await screen.findByText("1,000")).toBeInTheDocument();
-    expect(screen.getByText(/本期消耗 3 数据额度/)).toBeInTheDocument();
-    expect(screen.getByText("数据用量明细")).toBeInTheDocument();
-    expect(screen.getByText(/剩余 997 \/ 1,000/)).toBeInTheDocument();
-    expect(screen.getByText("-3")).toBeInTheDocument();
+    expect(await screen.findByText("2 次")).toBeInTheDocument();
+    expect(screen.getByText("套餐剩余 1000")).toBeInTheDocument();
+    expect(screen.queryByText("数据用量明细")).not.toBeInTheDocument();
   });
 
   it("creates a key and clears the one-time secret when closed", async () => {
@@ -74,15 +72,11 @@ describe("DataHubConsolePage", () => {
     expect(screen.getByRole("link", { name: "接口文档与在线调试" })).toHaveAttribute("href", "/docs/data-hub/");
   });
 
-  it("shows server-driven Data Credit packs and redeems a prepaid pack code", async () => {
-    const fetchMock = installFetch();
+  it("keeps pack purchase and activation out of the operational console", async () => {
+    installFetch();
     render(<MemoryRouter><DataHubConsolePage /></MemoryRouter>);
-    expect(await screen.findByText("Data Credit 10,000")).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Data Credit 积分包激活码"), { target: { value: "SX-PACK-ABC123" } });
-    fireEvent.click(screen.getByRole("button", { name: "兑换积分包" }));
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-      "/api/data-credits/redeem",
-      expect.objectContaining({ method: "POST", body: JSON.stringify({ code: "SX-PACK-ABC123", idempotency_key: "data-pack:SX-PACK-ABC123" }) }),
-    ));
+    expect(await screen.findByText(/套餐权益统一在/)).toBeInTheDocument();
+    expect(screen.queryByText("Data Credit 10,000")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "兑换积分包" })).not.toBeInTheDocument();
   });
 });

@@ -70,7 +70,7 @@ describe("CloudAccountPage", () => {
     });
   });
 
-  it("lists a linked device", async () => {
+  it("keeps linked-device management on the parent devices page", async () => {
     mockFetchResponses({
       "/api/devices": {
         items: [
@@ -81,7 +81,7 @@ describe("CloudAccountPage", () => {
       "/api/credits/me": { available: 0, expiring_soon: 0 },
     });
     renderPage();
-    expect(await screen.findByText("我的桌面")).toBeInTheDocument();
-    expect(screen.getByText(/已链接设备（1\/1）/)).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: /返回设备管理/ })).toHaveAttribute("href", "/account/devices");
+    expect(screen.queryByText("我的桌面")).not.toBeInTheDocument();
   });
 });

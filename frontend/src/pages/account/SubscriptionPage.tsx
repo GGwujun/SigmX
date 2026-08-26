@@ -55,8 +55,8 @@ export function SubscriptionPage() {
   return (
     <AccountPage>
       <header>
-        <h1 className="text-lg font-bold">套餐与激活</h1>
-        <p className="text-xs text-muted-foreground">查看套餐状态、使用激活码开通或续期</p>
+        <h1 className="text-lg font-bold">套餐与权益</h1>
+        <p className="text-xs text-muted-foreground">统一查看当前套餐、可用权益，并使用激活码开通或续期</p>
       </header>
 
       <ProductStatus refreshKey={refreshKey} />

@@ -9,26 +9,18 @@
  * The desktop *start/poll* side runs through Electron IPC (Task 34, desktop/),
  * not here — the renderer never touches the filesystem.
  */
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { Loader2, ShieldCheck, Laptop, RefreshCw, Monitor } from "lucide-react";
+import { useEffect, useState, type FormEvent } from "react";
+import { ArrowLeft, Loader2, ShieldCheck, Monitor } from "lucide-react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
 import { AccountPage } from "@/components/layout/AccountPage";
-import { ProductStatus } from "@/components/layout/ProductStatus";
 import { useDesktopDeviceFlow } from "@/hooks/useDesktopDeviceFlow";
 import { ApiError } from "@/lib/api";
 import {
   approveDeviceAuthorize,
   getMyEntitlements,
-  listDevices,
-  revokeDevice,
-  type DeviceItem,
 } from "@/lib/productApi";
-
-function shortDateTime(value?: string | null): string {
-  if (!value) return "—";
-  return value.slice(0, 16).replace("T", " ");
-}
 
 export function CloudAccountPage() {
   const [userCode, setUserCode] = useState("");
@@ -42,27 +34,14 @@ export function CloudAccountPage() {
     setRefreshKey((k) => k + 1);
   });
 
-  const [devices, setDevices] = useState<DeviceItem[]>([]);
   const [deviceLimit, setDeviceLimit] = useState(1);
-  const [loading, setLoading] = useState(true);
-  const [revokingId, setRevokingId] = useState<string | null>(null);
-
-  const reload = useCallback(async () => {
-    try {
-      const [devs, ent] = await Promise.all([listDevices(), getMyEntitlements()]);
-      setDevices(devs);
-      const limit = ent.entitlements["desktop.device_limit"];
-      setDeviceLimit(typeof limit === "number" ? limit : 1);
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "加载失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
 
   useEffect(() => {
-    reload();
-  }, [reload, refreshKey]);
+    getMyEntitlements().then((ent) => {
+      const limit = ent.entitlements["desktop.device_limit"];
+      setDeviceLimit(typeof limit === "number" ? limit : 1);
+    }).catch(() => undefined);
+  }, [refreshKey]);
 
   const doApprove = async (e: FormEvent) => {
     e.preventDefault();
@@ -81,35 +60,19 @@ export function CloudAccountPage() {
     }
   };
 
-  const doRevoke = async (deviceId: string, name: string) => {
-    if (revokingId) return;
-    if (!window.confirm(`确认解绑设备「${name}」？`)) return;
-    setRevokingId(deviceId);
-    try {
-      await revokeDevice(deviceId);
-      toast.success("已解绑");
-      setRefreshKey((k) => k + 1);
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "解绑失败");
-    } finally {
-      setRevokingId(null);
-    }
-  };
-
-  const active = devices.filter((d) => !d.revoked_at);
-
   return (
     <AccountPage>
       <header>
         <h1 className="flex items-center gap-2 text-lg font-bold">
-          <ShieldCheck className="h-5 w-5 text-primary" /> 云账户 · 设备授权
+          <ShieldCheck className="h-5 w-5 text-primary" /> 授权新设备
         </h1>
         <p className="text-xs text-muted-foreground">
           在桌面客户端发起授权后，在此处输入显示的用户码完成链接
         </p>
       </header>
-
-      <ProductStatus refreshKey={refreshKey} />
+      <Link to="/account/devices" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> 返回设备管理
+      </Link>
 
       {isDesktop && (
         <section className="rounded-xl border bg-card p-5">
@@ -177,52 +140,6 @@ export function CloudAccountPage() {
         </form>
       </section>
 
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">已链接设备（{active.length}/{deviceLimit}）</h2>
-          <button
-            onClick={() => {
-              setLoading(true);
-              setRefreshKey((k) => k + 1);
-            }}
-            className="rounded-lg p-2 hover:bg-muted"
-            title="刷新"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
-        </div>
-        {loading ? (
-          <div className="flex items-center py-6 text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 加载…
-          </div>
-        ) : active.length === 0 ? (
-          <p className="rounded-xl border bg-card p-5 text-sm text-muted-foreground">
-            暂无已链接设备。
-          </p>
-        ) : (
-          active.map((d) => (
-            <div
-              key={d.id}
-              className="flex items-center justify-between rounded-xl border bg-card p-4"
-            >
-              <div className="flex items-center gap-3">
-                <Laptop className="h-5 w-5 text-muted-foreground" />
-                <div>
-                  <div className="text-sm font-medium">{d.name}</div>
-                  <div className="text-xs text-muted-foreground">链接于 {shortDateTime(d.created_at)}</div>
-                </div>
-              </div>
-              <button
-                onClick={() => doRevoke(d.id, d.name)}
-                disabled={revokingId === d.id}
-                className="inline-flex h-8 items-center rounded-md border border-destructive/30 px-3 text-xs text-destructive hover:bg-destructive/10 disabled:opacity-50"
-              >
-                {revokingId === d.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "解绑"}
-              </button>
-            </div>
-          ))
-        )}
-      </section>
     </AccountPage>
   );
 }

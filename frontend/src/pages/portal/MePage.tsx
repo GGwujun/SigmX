@@ -4,8 +4,6 @@ import {
   BarChart3,
   Bell,
   Cloud,
-  Coins,
-  Database,
   Download,
   Laptop,
   ListChecks,
@@ -17,9 +15,6 @@ import {
 import { AccountPage } from "@/components/layout/AccountPage";
 
 import {
-  getMyCredits,
-  getDataCreditBalance,
-  getDataHubUsage,
   getMyEntitlements,
   listDevices,
   listNotifications,
@@ -31,9 +26,6 @@ import {
   deleteSavedQuerySubscription,
   listCloudTasks,
   listQueryExecutions,
-  type CreditsBalanceResponse,
-  type DataCreditBalance,
-  type DataHubUsage,
   type DeviceItem,
   type EntitlementsResponse,
   type NotificationPreferences,
@@ -46,9 +38,6 @@ import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWat
 
 interface ProductState {
   entitlements: EntitlementsResponse | null;
-  credits: CreditsBalanceResponse | null;
-  dataCredits: DataCreditBalance | null;
-  usage: DataHubUsage | null;
   devices: DeviceItem[] | null;
   queries: CloudSavedQuery[] | null;
   watchlist: CloudWatchlistItem[] | null;
@@ -62,9 +51,6 @@ interface ProductState {
 
 const EMPTY_STATE: ProductState = {
   entitlements: null,
-  credits: null,
-  dataCredits: null,
-  usage: null,
   devices: null,
   queries: null,
   watchlist: null,
@@ -75,10 +61,6 @@ const EMPTY_STATE: ProductState = {
   cloudTasks: null,
   queryExecutions: null,
 };
-
-function formatNumber(value: number): string {
-  return new Intl.NumberFormat("zh-CN").format(value);
-}
 
 export function MePage() {
   const [state, setState] = useState<ProductState>(EMPTY_STATE);
@@ -91,9 +73,6 @@ export function MePage() {
     setLoading(true);
     const results = await Promise.allSettled([
       getMyEntitlements(),
-      getMyCredits(),
-      getDataCreditBalance(),
-      getDataHubUsage(),
       listDevices(),
       cloudResearchApi.listQueries(),
       cloudResearchApi.listWatchlist(),
@@ -107,18 +86,15 @@ export function MePage() {
 
     setState({
       entitlements: results[0].status === "fulfilled" ? results[0].value : null,
-      credits: results[1].status === "fulfilled" ? results[1].value : null,
-      dataCredits: results[2].status === "fulfilled" ? results[2].value : null,
-      usage: results[3].status === "fulfilled" ? results[3].value : null,
-      devices: results[4].status === "fulfilled" ? results[4].value : null,
-      queries: results[5].status === "fulfilled" ? results[5].value : null,
-      watchlist: results[6].status === "fulfilled" ? results[6].value : null,
-      reports: results[7].status === "fulfilled" ? results[7].value : null,
-      notifications: results[8].status === "fulfilled" ? results[8].value : null,
-      notificationPreferences: results[9].status === "fulfilled" ? results[9].value : null,
-      querySubscriptions: results[10].status === "fulfilled" ? results[10].value : null,
-      cloudTasks: results[11].status === "fulfilled" ? results[11].value : null,
-      queryExecutions: results[12].status === "fulfilled" ? results[12].value : null,
+      devices: results[1].status === "fulfilled" ? results[1].value : null,
+      queries: results[2].status === "fulfilled" ? results[2].value : null,
+      watchlist: results[3].status === "fulfilled" ? results[3].value : null,
+      reports: results[4].status === "fulfilled" ? results[4].value : null,
+      notifications: results[5].status === "fulfilled" ? results[5].value : null,
+      notificationPreferences: results[6].status === "fulfilled" ? results[6].value : null,
+      querySubscriptions: results[7].status === "fulfilled" ? results[7].value : null,
+      cloudTasks: results[8].status === "fulfilled" ? results[8].value : null,
+      queryExecutions: results[9].status === "fulfilled" ? results[9].value : null,
     });
     setHasError(results.some((result) => result.status === "rejected"));
     setLoading(false);
@@ -227,25 +203,12 @@ export function MePage() {
         </div>
       )}
 
-      <section aria-label="产品状态" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="产品状态" className="grid gap-3 sm:grid-cols-2">
         <StatusCard
           icon={Cloud}
           label="当前套餐"
           value={loading ? "加载中…" : state.entitlements?.plan_code ?? "暂不可用"}
           detail={state.entitlements?.valid_until ? `有效期至 ${state.entitlements.valid_until.slice(0, 10)}` : "由云端权益统一管理"}
-        />
-        <StatusCard
-          icon={Coins}
-          label="AI 研究额度"
-          value={loading ? "加载中…" : state.credits ? formatNumber(state.credits.available) : "暂不可用"}
-          detail={state.credits ? `${formatNumber(state.credits.expiring_soon)} 额度即将到期` : "当前套餐包含的 AI 研究用量"}
-        />
-        <StatusCard
-          icon={Database}
-          label="数据调用额度"
-          value={loading ? "加载中…" : state.dataCredits ? formatNumber(state.dataCredits.available) : "暂不可用"}
-          detail={state.usage ? `${formatNumber(state.usage.total_requests)} 次调用，本期消耗 ${formatNumber(state.usage.credits_charged)}` : "当前套餐包含的 Data Hub 用量"}
-          to="/account/data-hub"
         />
         <StatusCard
           icon={Laptop}
@@ -265,10 +228,10 @@ export function MePage() {
       <section className="grid gap-4 lg:grid-cols-2">
         <div className="rounded-md border bg-card p-4">
           <div className="flex items-center gap-2"><ListChecks className="h-4 w-4 text-primary" /><h2 className="text-sm font-semibold">云任务</h2></div>
-          <p className="mt-1 text-xs text-muted-foreground">展示权威任务状态以及 Research Credit 预占和结算结果。</p>
+          <p className="mt-1 text-xs text-muted-foreground">展示研究任务状态以及套餐用量的预占和结算结果。</p>
           <div className="mt-3 divide-y">
             {state.cloudTasks?.length === 0 && <p className="py-3 text-xs text-muted-foreground">暂无云任务。</p>}
-            {(state.cloudTasks ?? []).slice(0, 8).map((task) => <div key={task.id} className="py-3"><div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{task.title}</span><span className={`rounded border px-2 py-0.5 text-[11px] ${task.status === "failed" ? "text-destructive" : task.status === "succeeded" ? "text-success" : "text-primary"}`}>{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" } as const)[task.status]}</span></div><p className="mt-1 text-xs text-muted-foreground">{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" } as const)[task.status]} · 预占 {task.reserved_credits} Research Credit</p>{task.error && <p className="mt-1 text-xs text-destructive">{task.error}</p>}</div>)}
+            {(state.cloudTasks ?? []).slice(0, 8).map((task) => <div key={task.id} className="py-3"><div className="flex items-center justify-between gap-3"><span className="text-sm font-medium">{task.title}</span><span className={`rounded border px-2 py-0.5 text-[11px] ${task.status === "failed" ? "text-destructive" : task.status === "succeeded" ? "text-success" : "text-primary"}`}>{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" } as const)[task.status]}</span></div><p className="mt-1 text-xs text-muted-foreground">{({ queued: "排队中", running: "运行中", succeeded: "已完成", failed: "失败", cancelled: "已取消" } as const)[task.status]} · 预占套餐用量 {task.reserved_credits}</p>{task.error && <p className="mt-1 text-xs text-destructive">{task.error}</p>}</div>)}
           </div>
         </div>
         <div className="rounded-md border bg-card p-4">

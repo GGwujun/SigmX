@@ -108,12 +108,11 @@ describe("MePage", () => {
     expect(await screen.findByRole("heading", { name: "个人中心" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "账户与安全" })).toHaveAttribute("href", "/account");
-    expect(screen.getByRole("link", { name: "套餐与激活" })).toHaveAttribute("href", "/account/subscription");
+    expect(screen.getByRole("link", { name: "套餐与权益" })).toHaveAttribute("href", "/account/subscription");
     expect(screen.getByText("pro_bundle")).toBeInTheDocument();
-    expect(screen.getByText("900")).toBeInTheDocument();
-    expect(screen.getByText("149,880")).toBeInTheDocument();
-    expect(screen.getByText(/120 次调用，已扣 120/)).toBeInTheDocument();
     expect(screen.getByText("1 / 3")).toBeInTheDocument();
+    expect(screen.queryByText("AI 研究额度")).not.toBeInTheDocument();
+    expect(screen.queryByText("数据调用额度")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /管理账户/ })).toHaveAttribute("href", "/account");
     expect(screen.getByRole("link", { name: /下载 Desktop/ })).toHaveAttribute("href", "/download");
     expect(screen.queryByRole("link", { name: "了解 Desktop" })).not.toBeInTheDocument();
@@ -121,14 +120,13 @@ describe("MePage", () => {
   });
 
   it("keeps successful product cards visible when one status API fails", async () => {
-    productApi.getDataHubUsage.mockRejectedValueOnce(new Error("usage unavailable"));
+    productApi.listDevices.mockRejectedValueOnce(new Error("devices unavailable"));
 
     renderPage();
 
     expect(await screen.findByText("部分产品状态暂时不可用")).toBeInTheDocument();
     expect(screen.getByText("pro_bundle")).toBeInTheDocument();
-    expect(screen.getByText("900")).toBeInTheDocument();
-    expect(screen.getByText("149,880")).toBeInTheDocument();
+    expect(screen.getByText("暂不可用")).toBeInTheDocument();
   });
 
   it("shows personal notifications, marks them read, and updates preferences", async () => {
@@ -153,7 +151,7 @@ describe("MePage", () => {
 
     expect(await screen.findByRole("heading", { name: "云任务" })).toBeInTheDocument();
     expect(screen.getByText("研究贵州茅台")).toBeInTheDocument();
-    expect(screen.getByText("运行中 · 预占 10 Research Credit")).toBeInTheDocument();
+    expect(screen.getByText("运行中 · 预占套餐用量 10")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "查询历史" })).toBeInTheDocument();
     expect(screen.getByText("条件版本 v2 · 18 个结果")).toBeInTheDocument();
   });
