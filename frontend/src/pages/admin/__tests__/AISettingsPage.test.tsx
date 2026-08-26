@@ -22,4 +22,12 @@ describe("AISettingsPage", () => {
     expect(screen.getByText("SigmX Data Hub")).toBeInTheDocument();
     expect(screen.getByText("本地市场库")).toBeInTheDocument();
   });
+
+  it("leaves loading state and shows an actionable error when an API fails", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(new Response(JSON.stringify({ detail: "登录已过期" }), { status: 401 }))));
+    render(<AISettingsPage/>);
+    expect(await screen.findByText("登录已过期")).toBeInTheDocument();
+    expect(screen.queryByText("正在加载平台配置…")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
+  });
 });
