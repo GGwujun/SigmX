@@ -89,15 +89,15 @@ DESKTOP_PRO: PlanSeed = {
     "sort_order": 2,
 }
 
-# Data Developer: an independent API product that does not unlock Desktop.
+# Data Pro: Desktop Pro plus expanded standard market and finance APIs.
 DATA_DEVELOPER: PlanSeed = {
     "code": "data_developer",
-    "name_zh": "Data Developer",
-    "price_cny_fen": 19800,
+    "name_zh": "Data Pro",
+    "price_cny_fen": 39800,
     "billing_period": "quarter",
-    "monthly_credits": 0,
+    "monthly_credits": 700,
     "welcome_credits": 0,
-    "description": "面向个人量化开发者的标准数据接口与额度",
+    "description": "完整个人投研能力，增加标准行情与财务数据接口",
     "entitlements": {
         "datahub.enabled": True,
         "datahub.dataset_groups": ["basic.v1", "market.v1", "finance.v1"],
@@ -107,11 +107,13 @@ DATA_DEVELOPER: PlanSeed = {
         "datahub.max_rows_per_request": 50_000,
         "datahub.history_depth_days": 3_650,
         "datahub.commercial_use": False,
-        "desktop.connected_mode": False,
-        "desktop.device_limit": 0,
-        "cloud_ai.enabled": False,
-        "cloud_ai.concurrent_jobs": 0,
-        "reports.cloud_history": False,
+        "desktop.connected_mode": True,
+        "desktop.device_limit": 2,
+        "cloud_ai.enabled": True,
+        "cloud_ai.concurrent_jobs": 3,
+        "cloud_ai.credit_per_alphaforge": 50,
+        "cloud_ai.credit_per_fund_arb": 20,
+        "reports.cloud_history": True,
     },
     "sort_order": 3,
 }
@@ -146,6 +148,32 @@ PRO_BUNDLE: PlanSeed = {
 }
 
 DEFAULT_CATALOG: list[PlanSeed] = [FREE, DESKTOP_PRO, DATA_DEVELOPER, PRO_BUNDLE]
+
+
+def validate_progressive_catalog(plans: list[PlanSeed]) -> None:
+    """Reject personal-plan regressions before they reach the catalog API."""
+    boolean_keys = ("datahub.enabled", "desktop.connected_mode", "cloud_ai.enabled", "reports.cloud_history")
+    numeric_keys = (
+        "datahub.monthly_credits", "datahub.rate_limit_per_minute", "datahub.concurrent_limit",
+        "datahub.max_rows_per_request", "datahub.history_depth_days", "desktop.device_limit",
+        "cloud_ai.concurrent_jobs",
+    )
+    for lower, upper in zip(plans, plans[1:]):
+        for key in boolean_keys:
+            if bool(lower["entitlements"].get(key)) and not bool(upper["entitlements"].get(key)):
+                raise ValueError(f"{upper['code']} regresses entitlement {key}")
+        lower_groups = set(lower["entitlements"].get("datahub.dataset_groups", []))
+        upper_groups = set(upper["entitlements"].get("datahub.dataset_groups", []))
+        if not lower_groups <= upper_groups:
+            raise ValueError(f"{upper['code']} regresses entitlement datahub.dataset_groups")
+        for key in numeric_keys:
+            if int(upper["entitlements"].get(key, 0)) < int(lower["entitlements"].get(key, 0)):
+                raise ValueError(f"{upper['code']} regresses entitlement {key}")
+        if upper["monthly_credits"] < lower["monthly_credits"]:
+            raise ValueError(f"{upper['code']} regresses monthly_credits")
+
+
+validate_progressive_catalog(DEFAULT_CATALOG)
 
 
 def to_seed_row(seed: PlanSeed) -> tuple:

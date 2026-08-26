@@ -146,6 +146,7 @@ class ProductStore:
             self._ensure_catalog_contract_columns(conn)
             self._ensure_datahub_credential_columns(conn)
             self._seed_catalog(conn)
+            self._migrate_progressive_catalog(conn)
             self._seed_data_credit_packs(conn)
             self._seed_datahub_endpoint_catalog(conn)
             self._migrate_v2_datahub_entitlements(conn)
@@ -750,6 +751,31 @@ class ProductStore:
                 )
                 for pack in DATA_CREDIT_PACKS
             ],
+        )
+
+    @staticmethod
+    def _migrate_progressive_catalog(conn: sqlite3.Connection) -> None:
+        """Upgrade only the former official Data Developer row to Data Pro."""
+        row = conn.execute(
+            "SELECT name_zh,price_cny_fen,entitlements_json FROM plans WHERE code='data_developer'"
+        ).fetchone()
+        if row is None:
+            return
+        entitlements = json.loads(row["entitlements_json"])
+        old_official = (
+            row["name_zh"] == "Data Developer"
+            or row["price_cny_fen"] == 19_800
+            or (
+                not entitlements.get("desktop.connected_mode", False)
+                and not entitlements.get("cloud_ai.enabled", False)
+            )
+        )
+        if not old_official:
+            return
+        seed = next(item for item in DEFAULT_CATALOG if item["code"] == "data_developer")
+        conn.execute(
+            "UPDATE plans SET name_zh=?,price_cny_fen=?,billing_period=?,monthly_credits=?,welcome_credits=?,description=?,entitlements_json=?,sort_order=? WHERE code=?",
+            (*to_seed_row(seed)[1:], seed["code"]),
         )
 
     @staticmethod

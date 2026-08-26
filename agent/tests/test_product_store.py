@@ -27,17 +27,33 @@ def test_catalog_is_seeded_and_server_driven(tmp_path: Path) -> None:
     # Prices come from the server catalog, not from frontend hard-coding.
     assert plans["free"]["price_cny_fen"] == 0
     assert plans["desktop_pro"]["price_cny_fen"] == 26800
-    assert plans["data_developer"]["price_cny_fen"] == 19800
+    assert plans["data_developer"]["name_zh"] == "Data Pro"
+    assert plans["data_developer"]["price_cny_fen"] == 39800
     assert plans["pro_bundle"]["price_cny_fen"] == 51800
 
     assert plans["free"]["entitlements"]["datahub.monthly_credits"] == 1_000
     assert plans["desktop_pro"]["entitlements"]["datahub.dataset_groups"] == ["basic.v1"]
-    assert plans["data_developer"]["entitlements"]["desktop.connected_mode"] is False
+    assert plans["data_developer"]["monthly_credits"] == 700
+    assert plans["data_developer"]["entitlements"]["desktop.connected_mode"] is True
+    assert plans["data_developer"]["entitlements"]["desktop.device_limit"] == 2
+    assert plans["data_developer"]["entitlements"]["cloud_ai.enabled"] is True
     assert plans["data_developer"]["entitlements"]["datahub.monthly_credits"] == 100_000
     assert plans["pro_bundle"]["entitlements"]["datahub.monthly_credits"] == 150_000
     for plan in plans.values():
         assert OLD_DATAHUB_KEYS.isdisjoint(plan["entitlements"])
     assert plans["pro_bundle"]["entitlements"]["desktop.device_limit"] == 3
+
+
+def test_personal_plan_entitlements_are_strictly_progressive(tmp_path: Path) -> None:
+    plans = ProductStore(tmp_path / "product.db").list_plans()
+    boolean_keys = ["datahub.enabled", "desktop.connected_mode", "cloud_ai.enabled", "reports.cloud_history"]
+    numeric_keys = ["datahub.monthly_credits", "datahub.rate_limit_per_minute", "datahub.concurrent_limit", "datahub.max_rows_per_request", "datahub.history_depth_days", "desktop.device_limit", "cloud_ai.concurrent_jobs"]
+    for lower, upper in zip(plans, plans[1:]):
+        for key in boolean_keys:
+            assert not lower["entitlements"][key] or upper["entitlements"][key], (upper["code"], key)
+        assert set(lower["entitlements"]["datahub.dataset_groups"]) <= set(upper["entitlements"]["datahub.dataset_groups"])
+        for key in numeric_keys:
+            assert upper["entitlements"][key] >= lower["entitlements"][key], (upper["code"], key)
 
 
 def test_enterprise_plan_is_removed_from_personal_catalog(tmp_path: Path) -> None:
@@ -116,6 +132,30 @@ def test_migration_is_idempotent_when_reopened(tmp_path: Path) -> None:
     desktop = second.get_plan("desktop_pro")
     assert desktop is not None
     assert desktop["price_cny_fen"] == 26800
+
+
+def test_old_official_data_developer_row_migrates_to_data_pro(tmp_path: Path) -> None:
+    db_path = tmp_path / "product.db"
+    first = ProductStore(db_path)
+    conn = first._get_conn()
+    old = first.get_plan("data_developer")
+    assert old is not None
+    old_entitlements = dict(old["entitlements"])
+    old_entitlements.update({"desktop.connected_mode": False, "desktop.device_limit": 0, "cloud_ai.enabled": False, "cloud_ai.concurrent_jobs": 0})
+    conn.execute(
+        "UPDATE plans SET name_zh='Data Developer',price_cny_fen=19800,monthly_credits=0,entitlements_json=? WHERE code='data_developer'",
+        (__import__("json").dumps(old_entitlements),),
+    )
+    conn.commit()
+    conn.close()
+    first._conn = None
+
+    migrated = ProductStore(db_path).get_plan("data_developer")
+    assert migrated is not None
+    assert migrated["name_zh"] == "Data Pro"
+    assert migrated["price_cny_fen"] == 39800
+    assert migrated["entitlements"]["desktop.device_limit"] == 2
+    assert migrated["entitlements"]["cloud_ai.enabled"] is True
 
 
 def test_transaction_commits_atomically(tmp_path: Path) -> None:

@@ -103,7 +103,7 @@ def test_device_limit_blocks_extra_device(env: Env) -> None:
         env.devices.approve(user_id="u1", user_code=started.user_code)
 
 
-def test_data_developer_does_not_unlock_desktop(env: Env) -> None:
+def test_data_pro_unlocks_two_desktop_devices(env: Env) -> None:
     env.store._get_conn().execute(
         "INSERT INTO entitlement_grants "
         "(id, user_id, plan_code, order_id, valid_from, valid_until, source, created_at) "
@@ -111,7 +111,9 @@ def test_data_developer_does_not_unlock_desktop(env: Env) -> None:
         ("grant-data", "u-data", env.clock.iso(), env.clock.iso()),
     )
     env.store._get_conn().commit()
-    started = env.devices.start(device_name="desktop-a", fingerprint_hash="fp-data")
+    authorize(env, "u-data", "desktop-a")
+    authorize(env, "u-data", "desktop-b")
+    started = env.devices.start(device_name="desktop-c", fingerprint_hash="fp-data-3")
     with pytest.raises(DeviceLimitReached):
         env.devices.approve(user_id="u-data", user_code=started.user_code)
 
