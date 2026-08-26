@@ -49,6 +49,31 @@ class SourceInput(BaseModel):
     markets: list[str] = Field(default_factory=list)
 
 
+class PlatformSettingsInput(BaseModel):
+    provider: str
+    model_name: str
+    base_url: str
+    temperature: float = Field(default=0.2, ge=0, le=2)
+    timeout_seconds: int = Field(default=90, ge=5, le=900)
+    max_retries: int = Field(default=2, ge=0, le=5)
+    reasoning_effort: str = ""
+
+
+class SourceCredentialsInput(BaseModel):
+    tushare_token: str | None = None
+    clear_tushare_token: bool = False
+    tpdog_token: str | None = None
+    clear_tpdog_token: bool = False
+
+
+PROVIDER_PRESETS = [
+    {"code": "openai", "name": "OpenAI", "default_model": "gpt-5.2", "default_base_url": "https://api.openai.com/v1", "api_key_required": True},
+    {"code": "deepseek", "name": "DeepSeek", "default_model": "deepseek-chat", "default_base_url": "https://api.deepseek.com/v1", "api_key_required": True},
+    {"code": "qwen", "name": "阿里云百炼", "default_model": "qwen-max", "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key_required": True},
+    {"code": "openrouter", "name": "OpenRouter", "default_model": "deepseek/deepseek-v3.2", "default_base_url": "https://openrouter.ai/api/v1", "api_key_required": True},
+]
+
+
 router = APIRouter(
     prefix="/api/admin/ai",
     tags=["admin-ai"],
@@ -98,6 +123,53 @@ def save_strategy(body: StrategyInput, admin: dict = Depends(require_admin)) -> 
 def get_strategy(admin: dict = Depends(require_admin)) -> dict:
     del admin
     return _get_service().get_strategy() or {}
+
+
+@router.get("/settings")
+def get_platform_settings(admin: dict = Depends(require_admin)) -> dict:
+    del admin
+    value = _get_service().get_platform_settings()
+    if not value["provider"]:
+        default = PROVIDER_PRESETS[0]
+        value.update(provider=default["code"], model_name=default["default_model"], base_url=default["default_base_url"])
+    value["providers"] = PROVIDER_PRESETS
+    return value
+
+
+@router.put("/settings")
+def save_platform_settings(body: PlatformSettingsInput, admin: dict = Depends(require_admin)) -> dict:
+    service = _get_service()
+    try:
+        try:
+            service.get_provider(body.provider)
+        except KeyError:
+            preset = next((item for item in PROVIDER_PRESETS if item["code"] == body.provider), None)
+            if preset is None:
+                raise ValueError("unknown provider")
+            service.save_provider(code=body.provider, name=preset["name"], base_url=body.base_url,
+                                  api_key=None, models=[body.model_name], enabled=True, actor=_actor(admin))
+        result = service.save_platform_settings(actor=_actor(admin), **body.model_dump())
+        result["providers"] = PROVIDER_PRESETS
+        return result
+    except (ValueError, AIConfigurationError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/source-credentials")
+def get_source_credentials(admin: dict = Depends(require_admin)) -> dict:
+    del admin
+    service = _get_service()
+    return {"tushare_token_configured": service.source_secret_configured("tushare"),
+            "tpdog_token_configured": service.source_secret_configured("tpdog")}
+
+
+@router.put("/source-credentials")
+def save_source_credentials(body: SourceCredentialsInput, admin: dict = Depends(require_admin)) -> dict:
+    service = _get_service()
+    actor = _actor(admin)
+    service.save_source_secret("tushare", body.tushare_token, clear=body.clear_tushare_token, actor=actor)
+    service.save_source_secret("tpdog", body.tpdog_token, clear=body.clear_tpdog_token, actor=actor)
+    return get_source_credentials(admin=admin)
 
 
 @router.get("/sources")

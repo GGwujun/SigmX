@@ -7,42 +7,34 @@ const ok = (body: unknown) => Promise.resolve(new Response(JSON.stringify(body),
 describe("AISettingsPage", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
-    if (url.endsWith("/providers")) return ok([{ code: "openai", name: "OpenAI", base_url: "https://api.openai.com/v1", models: ["gpt-5.2"], enabled: true, configured: true, api_key_masked: "sk-***" }]);
-    if (url.endsWith("/sources")) return ok([{ code: "data_hub", enabled: true, priority: 0, markets: ["A股"] }]);
+    if (url.endsWith("/settings")) return ok({ provider: "openai", model_name: "gpt-5.2", base_url: "https://api.openai.com/v1", api_key_configured: true, temperature: .2, timeout_seconds: 90, max_retries: 2, reasoning_effort: "high", providers: [{ code: "openai", name: "OpenAI", default_model: "gpt-5.2", default_base_url: "https://api.openai.com/v1", api_key_required: true }] });
+    if (url.endsWith("/source-credentials")) return ok({ tushare_token_configured: false, tpdog_token_configured: false });
     if (url.endsWith("/health")) return ok({ configured: false, detail: "AI model strategy is not configured" });
     return ok({ planning_provider: "openai", planning_model: "gpt-5.2", execution_provider: "openai", execution_model: "gpt-5.2", summary_provider: "openai", summary_model: "gpt-5.2", temperature: .2, max_tokens: 8000, timeout_seconds: 90, max_retries: 2 });
   })));
 
-  it("presents the same four administrator tasks as the established client settings", async () => {
+  it("presents one coherent platform model and data-source form", async () => {
     render(<AISettingsPage/>);
     expect((await screen.findAllByText("OpenAI")).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: /模型配置/ })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /生成参数/ }));
-    expect(screen.getByText("智能体默认模型")).toBeInTheDocument();
+    expect(screen.getByText("平台模型")).toBeInTheDocument();
+    expect(screen.getByText("生成参数")).toBeInTheDocument();
+    expect(screen.getByText("数据源凭据")).toBeInTheDocument();
     expect(screen.queryByText("问题规划")).not.toBeInTheDocument();
     expect(screen.queryByText("智能体执行")).not.toBeInTheDocument();
     expect(screen.queryByText("报告总结")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /数据源配置/ }));
-    expect(screen.getByText("SigmX Data Hub")).toBeInTheDocument();
-    expect(screen.getByText("本地市场库")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /运行检查/ }));
-    expect(screen.getByText("平台 AI 运行状态")).toBeInTheDocument();
-    expect(screen.getByText("尚未配置默认模型，请先在“生成参数”中保存模型。")).toBeInTheDocument();
+    expect(screen.getByLabelText("推理强度")).toHaveValue("high");
   });
 
   it("applies one administrator-selected model to the whole Web research runtime", async () => {
     const fetchMock = vi.mocked(fetch);
     render(<AISettingsPage/>);
     await screen.findAllByText("OpenAI");
-    fireEvent.click(screen.getByRole("button", { name: /生成参数/ }));
-    fireEvent.click(screen.getByRole("button", { name: "保存生成参数" }));
-    const strategyCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/strategy") && init?.method === "PUT");
+    fireEvent.click(screen.getByRole("button", { name: "保存平台 AI 配置" }));
+    const strategyCall = fetchMock.mock.calls.find(([input, init]) => String(input).endsWith("/settings") && init?.method === "PUT");
     expect(strategyCall).toBeTruthy();
     const payload = JSON.parse(String(strategyCall?.[1]?.body));
     expect(payload).toMatchObject({
-      planning_provider: "openai", planning_model: "gpt-5.2",
-      execution_provider: "openai", execution_model: "gpt-5.2",
-      summary_provider: "openai", summary_model: "gpt-5.2",
+      provider: "openai", model_name: "gpt-5.2", reasoning_effort: "high",
     });
   });
 

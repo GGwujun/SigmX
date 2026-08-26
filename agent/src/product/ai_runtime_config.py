@@ -155,6 +155,29 @@ class AIRuntimeConfigService:
             raise AIConfigurationError(f"provider {code} has no API key")
         return self._decrypt(row[0])
 
+    def save_source_secret(self, code: str, secret: str | None, *, clear: bool, actor: str) -> None:
+        normalized = code.strip().lower()
+        with self.store.transaction() as conn:
+            if clear:
+                conn.execute("DELETE FROM ai_source_credentials WHERE code=?", (normalized,))
+            elif secret and secret.strip():
+                encrypted = self._fernet.encrypt(secret.strip().encode("utf-8")).decode("ascii")
+                conn.execute(
+                    "INSERT INTO ai_source_credentials(code,secret_ciphertext,updated_at) VALUES(?,?,?) "
+                    "ON CONFLICT(code) DO UPDATE SET secret_ciphertext=excluded.secret_ciphertext,updated_at=excluded.updated_at",
+                    (normalized, encrypted, _now()),
+                )
+            self._audit(conn, actor, "ai.source.secret.save", normalized, {"configured": bool(secret and secret.strip()) and not clear, "cleared": clear})
+
+    def source_secret_configured(self, code: str) -> bool:
+        return self.store._get_conn().execute("SELECT 1 FROM ai_source_credentials WHERE code=?", (code,)).fetchone() is not None
+
+    def reveal_source_secret(self, code: str) -> str:
+        row = self.store._get_conn().execute("SELECT secret_ciphertext FROM ai_source_credentials WHERE code=?", (code,)).fetchone()
+        if row is None:
+            raise AIConfigurationError(f"data source {code} has no credential")
+        return self._decrypt(row[0])
+
     def _decrypt(self, ciphertext: str) -> str:
         try:
             return self._fernet.decrypt(ciphertext.encode("ascii")).decode("utf-8")
@@ -174,6 +197,29 @@ class AIRuntimeConfigService:
                 (*payload, now),
             )
             self._audit(conn, actor, "ai.strategy.save", "default", {key: values[key] for key in columns})
+
+    def save_platform_settings(self, *, provider: str, model_name: str, base_url: str, temperature: float,
+                               timeout_seconds: int, max_retries: int, reasoning_effort: str, actor: str) -> dict:
+        current = self.get_provider(provider)
+        self.save_provider(code=provider, name=current.name, base_url=base_url, api_key=None,
+                           models=list(dict.fromkeys([model_name, *current.models])), enabled=True, actor=actor)
+        self.save_strategy(actor=actor, planning_provider=provider, planning_model=model_name,
+                           execution_provider=provider, execution_model=model_name,
+                           summary_provider=provider, summary_model=model_name, temperature=temperature,
+                           max_tokens=8000, timeout_seconds=timeout_seconds, max_retries=max_retries)
+        with self.store.transaction() as conn:
+            conn.execute("INSERT OR REPLACE INTO ai_platform_settings(id,reasoning_effort,updated_at) VALUES(1,?,?)", (reasoning_effort, _now()))
+        return self.get_platform_settings()
+
+    def get_platform_settings(self) -> dict:
+        strategy = self.get_strategy() or {}
+        effort = self.store._get_conn().execute("SELECT reasoning_effort FROM ai_platform_settings WHERE id=1").fetchone()
+        provider_code = strategy.get("execution_provider", "")
+        provider = self.get_provider(provider_code) if provider_code else None
+        return {"provider": provider_code, "model_name": strategy.get("execution_model", ""),
+                "base_url": provider.base_url if provider else "", "api_key_configured": provider.configured if provider else False,
+                "temperature": float(strategy.get("temperature", 0.2)), "timeout_seconds": int(strategy.get("timeout_seconds", 90)),
+                "max_retries": int(strategy.get("max_retries", 2)), "reasoning_effort": effort[0] if effort else ""}
 
     def get_strategy(self) -> dict | None:
         row = self.store._get_conn().execute("SELECT * FROM ai_model_strategy WHERE id=1").fetchone()
