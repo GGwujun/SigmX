@@ -77,9 +77,10 @@ def test_catalog_endpoint_serializes_personal_plans_only() -> None:
     codes = {p.code for p in result.plans}
     assert codes == {"free", "desktop_pro", "data_developer", "pro_bundle"}
     developer = next(p for p in result.plans if p.code == "data_developer")
-    assert developer.price_cny_fen == 19800
+    assert developer.name_zh == "Data Pro"
+    assert developer.price_cny_fen == 39800
     assert developer.entitlements["datahub.monthly_credits"] == 100_000
-    assert developer.entitlements["desktop.connected_mode"] is False
+    assert developer.entitlements["desktop.connected_mode"] is True
 
 
 def test_my_entitlements_defaults_to_free_for_ungranted_user() -> None:

@@ -28,6 +28,7 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
   const [expiringSoon, setExpiringSoon] = useState<number>(0);
   const [entitlements, setEntitlements] = useState<PlanEntitlements>({});
   const [planNames, setPlanNames] = useState<Record<string, string>>({});
+  const [planOrder, setPlanOrder] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -44,7 +45,9 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
         // Guard against a malformed/empty response so the card never crashes.
         setAvailable(Number(credits.available ?? 0));
         setExpiringSoon(Number(credits.expiring_soon ?? 0));
-        setPlanNames(Object.fromEntries(plans.map((plan) => [plan.code, plan.name_zh])));
+        const orderedPlans = [...plans].sort((a, b) => a.sort_order - b.sort_order);
+        setPlanNames(Object.fromEntries(orderedPlans.map((plan) => [plan.code, plan.name_zh])));
+        setPlanOrder(orderedPlans.map((plan) => plan.code));
       } catch (e) {
         // Non-fatal: the summary just stays at defaults. The owning page surfaces
         // its own errors for the actions that matter.
@@ -94,19 +97,30 @@ export function ProductStatus({ refreshKey = 0, className }: ProductStatusProps)
       sub: "Desktop 设备上限",
     },
   ];
+  const planIndex = planOrder.indexOf(planCode);
+  const datasetGroups = entitlements["datahub.dataset_groups"];
+  const datasets = Array.isArray(datasetGroups) ? datasetGroups.map(String) : [];
+  const historyDays = Number(entitlements["datahub.history_depth_days"] ?? 0);
 
   return (
-    <div className={cn("grid gap-3 sm:grid-cols-2 xl:grid-cols-4", className)}>
-      {cards.map(({ icon: Icon, label, value, sub }) => (
-        <div key={label} className="rounded-xl border bg-card p-4">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Icon className="h-3.5 w-3.5" />
-            {label}
+    <div className={cn("space-y-3", className)}>
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {cards.map(({ icon: Icon, label, value, sub }) => (
+          <div key={label} className="rounded-xl border bg-card p-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Icon className="h-3.5 w-3.5" />
+              {label}
+            </div>
+            <div className="mt-1 text-xl font-bold">{value}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
           </div>
-          <div className="mt-1 text-xl font-bold">{value}</div>
-          <div className="mt-0.5 text-xs text-muted-foreground">{sub}</div>
-        </div>
-      ))}
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 rounded-xl border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+        {planIndex >= 0 && <span className="font-medium text-foreground">第 {planIndex + 1}/{planOrder.length} 档</span>}
+        {datasets.length > 0 && <span>可用数据集：{datasets.join(" · ")}</span>}
+        {historyDays > 0 && <span>历史数据：{historyDays.toLocaleString()} 天</span>}
+      </div>
     </div>
   );
 }
