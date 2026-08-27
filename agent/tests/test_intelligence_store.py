@@ -94,3 +94,22 @@ def test_events_can_be_filtered_and_ordered_by_importance(tmp_path) -> None:
     assert [item.event.title for item in all_events.items] == ["高影响", "低影响"]
     assert filtered.total == 1
     assert filtered.items[0].event.title == "低影响"
+
+
+def test_prune_removes_expired_articles_but_preserves_event_evidence(tmp_path) -> None:
+    store = IntelligenceStore(tmp_path / "intel.db")
+    protected = store.upsert_articles([article(upstream_id="protected")]).items[0]
+    store.upsert_articles([article(upstream_id="expired")])
+    event = GlobalEvent(
+        title="受保护事件", summary="保留证据", event_type="macro_policy", status="active",
+        importance=.8, confidence=.9,
+        first_seen_at=datetime(2026, 8, 27, 2, 0, tzinfo=timezone.utc),
+        updated_at=datetime(2026, 8, 27, 2, 2, tzinfo=timezone.utc),
+    )
+    store.upsert_event(event, [EventEvidence(article_id=protected.id)])
+
+    deleted = store.prune_articles(before=datetime(2026, 8, 28, tzinfo=timezone.utc))
+
+    assert deleted == 1
+    assert store.search_articles(limit=10, offset=0).total == 1
+    assert store.get_event(event.id).evidence[0].article.id == protected.id

@@ -106,6 +106,16 @@ class IntelligenceStore:
             ).fetchall()
         return ArticleSearchResult([self._row_article(row) for row in rows], total)
 
+    def prune_articles(self, *, before: datetime) -> int:
+        """Delete expired ordinary articles while retaining event evidence."""
+        with self._lock, self._conn:
+            cursor = self._conn.execute(
+                "DELETE FROM intelligence_articles WHERE published_at < ? AND NOT EXISTS ("
+                "SELECT 1 FROM global_event_evidence ge WHERE ge.article_id=intelligence_articles.id)",
+                (before.isoformat(),),
+            )
+        return max(0, int(cursor.rowcount))
+
     def upsert_event(self, event: GlobalEvent, evidence: list[EventEvidence]) -> GlobalEvent:
         if not evidence:
             raise ValueError("global event requires traceable evidence")

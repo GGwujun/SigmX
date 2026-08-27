@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta, timezone
 from typing import Iterable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 import threading
@@ -58,6 +59,9 @@ class IntelligenceService:
         return batch
 
     def search(self, query: IntelligenceQuery) -> IntelligenceResult:
+        # Ordinary news is a 90-day working set. Articles referenced by an
+        # event are protected by the store and remain available with versions.
+        self.store.prune_articles(before=datetime.now(timezone.utc) - timedelta(days=90))
         batches: dict[str, SourceBatch] = {}
         unique: dict[str, NormalizedArticle] = {}
         title_keys: set[str] = set()
@@ -70,7 +74,6 @@ class IntelligenceService:
                 try:
                     fetched[source.source_id] = future.result()
                 except Exception as exc:
-                    from datetime import datetime, timezone
                     from src.intelligence.sources.base import SourceError
                     fetched[source.source_id] = SourceBatch(source.source_id, datetime.now(timezone.utc), [], SourceHealth.UNAVAILABLE,
                                                             [SourceError("adapter_error", str(exc), True)])
