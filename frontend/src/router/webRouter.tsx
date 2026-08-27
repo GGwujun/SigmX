@@ -7,6 +7,7 @@ import { RequireAdmin, RequireAuth, wrap } from "@/router/sharedGuards";
 const PublicLayout = lazy(() => import("@/components/public/PublicLayout").then(m => ({ default: m.PublicLayout })));
 const LandingPage = lazy(() => import("@/pages/public/LandingPage").then(m => ({ default: m.LandingPage })));
 const IntelligencePage = lazy(() => import("@/pages/public/IntelligencePage").then(m => ({ default: m.IntelligencePage })));
+const GlobalEventsPage = lazy(() => import("@/pages/public/GlobalEventsPage").then(m => ({ default: m.GlobalEventsPage })));
 const ResearchSkillsPage = lazy(() => import("@/pages/public/ResearchSkillsPage").then(m => ({ default: m.ResearchSkillsPage })));
 const ResearchSkillDetailPage = lazy(() => import("@/pages/public/ResearchSkillDetailPage").then(m => ({ default: m.ResearchSkillDetailPage })));
 const PricingPage = lazy(() => import("@/pages/public/PricingPage").then(m => ({ default: m.PricingPage })));
@@ -36,6 +37,7 @@ export const webRouter = createBrowserRouter([
   { element: wrap(PublicLayout), children: [
     { path: "/", element: wrap(LandingPage) },
     { path: "/intelligence", element: wrap(IntelligencePage) },
+    { path: "/global-events", element: wrap(GlobalEventsPage) },
     { path: "/skills", element: wrap(ResearchSkillsPage) },
     { path: "/skills/:slug", element: wrap(ResearchSkillDetailPage) },
     { path: "/pricing", element: wrap(PricingPage) },

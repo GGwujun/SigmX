@@ -96,6 +96,9 @@ const LandingPage = lazy(() =>
 const IntelligencePage = lazy(() =>
   import("@/pages/public/IntelligencePage").then((m) => ({ default: m.IntelligencePage })),
 );
+const PublicGlobalEventsPage = lazy(() =>
+  import("@/pages/public/GlobalEventsPage").then((m) => ({ default: m.GlobalEventsPage })),
+);
 const ResearchSkillsPage = lazy(() => import("@/pages/public/ResearchSkillsPage").then((m) => ({ default: m.ResearchSkillsPage })));
 const ResearchSkillDetailPage = lazy(() => import("@/pages/public/ResearchSkillDetailPage").then((m) => ({ default: m.ResearchSkillDetailPage })));
 const PublicLayout = lazy(() =>
@@ -217,6 +220,7 @@ export const router = createBrowserRouter([
     children: [
       { path: "/", element: wrap(LandingPage) },
       { path: "/intelligence", element: wrap(IntelligencePage) },
+      { path: "/global-events", element: wrap(PublicGlobalEventsPage) },
       { path: "/skills", element: wrap(ResearchSkillsPage) },
       { path: "/skills/:slug", element: wrap(ResearchSkillDetailPage) },
       { path: "/pricing", element: wrap(PricingPage) },
