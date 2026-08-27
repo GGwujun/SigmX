@@ -74,3 +74,9 @@ class EventEvidenceView:
 class EventView:
     event: GlobalEvent
     evidence: list[EventEvidenceView]
+
+
+@dataclass(frozen=True)
+class EventSearchResult:
+    items: list[EventView]
+    total: int

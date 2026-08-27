@@ -14,6 +14,7 @@ from src.intelligence.models import (
     ArticleWriteResult,
     EventEvidence,
     EventEvidenceView,
+    EventSearchResult,
     EventView,
     GlobalEvent,
     NormalizedArticle,
@@ -152,6 +153,26 @@ class IntelligenceStore:
                 "SELECT payload_json FROM global_event_versions WHERE event_id=? ORDER BY id", (event_id,)
             ).fetchall()
         return [json.loads(row[0]) for row in rows]
+
+    def list_events(
+        self, *, event_type: str = "", status: str = "", limit: int = 30, offset: int = 0
+    ) -> EventSearchResult:
+        clauses: list[str] = []
+        args: list[object] = []
+        if event_type:
+            clauses.append("event_type=?")
+            args.append(event_type)
+        if status:
+            clauses.append("status=?")
+            args.append(status)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self._lock:
+            total = self._conn.execute(f"SELECT COUNT(*) FROM global_events {where}", args).fetchone()[0]
+            rows = self._conn.execute(
+                f"SELECT id FROM global_events {where} ORDER BY importance DESC, updated_at DESC LIMIT ? OFFSET ?",
+                (*args, limit, offset),
+            ).fetchall()
+        return EventSearchResult([self.get_event(row["id"]) for row in rows], total)
 
     @staticmethod
     def _row_article(row: sqlite3.Row) -> NormalizedArticle:

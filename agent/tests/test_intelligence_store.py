@@ -75,3 +75,22 @@ def test_event_without_evidence_is_rejected(tmp_path) -> None:
         assert "evidence" in str(exc)
     else:
         raise AssertionError("event without evidence must be rejected")
+
+
+def test_events_can_be_filtered_and_ordered_by_importance(tmp_path) -> None:
+    store = IntelligenceStore(tmp_path / "intel.db")
+    stored = store.upsert_articles([article()]).items[0]
+    for title, kind, importance in (("低影响", "company", 0.2), ("高影响", "geopolitical", 0.9)):
+        store.upsert_event(GlobalEvent(
+            title=title, summary=title, event_type=kind, status="active",
+            importance=importance, confidence=0.8,
+            first_seen_at=datetime(2026, 8, 27, 2, 0, tzinfo=timezone.utc),
+            updated_at=datetime(2026, 8, 27, 2, 2, tzinfo=timezone.utc),
+        ), [EventEvidence(article_id=stored.id)])
+
+    all_events = store.list_events(limit=20, offset=0)
+    filtered = store.list_events(event_type="company", limit=20, offset=0)
+
+    assert [item.event.title for item in all_events.items] == ["高影响", "低影响"]
+    assert filtered.total == 1
+    assert filtered.items[0].event.title == "低影响"
