@@ -145,13 +145,16 @@ class FinancialQualityResearch:
         for item in selected:
             for date, value in item["cashflow_series"]:
                 evidence.append({"id": f"{item['code']}:operating_cashflow:{date}", "code": item["code"],
+                                 "name": item["name"], "industry": item["industry"],
                                  "field": "operating_cashflow", "value": value, "as_of": date,
                                  "source": "local_financial_statement"})
             evidence.extend((
                 {"id": f"{item['code']}:net_profit:{item['as_of']}", "code": item["code"],
+                 "name": item["name"], "industry": item["industry"],
                  "field": "net_profit", "value": item["net_profit"], "as_of": item["as_of"],
                  "source": "local_financial_statement"},
                 {"id": f"{item['code']}:cashflow_profit_ratio:{item['as_of']}", "code": item["code"],
+                 "name": item["name"], "industry": item["industry"],
                  "field": "cashflow_profit_ratio", "value": item["cashflow_profit_ratio"],
                  "benchmark": item["industry_median"], "as_of": item["as_of"],
                  "source": "calculated_from_local_financial_statement"},
