@@ -273,10 +273,11 @@ class AIResearchPlanService:
         if not normalized:
             raise ValueError("研究问题不能为空")
         llm = self.llm_factory()
+        timeout_seconds = int(getattr(llm, "research_timeout_seconds", self.timeout_seconds))
         response = llm.chat([
             {"role": "system", "content": self._prompt()},
             {"role": "user", "content": json.dumps({"question": normalized, "template_id": template_id, "scope": scope}, ensure_ascii=False)},
-        ], timeout=self.timeout_seconds)
+        ], timeout=timeout_seconds)
         payload = self._parse(response.content or "")
         conditions = tuple(self._condition(item) for item in payload.get("conditions", []))
         if not conditions:
@@ -285,6 +286,15 @@ class AIResearchPlanService:
             ResearchDataset(str(item.get("key") or "dataset"), str(item.get("name") or "研究数据"), "supported")
             for item in payload.get("datasets", []) if isinstance(item, dict)
         )
+        if not datasets:
+            metric_names = {item.metric for item in conditions}
+            inferred: list[ResearchDataset] = []
+            if metric_names & {"operating_cashflow_trend", "cashflow_profit_ratio_industry"}:
+                inferred.extend((
+                    ResearchDataset("cashflow_statement", "现金流量表（多期）", "supported"),
+                    ResearchDataset("income_statement", "利润表与行业分类", "supported"),
+                ))
+            datasets = tuple(inferred)
         return ResearchPlan(
             id=uuid.uuid4().hex,
             question=normalized,
@@ -319,13 +329,19 @@ class AIResearchPlanService:
         metric = str(item.get("metric") or "")
         if metric not in AI_RESEARCH_METRICS:
             raise ValueError(f"unsupported AI research metric: {metric}")
+        period = str(item["period"]) if item.get("period") is not None else None
+        if metric == "operating_cashflow_trend":
+            # The executable tool currently verifies the latest two comparable
+            # statement periods. Do not let model wording silently promise a
+            # three-year series that the active dataset does not guarantee.
+            period = "最近两期可比财报"
         return ResearchCondition(
             id=uuid.uuid4().hex,
             metric=metric,
             label=str(item.get("label") or metric),
             operator=str(item["operator"]) if item.get("operator") is not None else None,
             value=item.get("value"),
-            period=str(item["period"]) if item.get("period") is not None else None,
+            period=period,
             benchmark=str(item["benchmark"]) if item.get("benchmark") is not None else None,
             status="supported",
             reason=None,

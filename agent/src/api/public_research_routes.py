@@ -244,7 +244,11 @@ def _event_response(view) -> PublicGlobalEventResponse:
 async def public_global_events(
     event_type: str = Query("", max_length=40), limit: int = Query(30, ge=1, le=60), offset: int = Query(0, ge=0),
 ) -> PublicGlobalEventListResponse:
-    _, service = _get_intelligence_services()
+    import asyncio
+    from src.intelligence.service import IntelligenceQuery
+    intelligence, service = _get_intelligence_services()
+    articles = await asyncio.get_running_loop().run_in_executor(None, intelligence.search, IntelligenceQuery(limit=60))
+    await asyncio.get_running_loop().run_in_executor(None, service.refresh, articles.articles)
     result = service.list(event_type=event_type, limit=limit, offset=offset)
     return PublicGlobalEventListResponse(items=[_event_response(item) for item in result.items], total=result.total, limit=limit, offset=offset)
 

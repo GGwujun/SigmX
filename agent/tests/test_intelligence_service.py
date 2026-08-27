@@ -14,8 +14,10 @@ class FakeSource:
         self.source_name = source_id
         self.rows = rows
         self.failed = failed
+        self.calls = 0
 
     def fetch(self, *, query: str = "", cursor: str | None = None, limit: int = 30) -> SourceBatch:
+        self.calls += 1
         if self.failed:
             return SourceBatch(self.source_id, datetime.now(timezone.utc), [], SourceHealth.UNAVAILABLE,
                                [SourceError("upstream", "failed", True)])
@@ -40,3 +42,11 @@ def test_service_deduplicates_urls_and_reports_source_failure(tmp_path) -> None:
     assert len(result.articles) == 1
     assert result.source_health["gdelt"].health is SourceHealth.UNAVAILABLE
     assert result.degraded is True
+
+
+def test_service_reuses_short_lived_source_cache(tmp_path) -> None:
+    source = FakeSource("sina", [row("sina", "1", "市场新闻", "https://example.test/1")])
+    service = IntelligenceService(IntelligenceStore(tmp_path / "intel.db"), [source], cache_ttl_seconds=300)
+    service.search(IntelligenceQuery())
+    service.search(IntelligenceQuery())
+    assert source.calls == 1

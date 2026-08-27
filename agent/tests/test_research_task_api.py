@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -84,6 +85,39 @@ def test_create_plan_returns_normalized_constraints_for_supported_question() -> 
 
 def test_research_plan_router_is_public_preflight() -> None:
     assert routes.plan_router.dependencies == []
+
+
+def test_cached_plan_service_reads_latest_platform_model_for_each_call(monkeypatch) -> None:
+    import src.product.ai_runtime_config as runtime_config
+
+    seen = []
+    configs = [
+        SimpleNamespace(planning=SimpleNamespace(model="model-a"), temperature=.2,
+                        timeout_seconds=30, max_retries=1, reasoning_effort="low"),
+        SimpleNamespace(planning=SimpleNamespace(model="model-b"), temperature=.2,
+                        timeout_seconds=45, max_retries=2, reasoning_effort="high"),
+    ]
+
+    class FakeConfigService:
+        def __init__(self, store):
+            del store
+
+        def get_effective(self):
+            return configs.pop(0)
+
+    def fake_build(binding, **kwargs):
+        seen.append((binding.model, kwargs["timeout_seconds"], kwargs["reasoning_effort"]))
+        return SimpleNamespace()
+
+    monkeypatch.setattr(runtime_config, "AIRuntimeConfigService", FakeConfigService)
+    monkeypatch.setattr(runtime_config, "build_configured_chat", fake_build)
+    routes._plan_service = None
+
+    service = routes._get_plan_service()
+    service.llm_factory()
+    service.llm_factory()
+
+    assert seen == [("model-a", 30, "low"), ("model-b", 45, "high")]
 
 
 def test_research_task_persists_source_attributed_result() -> None:

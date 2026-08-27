@@ -19,3 +19,11 @@ def test_refresh_persists_traceable_event_and_returns_detail(tmp_path) -> None:
 
     assert created[0].event_type == "macro_policy"
     assert len(detail.evidence) == 2
+
+
+def test_search_only_single_article_cannot_publish_event(tmp_path) -> None:
+    now = datetime.now(timezone.utc)
+    store = IntelligenceStore(tmp_path / "intel.db")
+    article = NormalizedArticle("1", "财经首页 - 某门户", "https://search.test/1", "bing", "Bing", "search", now, now, "news")
+    stored = store.upsert_articles([article]).items
+    assert GlobalEventService(store).refresh(stored) == []

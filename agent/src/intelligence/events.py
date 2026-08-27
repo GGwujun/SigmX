@@ -35,6 +35,6 @@ class EventClusterer:
         candidates: list[EventCandidate] = []
         for group in groups:
             sources = sorted({item.source_id for item in group})
-            confidence = min(0.95, 0.45 + 0.25 * len(sources))
+            confidence = min(0.95, 0.45 + 0.25 * max(0, len(sources) - 1))
             candidates.append(EventCandidate(group[0].title, [item.id or item.upstream_id for item in group], sources, confidence))
         return candidates

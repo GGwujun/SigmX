@@ -70,7 +70,9 @@ def test_agent_mode_uses_research_runner_and_persists_conclusions(tmp_path):
     service = ResearchTaskService(store, _Search())
     orchestrator = ResearchOrchestrator(store, service, runner_factory=lambda: _Runner())
     task = orchestrator.start(
-        "u1", question="现金流", template_id=None, scope={}, constraints=[], idempotency_key="agent-1",
+        "u1", question="现金流", template_id=None, scope={},
+        constraints=[{"field": "operating_cashflow_trend", "op": ">=", "value": 2}],
+        idempotency_key="agent-1",
         plan={"execution_mode": "agent", "model": "test-model", "skills": ["cashflow-quality"]},
     )
     assert _wait(orchestrator, "u1", task.id).status == "succeeded"

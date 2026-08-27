@@ -169,15 +169,25 @@ def _get_plan_service():
     from src.api.product_routes import _get_store
     from src.product.ai_runtime_config import AIRuntimeConfigService, build_configured_chat
 
-    config = AIRuntimeConfigService(_get_store()).get_effective()
-    _plan_service = AIResearchPlanService(
-        lambda: build_configured_chat(
+    config_service = AIRuntimeConfigService(_get_store())
+
+    def build_planning_chat():
+        # Platform settings are operator-owned and may change while the API is
+        # running. Resolve them per model construction instead of pinning the
+        # first successful (or broken) binding until process restart.
+        config = config_service.get_effective()
+        chat = build_configured_chat(
             config.planning,
             temperature=config.temperature,
             timeout_seconds=config.timeout_seconds,
             max_retries=config.max_retries,
-        ),
-        timeout_seconds=config.timeout_seconds,
+            reasoning_effort=config.reasoning_effort,
+        )
+        setattr(chat, "research_timeout_seconds", config.timeout_seconds)
+        return chat
+
+    _plan_service = AIResearchPlanService(
+        build_planning_chat,
     )
     return _plan_service
 
@@ -216,6 +226,7 @@ def _build_agent_runner():
     from src.api.product_routes import _get_store
     from src.product.ai_runtime_config import AIRuntimeConfigService, build_configured_chat
     from src.research_agent.runtime import ResearchAgentRuntime
+    from src.research_agent.financial_quality import FinancialQualityResearch
     from src.research_agent.tools import build_research_tools
     from src.skill_runtime.manifest import load_skill_manifest
 
@@ -242,10 +253,25 @@ def _build_agent_runner():
                 "primary_source": manifest.policy.primary_source,
                 "datahub_endpoints": list(manifest.policy.datahub_endpoints)}
 
-    tools = build_research_tools(data_search=data_search, skill_loader=skill_loader)
+    financial_db = research.store.db_path
+    with research.store._lock:
+        financial_rows = research.store._conn.execute("SELECT COUNT(*) FROM financial_statement").fetchone()[0]
+    shadow_db = financial_db.with_name("market.shadow.db")
+    if financial_rows == 0 and shadow_db.exists():
+        financial_db = shadow_db
+    financial_research = FinancialQualityResearch(
+        financial_db, classification_db_path=research.store.db_path,
+    )
+
+    tools = build_research_tools(
+        data_search=data_search,
+        skill_loader=skill_loader,
+        financial_quality=lambda limit: financial_research.screen(limit=limit),
+    )
     return ResearchAgentRuntime(
         lambda: build_configured_chat(config.execution, temperature=config.temperature,
-                                      timeout_seconds=config.timeout_seconds, max_retries=config.max_retries),
+                                      timeout_seconds=config.timeout_seconds, max_retries=config.max_retries,
+                                      reasoning_effort=config.reasoning_effort),
         tools, max_iterations=50,
     )
 

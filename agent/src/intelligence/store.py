@@ -165,7 +165,15 @@ class IntelligenceStore:
         if status:
             clauses.append("status=?")
             args.append(status)
-        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        publication_rule = """EXISTS (
+            SELECT 1 FROM global_event_evidence ge
+            JOIN intelligence_articles ia ON ia.id=ge.article_id
+            WHERE ge.event_id=global_events.id
+            GROUP BY ge.event_id
+            HAVING COUNT(DISTINCT ia.source_id) >= 2 OR MAX(CASE WHEN ia.source_tier='official' THEN 1 ELSE 0 END)=1
+        )"""
+        clauses.append(publication_rule)
+        where = f"WHERE {' AND '.join(clauses)}"
         with self._lock:
             total = self._conn.execute(f"SELECT COUNT(*) FROM global_events {where}", args).fetchone()[0]
             rows = self._conn.execute(

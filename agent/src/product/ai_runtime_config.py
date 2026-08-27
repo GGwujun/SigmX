@@ -36,7 +36,7 @@ class AIModelBinding:
     provider: str
     model: str
     base_url: str
-    api_key: str
+    api_key: str | None
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,7 @@ class AIRuntimeConfig:
     max_tokens: int
     timeout_seconds: int
     max_retries: int
+    reasoning_effort: str
     sources: list[AIDataSource]
 
 
@@ -252,15 +253,20 @@ class AIRuntimeConfigService:
             provider = self.get_provider(code)
             if not provider.enabled:
                 raise AIConfigurationError(f"provider {code} is disabled")
-            return AIModelBinding(code, strategy[f"{prefix}_model"], provider.base_url, self.reveal_api_key(code))
+            api_key = None if code in {"openai-codex", "openai_codex"} else self.reveal_api_key(code)
+            return AIModelBinding(code, strategy[f"{prefix}_model"], provider.base_url, api_key)
 
         source_rows = self.store._get_conn().execute(
             "SELECT * FROM ai_data_sources WHERE enabled=1 ORDER BY priority,code"
         ).fetchall()
+        effort = self.store._get_conn().execute(
+            "SELECT reasoning_effort FROM ai_platform_settings WHERE id=1"
+        ).fetchone()
         return AIRuntimeConfig(
             planning=binding("planning"), execution=binding("execution"), summary=binding("summary"),
             temperature=float(strategy["temperature"]), max_tokens=int(strategy["max_tokens"]),
             timeout_seconds=int(strategy["timeout_seconds"]), max_retries=int(strategy["max_retries"]),
+            reasoning_effort=str(effort[0]) if effort else "",
             sources=[AIDataSource(row["code"], True, row["priority"], json.loads(row["markets_json"])) for row in source_rows],
         )
 
@@ -274,9 +280,26 @@ class AIRuntimeConfigService:
 
 def build_configured_chat(
     binding: AIModelBinding, *, temperature: float, timeout_seconds: int,
-    max_retries: int, constructor=None,
+    max_retries: int, reasoning_effort: str = "", constructor=None,
+    codex_constructor=None,
 ):
     """Build a ChatLLM from server-owned settings without mutating process env."""
+    if binding.provider in {"openai-codex", "openai_codex"}:
+        if codex_constructor is None:
+            from src.providers.openai_codex import OpenAICodexLLM
+
+            codex_constructor = OpenAICodexLLM
+        client = codex_constructor(
+            model=binding.model,
+            temperature=temperature,
+            timeout=timeout_seconds,
+            reasoning_effort=reasoning_effort or None,
+            codex_url=binding.base_url,
+        )
+        from src.providers.chat import ChatLLM
+
+        return ChatLLM(model_name=binding.model, client=client)
+
     if constructor is None:
         from src.providers.llm import ChatOpenAIWithReasoning
 

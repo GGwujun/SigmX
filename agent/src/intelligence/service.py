@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+import threading
+import time
 
 from src.intelligence.models import NormalizedArticle
 from src.intelligence.sources.base import IntelligenceSourceAdapter, SourceBatch, SourceHealth
@@ -35,9 +37,25 @@ def _canonical_url(value: str) -> str:
 
 
 class IntelligenceService:
-    def __init__(self, store: IntelligenceStore, sources: Iterable[IntelligenceSourceAdapter]) -> None:
+    def __init__(self, store: IntelligenceStore, sources: Iterable[IntelligenceSourceAdapter], *, cache_ttl_seconds: int = 300) -> None:
         self.store = store
         self.sources = list(sources)
+        self.cache_ttl_seconds = cache_ttl_seconds
+        self._source_cache: dict[tuple[str, str], tuple[float, SourceBatch]] = {}
+        self._cache_lock = threading.Lock()
+
+    def _fetch_source(self, source: IntelligenceSourceAdapter, query: IntelligenceQuery) -> SourceBatch:
+        key = (source.source_id, query.query.casefold().strip())
+        now = time.monotonic()
+        with self._cache_lock:
+            cached = self._source_cache.get(key)
+            if cached and now - cached[0] < self.cache_ttl_seconds:
+                return cached[1]
+        batch = source.fetch(query=query.query, limit=max(query.limit, 30))
+        if batch.articles or batch.health is SourceHealth.HEALTHY:
+            with self._cache_lock:
+                self._source_cache[key] = (now, batch)
+        return batch
 
     def search(self, query: IntelligenceQuery) -> IntelligenceResult:
         batches: dict[str, SourceBatch] = {}
@@ -46,7 +64,7 @@ class IntelligenceService:
         warnings: list[str] = []
         fetched: dict[str, SourceBatch] = {}
         with ThreadPoolExecutor(max_workers=min(8, max(1, len(self.sources)))) as pool:
-            futures = {pool.submit(source.fetch, query=query.query, limit=max(query.limit, 30)): source for source in self.sources}
+            futures = {pool.submit(self._fetch_source, source, query): source for source in self.sources}
             for future in as_completed(futures):
                 source = futures[future]
                 try:

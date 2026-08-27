@@ -126,3 +126,55 @@ def test_configured_chat_uses_platform_binding_without_mutating_environment() ->
         "model": "deepseek-chat", "temperature": 0.3, "timeout": 45,
         "max_retries": 1, "api_key": "secret", "base_url": "https://api.deepseek.com/v1",
     }
+
+
+def test_codex_oauth_provider_needs_no_api_key_and_uses_codex_client(tmp_path: Path) -> None:
+    store = ProductStore(tmp_path / "product.db")
+    service = AIRuntimeConfigService(store, encryption_key=Fernet.generate_key())
+    service.save_provider(
+        code="openai-codex",
+        name="OpenAI Codex (ChatGPT OAuth)",
+        base_url="https://chatgpt.com/backend-api/codex/responses",
+        api_key=None,
+        models=["openai-codex/gpt-5.4"],
+        enabled=True,
+        actor="admin-1",
+    )
+    service.save_strategy(
+        planning_provider="openai-codex",
+        planning_model="openai-codex/gpt-5.4",
+        execution_provider="openai-codex",
+        execution_model="openai-codex/gpt-5.4",
+        summary_provider="openai-codex",
+        summary_model="openai-codex/gpt-5.4",
+        temperature=0.2,
+        max_tokens=8000,
+        timeout_seconds=90,
+        max_retries=2,
+        actor="admin-1",
+    )
+
+    effective = service.get_effective()
+    captured = {}
+
+    class FakeCodexClient:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    chat = build_configured_chat(
+        effective.execution,
+        temperature=effective.temperature,
+        timeout_seconds=effective.timeout_seconds,
+        max_retries=effective.max_retries,
+        reasoning_effort="high",
+        codex_constructor=FakeCodexClient,
+    )
+
+    assert chat.model_name == "openai-codex/gpt-5.4"
+    assert captured == {
+        "model": "openai-codex/gpt-5.4",
+        "temperature": 0.2,
+        "timeout": 90,
+        "reasoning_effort": "high",
+        "codex_url": "https://chatgpt.com/backend-api/codex/responses",
+    }

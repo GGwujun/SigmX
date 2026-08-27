@@ -24,8 +24,11 @@ class ResearchTool:
         }
 
 
-def build_research_tools(*, data_search: Callable[[str], dict], skill_loader: Callable[[str], dict]) -> list[ResearchTool]:
-    return [
+def build_research_tools(
+    *, data_search: Callable[[str], dict], skill_loader: Callable[[str], dict],
+    financial_quality: Callable[[int], dict] | None = None,
+) -> list[ResearchTool]:
+    tools = [
         ResearchTool(
             name="search_market_data",
             description="通过 Data Hub 优先的数据路由检索市场、财务和情报证据。",
@@ -39,3 +42,11 @@ def build_research_tools(*, data_search: Callable[[str], dict], skill_loader: Ca
             execute=lambda args: skill_loader(str(args["name"])),
         ),
     ]
+    if financial_quality is not None:
+        tools.append(ResearchTool(
+            name="screen_financial_quality",
+            description="筛选经营现金流连续改善且现金流利润比高于行业中位数的 A 股公司，返回逐项证据。",
+            parameters={"type": "object", "properties": {"limit": {"type": "integer", "minimum": 1, "maximum": 100}}},
+            execute=lambda args: financial_quality(int(args.get("limit", 20))),
+        ))
+    return tools

@@ -118,6 +118,8 @@ def test_ai_plan_service_calls_model_and_returns_validated_research_plan() -> No
         "operating_cashflow_trend", "cashflow_profit_ratio_industry"
     ]
     assert plan.skills == ("financial-statement", "fundamental-filter")
+    assert plan.conditions[0].period == "最近两期可比财报"
+    assert [item.key for item in plan.datasets] == ["cashflow", "industry"]
 
 
 def test_ai_plan_rejects_model_invented_metric() -> None:

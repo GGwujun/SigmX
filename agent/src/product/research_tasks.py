@@ -120,9 +120,11 @@ class ResearchTaskService:
         return self.run(user_id, task.id)
 
     def create(self, user_id: str, *, question: str, template_id: str | None,
-               scope: dict[str, Any], constraints: list[dict[str, Any]], idempotency_key: str) -> ResearchTask:
-        self._validate_constraints(constraints)
-        self._validate_research_capability(question, template_id)
+               scope: dict[str, Any], constraints: list[dict[str, Any]], idempotency_key: str,
+               agent_mode: bool = False) -> ResearchTask:
+        if not agent_mode:
+            self._validate_constraints(constraints)
+            self._validate_research_capability(question, template_id)
         existing = self._by_key(user_id, idempotency_key)
         if existing:
             return existing

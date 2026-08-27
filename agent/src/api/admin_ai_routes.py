@@ -148,6 +148,10 @@ def get_platform_settings(admin: dict = Depends(require_admin)) -> dict:
     if not value["provider"]:
         default = PROVIDER_PRESETS[0]
         value.update(provider=default["code"], model_name=default["default_model"], base_url=default["default_base_url"])
+    if value["provider"] in {"openai-codex", "openai_codex"}:
+        from src.providers.openai_codex import get_openai_codex_login_status
+
+        value["api_key_configured"] = get_openai_codex_login_status() is not None
     value["providers"] = PROVIDER_PRESETS
     return value
 

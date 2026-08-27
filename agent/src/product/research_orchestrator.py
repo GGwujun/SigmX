@@ -28,8 +28,10 @@ class ResearchOrchestrator:
     def start(self, user_id: str, *, question: str, template_id: str | None,
               scope: dict[str, Any], constraints: list[dict[str, Any]], idempotency_key: str,
               plan: dict[str, Any], parent_task_id: str | None = None) -> ResearchTask:
+        agent_mode = plan.get("execution_mode") == "agent" and self.runner_factory is not None
         task = self.service.create(user_id, question=question, template_id=template_id, scope=scope,
-                                   constraints=constraints, idempotency_key=idempotency_key)
+                                   constraints=constraints, idempotency_key=idempotency_key,
+                                   agent_mode=agent_mode)
         if task.status != "queued":
             return task
         with self.store.transaction() as conn:

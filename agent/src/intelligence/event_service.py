@@ -5,7 +5,9 @@ from src.intelligence.models import EventEvidence, EventSearchResult, EventView,
 from src.intelligence.store import IntelligenceStore
 
 
-def _event_type(title: str) -> str:
+def _event_type(title: str, sources: set[str] | None = None) -> str:
+    if sources and sources & {"federal_reserve", "ecb", "pbc", "imf", "world_bank"}:
+        return "macro_policy"
     value = title.casefold()
     rules = (
         (("央行", "美联储", "利率", "通胀", "gdp", "fed"), "macro_policy"),
@@ -26,12 +28,18 @@ class GlobalEventService:
         by_id = {article.id or article.upstream_id: article for article in articles}
         created: list[GlobalEvent] = []
         for candidate in self.clusterer.cluster(articles):
+            supporting = [by_id[item_id] for item_id in candidate.article_ids if item_id in by_id]
+            if len({item.source_id for item in supporting}) < 2 and not any(item.source_tier == "official" for item in supporting):
+                continue
+            if all(item.source_tier == "search" for item in supporting):
+                continue
             evidence = [EventEvidence(article_id=by_id[item_id].id) for item_id in candidate.article_ids if item_id in by_id and by_id[item_id].id]
             if not evidence:
                 continue
             times = [by_id[item_id].published_at for item_id in candidate.article_ids if item_id in by_id]
             event = GlobalEvent(
-                title=candidate.title, summary=candidate.title, event_type=_event_type(candidate.title), status="active",
+                title=candidate.title, summary=candidate.title,
+                event_type=_event_type(candidate.title, {item.source_id for item in supporting}), status="active",
                 first_seen_at=min(times), updated_at=max(times), importance=min(1.0, 0.35 + 0.15 * len(evidence)),
                 confidence=candidate.confidence,
             )
