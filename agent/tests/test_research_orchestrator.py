@@ -77,3 +77,19 @@ def test_agent_mode_uses_research_runner_and_persists_conclusions(tmp_path):
     result = service.result("u1", task.id)
     assert result.conclusions[0]["evidence_ids"] == ["e1"]
     assert result.model == "test-model"
+
+
+def test_agent_failure_marks_task_failed_instead_of_leaving_it_running(tmp_path):
+    class _BrokenRunner:
+        def run(self, request, emit, cancel=None):
+            raise RuntimeError("model unavailable")
+    store = ProductStore(tmp_path / "product.db")
+    service = ResearchTaskService(store, _Search())
+    orchestrator = ResearchOrchestrator(store, service, runner_factory=lambda: _BrokenRunner())
+    task = orchestrator.start(
+        "u1", question="现金流", template_id=None, scope={}, constraints=[], idempotency_key="agent-fail",
+        plan={"execution_mode": "agent"},
+    )
+    failed = _wait(orchestrator, "u1", task.id)
+    assert failed.status == "failed"
+    assert "model unavailable" in (failed.error or "")

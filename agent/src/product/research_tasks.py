@@ -234,6 +234,16 @@ class ResearchTaskService:
             )
         return self.get(user_id, task_id)
 
+    def fail(self, user_id: str, task_id: str, error: str) -> ResearchTask:
+        self.get(user_id, task_id)
+        finished_at = self._now()
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE research_tasks SET status='failed',steps_json=?,error=?,finished_at=? WHERE id=? AND user_id=?",
+                (json.dumps([asdict(step) for step in self._steps("failed")], ensure_ascii=False), error[:1000], finished_at, task_id, user_id),
+            )
+        return self.get(user_id, task_id)
+
     def _run(self, user_id: str, task_id: str) -> ResearchTask:
         task = self.get(user_id, task_id)
         started_at = self._now()

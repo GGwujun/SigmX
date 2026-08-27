@@ -12,6 +12,7 @@ from src.agent.memory import WorkspaceMemory
 from src.agent.tools import BaseTool, ToolRegistry
 from src.research_agent.runner import AgentResearchOutput, ResearchRunRequest
 from src.research_agent.tools import ResearchTool
+from src.research_agent.policy import build_research_registry
 
 
 _SYSTEM_PROMPT = """你是 SigmX Web AI 投研智能体。你只能执行只读金融研究。
@@ -57,7 +58,7 @@ class ResearchAgentRuntime:
     ) -> AgentResearchOutput:
         evidence: list[dict[str, Any]] = []
         evidence_lock = threading.Lock()
-        registry = ToolRegistry()
+        registry: ToolRegistry = build_research_registry()
         for definition in self.tools:
             registry.register(_CallableResearchTool(definition, evidence, evidence_lock))
         memory = WorkspaceMemory()

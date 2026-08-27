@@ -51,8 +51,23 @@ class LegacyNewsAdapter(IntelligenceSourceAdapter):
 
 def default_legacy_sources() -> list[LegacyNewsAdapter]:
     from src.api.news_routes import _fetch_bing_news, _fetch_wallstreetcn
+    from src.data.astock_client import eastmoney_global_news, sina_7x24_news
+
+    def eastmoney(limit: int, query: str) -> list[dict]:
+        rows = eastmoney_global_news(limit)
+        return [{"title": item.get("title", ""), "snippet": item.get("summary", ""),
+                 "published": item.get("time", ""), "url": ""} for item in rows
+                if not query or query in str(item.get("title", "")) or query in str(item.get("summary", ""))]
+
+    def sina(limit: int, query: str) -> list[dict]:
+        rows = sina_7x24_news(page_size=limit)
+        return [{"title": item.get("title", ""), "snippet": item.get("summary", ""),
+                 "published": item.get("date", ""), "url": item.get("url", "")} for item in rows
+                if not query or query in str(item.get("title", "")) or query in str(item.get("summary", ""))]
 
     return [
         LegacyNewsAdapter("wallstreetcn", "华尔街见闻", "media", lambda limit, query: _fetch_wallstreetcn(limit, query)),
+        LegacyNewsAdapter("sina", "新浪财经", "media", sina),
+        LegacyNewsAdapter("eastmoney", "东方财富", "media", eastmoney),
         LegacyNewsAdapter("bing", "Bing", "search", lambda limit, query: _fetch_bing_news(f"A股 {query}".strip(), limit)),
     ]

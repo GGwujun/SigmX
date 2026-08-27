@@ -175,11 +175,12 @@ def _get_intelligence_services():
         from src.intelligence.service import IntelligenceService
         from src.intelligence.sources.gdelt import GdeltSourceAdapter
         from src.intelligence.sources.legacy import default_legacy_sources
+        from src.intelligence.sources.rss import default_official_sources
         from src.intelligence.store import IntelligenceStore
 
         db_path = Path(os.getenv("SIGMX_INTELLIGENCE_DB_PATH", str(Path.home() / ".vibe-trading" / "intelligence.db")))
         store = IntelligenceStore(db_path)
-        _intelligence_service = IntelligenceService(store, [*default_legacy_sources(), GdeltSourceAdapter()])
+        _intelligence_service = IntelligenceService(store, [*default_official_sources(), *default_legacy_sources(), GdeltSourceAdapter()])
         _event_service = GlobalEventService(store)
     return _intelligence_service, _event_service
 

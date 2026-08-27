@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Response, status
 from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_user
@@ -33,6 +33,10 @@ class CreateResearchPlanRequest(BaseModel):
     question: str = Field(min_length=1, max_length=500)
     template_id: str | None = Field(default=None, max_length=64)
     scope: dict[str, Any] = Field(default_factory=dict)
+
+
+class FollowUpResearchRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=500)
 
 
 class ResearchConditionAlternativeResponse(BaseModel):
@@ -155,6 +159,7 @@ plan_router = APIRouter(
 _service: ResearchTaskService | None = None
 _orchestrator: ResearchOrchestrator | None = None
 _plan_service = None
+_research_file_store = None
 
 
 def _get_plan_service():
@@ -185,6 +190,17 @@ def _get_service() -> ResearchTaskService:
 
         _service = ResearchTaskService(product_routes._get_store(), PublicResearchService())
     return _service
+
+
+def _get_research_file_store():
+    global _research_file_store
+    if _research_file_store is None:
+        import os
+        from pathlib import Path
+        from src.research_agent.files import ResearchFileStore
+        root = Path(os.getenv("SIGMX_RESEARCH_FILES_DIR", str(Path.home() / ".vibe-trading" / "research-files")))
+        _research_file_store = ResearchFileStore(root)
+    return _research_file_store
 
 
 def _get_orchestrator() -> ResearchOrchestrator:
@@ -318,6 +334,55 @@ async def retry_research_task(task_id: str, user: dict = Depends(require_user)) 
         return ResearchTaskResponse(**asdict(_get_orchestrator().retry(user["id"], task_id)))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+
+
+@router.post("/{task_id}/follow-up", response_model=ResearchTaskResponse, status_code=status.HTTP_201_CREATED)
+async def follow_up_research_task(task_id: str, body: FollowUpResearchRequest, user: dict = Depends(require_user)) -> ResearchTaskResponse:
+    import uuid
+    try:
+        parent = _get_orchestrator().get(user["id"], task_id)
+        meta = _get_orchestrator().metadata(user["id"], task_id)
+        previous = _get_service().result(user["id"], task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    plan = {**meta["plan"], "context": {"parent_task_id": task_id, "previous_summary": previous.summary,
+                                         "follow_up_question": body.question}}
+    task = _get_orchestrator().start(
+        user["id"], question=body.question, template_id=parent.template_id, scope=parent.scope,
+        constraints=parent.constraints, idempotency_key=f"follow-up-{task_id}-{uuid.uuid4().hex}",
+        plan=plan, parent_task_id=task_id,
+    )
+    return ResearchTaskResponse(**asdict(task))
+
+
+@router.post("/{task_id}/files", status_code=status.HTTP_201_CREATED)
+async def upload_research_file(task_id: str, upload: UploadFile = File(...), user: dict = Depends(require_user)) -> dict[str, Any]:
+    try:
+        _get_service().get(user["id"], task_id)
+        content = await upload.read()
+        return asdict(_get_research_file_store().save(task_id, upload.filename or "upload.txt", content))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/{task_id}/files")
+async def list_research_files(task_id: str, user: dict = Depends(require_user)) -> list[dict[str, Any]]:
+    try:
+        _get_service().get(user["id"], task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    return [asdict(item) for item in _get_research_file_store().list(task_id)]
+
+
+@router.get("/{task_id}/files/{file_id}")
+async def download_research_file(task_id: str, file_id: str, user: dict = Depends(require_user)) -> Response:
+    try:
+        _get_service().get(user["id"], task_id)
+        return Response(_get_research_file_store().read(task_id, file_id), media_type="application/octet-stream")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究文件不存在") from exc
 
 
 def register_research_task_routes(app: FastAPI) -> APIRouter:

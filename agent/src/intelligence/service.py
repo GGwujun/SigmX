@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Iterable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -43,8 +44,20 @@ class IntelligenceService:
         unique: dict[str, NormalizedArticle] = {}
         title_keys: set[str] = set()
         warnings: list[str] = []
+        fetched: dict[str, SourceBatch] = {}
+        with ThreadPoolExecutor(max_workers=min(8, max(1, len(self.sources)))) as pool:
+            futures = {pool.submit(source.fetch, query=query.query, limit=max(query.limit, 30)): source for source in self.sources}
+            for future in as_completed(futures):
+                source = futures[future]
+                try:
+                    fetched[source.source_id] = future.result()
+                except Exception as exc:
+                    from datetime import datetime, timezone
+                    from src.intelligence.sources.base import SourceError
+                    fetched[source.source_id] = SourceBatch(source.source_id, datetime.now(timezone.utc), [], SourceHealth.UNAVAILABLE,
+                                                            [SourceError("adapter_error", str(exc), True)])
         for source in self.sources:
-            batch = source.fetch(query=query.query, limit=max(query.limit, 30))
+            batch = fetched[source.source_id]
             batches[source.source_id] = batch
             if batch.health is not SourceHealth.HEALTHY:
                 warnings.extend(error.message for error in batch.errors)

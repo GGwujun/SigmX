@@ -48,6 +48,9 @@ export const getResearchTask = (taskId: string) =>
 export const listResearchEvents = (taskId: string, after = 0) =>
   json<Array<{ id: number; type: string; payload: Record<string, unknown>; created_at: string }>>(`/api/research/tasks/${encodeURIComponent(taskId)}/events?after=${after}`, { headers: authHeaders() });
 
+export const followUpResearchTask = (taskId: string, question: string) =>
+  json<ResearchTask>(`/api/research/tasks/${encodeURIComponent(taskId)}/follow-up`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ question }) });
+
 export async function waitForResearchTask(task: ResearchTask, onUpdate?: (task: ResearchTask) => void): Promise<ResearchTask> {
   let current = task;
   while (["queued", "running"].includes(current.status)) {

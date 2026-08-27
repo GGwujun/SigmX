@@ -59,6 +59,7 @@ class ResearchOrchestrator:
                 self.service.run(user_id, task_id)
             self._event(task_id, "completed", {"message": "研究结果已生成"})
         except Exception as exc:
+            self.service.fail(user_id, task_id, str(exc))
             self._event(task_id, "failed", {"message": str(exc)[:300]})
 
     def get(self, user_id: str, task_id: str) -> ResearchTask:
