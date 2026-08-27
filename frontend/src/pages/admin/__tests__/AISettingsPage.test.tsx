@@ -8,7 +8,7 @@ describe("AISettingsPage", () => {
   beforeEach(() => vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
     const url = String(input);
     if (url.endsWith("/settings")) return ok({ provider: "openai", model_name: "gpt-5.2", base_url: "https://api.openai.com/v1", api_key_configured: true, temperature: .2, timeout_seconds: 90, max_retries: 2, reasoning_effort: "high", providers: [{ code: "openai", name: "OpenAI", default_model: "gpt-5.2", default_base_url: "https://api.openai.com/v1", api_key_required: true }] });
-    if (url.endsWith("/source-credentials")) return ok({ tushare_token_configured: false, tpdog_token_configured: false });
+    if (url.endsWith("/source-credentials")) return ok({ tushare_token_configured: false, tpdog_token_configured: false, blackwolf_token_configured: false });
     if (url.endsWith("/health")) return ok({ configured: false, detail: "AI model strategy is not configured" });
     return ok({ planning_provider: "openai", planning_model: "gpt-5.2", execution_provider: "openai", execution_model: "gpt-5.2", summary_provider: "openai", summary_model: "gpt-5.2", temperature: .2, max_tokens: 8000, timeout_seconds: 90, max_retries: 2 });
   })));
@@ -19,6 +19,7 @@ describe("AISettingsPage", () => {
     expect(screen.getByText("平台模型")).toBeInTheDocument();
     expect(screen.getByText("生成参数")).toBeInTheDocument();
     expect(screen.getByText("数据源凭据")).toBeInTheDocument();
+    expect(screen.getByText("黑狼数据 Token")).toBeInTheDocument();
     expect(screen.queryByText("问题规划")).not.toBeInTheDocument();
     expect(screen.queryByText("智能体执行")).not.toBeInTheDocument();
     expect(screen.queryByText("报告总结")).not.toBeInTheDocument();

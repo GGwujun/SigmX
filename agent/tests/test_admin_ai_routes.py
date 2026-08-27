@@ -67,11 +67,12 @@ def test_platform_data_source_credentials_are_encrypted_and_masked(tmp_path: Pat
     routes._service = service
     try:
         result = routes.save_source_credentials(
-            routes.SourceCredentialsInput(tushare_token="ts-private", tpdog_token="tp-private"),
+            routes.SourceCredentialsInput(tushare_token="ts-private", tpdog_token="tp-private", blackwolf_token="bw-private"),
             admin={"email": "admin@sigmx.local"},
         )
-        assert result == {"tushare_token_configured": True, "tpdog_token_configured": True}
+        assert result == {"tushare_token_configured": True, "tpdog_token_configured": True, "blackwolf_token_configured": True}
         assert "private" not in str(routes.get_source_credentials(admin={"email": "admin@sigmx.local"}))
         assert service.reveal_source_secret("tushare") == "ts-private"
+        assert service.reveal_source_secret("blackwolf") == "bw-private"
     finally:
         routes._service = None

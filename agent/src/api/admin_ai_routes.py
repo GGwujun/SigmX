@@ -66,6 +66,8 @@ class SourceCredentialsInput(BaseModel):
     clear_tushare_token: bool = False
     tpdog_token: str | None = None
     clear_tpdog_token: bool = False
+    blackwolf_token: str | None = None
+    clear_blackwolf_token: bool = False
 
 
 def _load_provider_catalog() -> list[dict]:
@@ -174,7 +176,8 @@ def get_source_credentials(admin: dict = Depends(require_admin)) -> dict:
     del admin
     service = _get_service()
     return {"tushare_token_configured": service.source_secret_configured("tushare"),
-            "tpdog_token_configured": service.source_secret_configured("tpdog")}
+            "tpdog_token_configured": service.source_secret_configured("tpdog"),
+            "blackwolf_token_configured": service.source_secret_configured("blackwolf")}
 
 
 @router.put("/source-credentials")
@@ -183,6 +186,7 @@ def save_source_credentials(body: SourceCredentialsInput, admin: dict = Depends(
     actor = _actor(admin)
     service.save_source_secret("tushare", body.tushare_token, clear=body.clear_tushare_token, actor=actor)
     service.save_source_secret("tpdog", body.tpdog_token, clear=body.clear_tpdog_token, actor=actor)
+    service.save_source_secret("blackwolf", body.blackwolf_token, clear=body.clear_blackwolf_token, actor=actor)
     return get_source_credentials(admin=admin)
 
 
