@@ -129,3 +129,19 @@ def test_ai_plan_rejects_model_invented_metric() -> None:
 
     with pytest.raises(ValueError, match="unsupported AI research metric"):
         AIResearchPlanService(lambda: FakeLLM()).create("预测明天股价", None, {})
+
+
+def test_ai_plan_normalizes_model_skill_aliases_to_installed_research_skills() -> None:
+    class FakeLLM:
+        model_name = "test-planner"
+
+        def chat(self, messages, tools=None, timeout=None):
+            return LLMResponse(content='''{
+              "conditions":[{"metric":"operating_cashflow_trend","label":"现金流改善","operator":"trend_up","value":2}],
+              "datasets":[],
+              "skills":["fundamental_screening","industry_relative_analysis","invented_skill"]
+            }''')
+
+    plan = AIResearchPlanService(lambda: FakeLLM()).create("现金流质量", None, {})
+
+    assert plan.skills == ("fundamental-filter", "financial-statement")

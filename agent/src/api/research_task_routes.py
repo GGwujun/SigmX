@@ -247,7 +247,7 @@ def _build_agent_runner():
 
     def skill_loader(name: str) -> dict[str, Any]:
         safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_")
-        path = Path(__file__).resolve().parents[2] / "skills" / safe / "SKILL.md"
+        path = Path(__file__).resolve().parents[1] / "skills" / safe / "SKILL.md"
         manifest = load_skill_manifest(path)
         return {"name": manifest.slug, "description": manifest.description, "instructions": manifest.content,
                 "primary_source": manifest.policy.primary_source,

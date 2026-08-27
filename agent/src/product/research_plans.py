@@ -260,6 +260,20 @@ AI_RESEARCH_METRICS = frozenset({
     "announcement_event",
 })
 
+RESEARCH_SKILL_ALIASES = {
+    "fundamental_screening": "fundamental-filter",
+    "fundamental_analysis": "fundamental-filter",
+    "stock_screening": "fundamental-filter",
+    "industry_relative_analysis": "financial-statement",
+    "industry_benchmarking": "financial-statement",
+    "multi_factor_ranking": "multi-factor",
+}
+RESEARCH_SKILLS = frozenset({
+    "fundamental-filter", "financial-statement", "multi-factor",
+    "dividend-analysis", "factor-research", "announcement-search",
+    "news-search", "macro-analysis", "geopolitical-risk", "risk-analysis",
+})
+
 
 class AIResearchPlanService:
     """Use an LLM for semantic planning, then validate every executable field."""
@@ -308,7 +322,11 @@ class AIResearchPlanService:
             suggested_question=None,
             execution_mode="agent",
             model=getattr(llm, "model_name", None),
-            skills=tuple(str(item) for item in payload.get("skills", []) if item),
+            skills=tuple(dict.fromkeys(
+                normalized for item in payload.get("skills", []) if item
+                for normalized in [RESEARCH_SKILL_ALIASES.get(str(item), str(item))]
+                if normalized in RESEARCH_SKILLS
+            )),
         )
 
     @staticmethod
@@ -350,10 +368,12 @@ class AIResearchPlanService:
     @staticmethod
     def _prompt() -> str:
         metrics = ", ".join(sorted(AI_RESEARCH_METRICS))
+        skills = ", ".join(sorted(RESEARCH_SKILLS))
         return (
             "你是 SigmX 投研规划器。把问题转换为严格 JSON，不输出解释。"
             f"metric 只能从以下列表选择：{metrics}。"
             "结构为 scope、conditions、ranking、datasets、skills。"
+            f"skills 只能从以下已安装列表选择：{skills}。"
             "conditions 每项包含 metric,label,operator,value,period,benchmark。"
             "不要承诺交易、账户、持仓或影子账户能力。"
         )
