@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { ArrowRight, BarChart3, Bot, Database, LoaderCircle, Search, Sparkles, Wrench } from "lucide-react";
+import { ArrowRight, BarChart3, Bot, Database, LoaderCircle, Search, Sparkles } from "lucide-react";
 import { ResearchPlanPanel } from "@/components/public/ResearchPlanPanel";
 import { ResearchProgress } from "@/components/public/ResearchProgress";
 import { createResearchPlan, createResearchTask, getDiscovery, getResearchResult, listResearchEvents, listResearchTasks, waitForResearchTask, type PublicDiscovery, type ResearchPlan, type ResearchResult, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
@@ -90,10 +90,25 @@ export function LandingPage() {
 
 function AgentWorkspace({ phase, plan, task, events, children }: { phase: RunState; plan: ResearchPlan | null; task: ResearchTask | null; events: Array<{ id: number; type: string; payload: Record<string, unknown> }>; children: ReactNode }) {
   const status = phase === "running" ? "执行中" : phase === "done" ? "已完成" : phase === "error" ? "需要处理" : phase === "plan" ? "等待确认计划" : "待命";
-  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-950 px-5 py-4 text-white"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary"><Bot className="h-5 w-5"/></span><div><h2 className="font-semibold">AI 投研智能体</h2><p className="mt-0.5 text-xs text-slate-400">通用研究 Agent · 只读研究模式</p></div></div><div className="flex flex-wrap gap-2 text-[11px]"><span className="rounded-full bg-white/10 px-3 py-1.5"><Wrench className="mr-1 inline h-3 w-3"/>Data Hub 工具</span><span className="rounded-full bg-white/10 px-3 py-1.5"><Sparkles className="mr-1 inline h-3 w-3"/>自动匹配 Skills</span><span className={`rounded-full px-3 py-1.5 ${phase === "running" ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10"}`}>{status}</span></div></header>{plan && <div className="flex flex-wrap gap-2 border-b bg-slate-50 px-5 py-3 text-xs text-slate-500"><span>执行方式：{plan.execution_mode === "agent" ? "AI Agent" : "规则降级"}</span>{plan.model && <span>· 模型：{plan.model}</span>}<span>· 数据集：{plan.datasets.filter(item => item.status !== "unavailable").length}</span><span>· Skills：{plan.skills?.length ? plan.skills.join("、") : "运行时自动选择"}</span>{task && <span>· 任务：{task.id.slice(0, 8)}</span>}</div>}{events.length > 0 && <div className="flex gap-2 overflow-x-auto border-b px-5 py-3 text-xs">{events.map(event => <span key={event.id} className="whitespace-nowrap rounded-full border bg-white px-3 py-1.5 text-slate-600">{eventLabel(event.type, event.payload)}</span>)}</div>}<div className="[&>section]:rounded-none [&>section]:border-0 [&>section]:shadow-none">{children}</div></section>;
+  const toolEvents = events.filter(event => event.type === "tool_call");
+  const tools = Array.from(new Set(toolEvents.map(event => String(event.payload.tool ?? "研究工具"))));
+  const lastRuntime = [...events].reverse().find(event => event.type === "runtime_completed");
+  const iterations = Number(lastRuntime?.payload.iterations ?? toolEvents.reduce((max, event) => Math.max(max, Number(event.payload.iter ?? 0)), 0));
+  const maxIterations = Number(lastRuntime?.payload.max_iterations ?? 50);
+  const runtimeItems = [
+    ["运行流程", phase === "running" ? eventLabel(events[events.length - 1]?.type ?? "running", events[events.length - 1]?.payload ?? {}) : status],
+    ["最大执行轮次", `${iterations} / ${maxIterations}`],
+    ["当前工具", tools.length ? tools.join("、") : "等待 Agent 调用"],
+    ["Skills", plan?.skills?.length ? plan.skills.join("、") : "由研究计划自动匹配"],
+    ["多智能体", "当前任务使用主研究智能体"],
+    ["上下文", task ? `研究任务 ${task.id.slice(0, 8)}` : "确认计划后建立"],
+    ["文件能力", "未附加研究文件"],
+    ["输出", phase === "done" ? "结构化报告与证据" : "等待证据校验"],
+  ];
+  return <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><header className="flex flex-wrap items-center justify-between gap-3 border-b bg-slate-950 px-5 py-4 text-white"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-primary"><Bot className="h-5 w-5"/></span><div><h2 className="font-semibold">AI 投研智能体</h2><p className="mt-0.5 text-xs text-slate-400">AgentLoop · 只读研究运行时</p></div></div><span className={`rounded-full px-3 py-1.5 text-[11px] ${phase === "running" ? "bg-emerald-500/20 text-emerald-300" : "bg-white/10"}`}>{status}</span></header>{plan && <><div className="flex flex-wrap gap-2 border-b bg-slate-50 px-5 py-3 text-xs text-slate-500"><span>执行方式：{plan.execution_mode === "agent" ? "AI Agent" : "规则降级"}</span>{plan.model && <span>· 模型：{plan.model}</span>}<span>· 数据集：{plan.datasets.filter(item => item.status !== "unavailable").length}</span>{task && <span>· 任务：{task.id.slice(0, 8)}</span>}</div><div className="grid border-b bg-white sm:grid-cols-2 xl:grid-cols-4">{runtimeItems.map(([label,value]) => <div key={label} className="min-w-0 border-b border-r p-3"><div className="text-[11px] font-semibold text-slate-400">{label}</div><div className="mt-1 truncate text-xs font-medium text-slate-700" title={value}>{value}</div></div>)}</div></>}{events.length > 0 && <div className="flex gap-2 overflow-x-auto border-b px-5 py-3 text-xs">{events.map(event => <span key={event.id} className="whitespace-nowrap rounded-full border bg-white px-3 py-1.5 text-slate-600">{eventLabel(event.type, event.payload)}</span>)}</div>}<div className="[&>section]:rounded-none [&>section]:border-0 [&>section]:shadow-none">{children}</div></section>;
 }
 
-function eventLabel(type: string, payload: Record<string, unknown>) { if (type === "tool_started") return `调用 ${String(payload.tool ?? "研究工具")}`; if (type === "tool_completed") return `${String(payload.tool ?? "研究工具")} 返回证据`; if (type === "completed") return "研究完成"; if (type === "running") return "正在检索与核验"; return String(payload.message ?? type); }
+function eventLabel(type: string, payload: Record<string, unknown>) { if (type === "tool_started" || type === "tool_call") return `调用 ${String(payload.tool ?? "研究工具")}`; if (type === "tool_completed" || type === "tool_result") return `${String(payload.tool ?? "研究工具")} 返回结果`; if (type === "llm_usage") return `AI 推理第 ${String(payload.iter ?? "-")} 轮`; if (type === "runtime_completed" || type === "completed") return "证据校验完成"; if (type === "running") return "正在检索与核验"; return String(payload.message ?? type); }
 
 function Metric({ metric }: { metric: PublicDiscovery["metrics"][number] }) {
   const unavailable = metric.quality === "unavailable" || metric.value == null;

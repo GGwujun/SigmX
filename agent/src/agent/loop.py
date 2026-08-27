@@ -320,6 +320,7 @@ class AgentLoop:
         event_callback: Optional[Callable[[str, Dict[str, Any]], None]] = None,
         max_iterations: int = 50,
         persistent_memory: Optional[Any] = None,
+        context_builder: Optional[ContextBuilder] = None,
     ) -> None:
         """Initialize AgentLoop.
 
@@ -340,6 +341,7 @@ class AgentLoop:
         self._cancelled: bool = False
         self._previous_summary: str = ""
         self._persistent_memory = persistent_memory
+        self._context_builder = context_builder
 
     def cancel(self) -> None:
         """Cancel the current loop.
@@ -375,8 +377,9 @@ class AgentLoop:
 
         state_store.save_request(run_dir, user_message, {"session_id": session_id})
 
-        context = ContextBuilder(self.registry, self.memory,
-                                  persistent_memory=self._persistent_memory)
+        context = self._context_builder or ContextBuilder(
+            self.registry, self.memory, persistent_memory=self._persistent_memory
+        )
         goal_context, active_goal_id = get_current_goal_context(session_id) if session_id else ("", None)
         llm_user_message = user_message
         if goal_context:

@@ -102,7 +102,8 @@ class ContextBuilder:
 
     def __init__(self, registry: ToolRegistry, memory: WorkspaceMemory,
                  skills_loader: Optional[SkillsLoader] = None,
-                 persistent_memory: Optional[PersistentMemory] = None) -> None:
+                 persistent_memory: Optional[PersistentMemory] = None,
+                 system_prompt: str | None = None) -> None:
         """Initialize ContextBuilder.
 
         Args:
@@ -115,6 +116,7 @@ class ContextBuilder:
         self.memory = memory
         self.skills_loader = skills_loader or SkillsLoader()
         self._persistent_memory = persistent_memory
+        self._custom_system_prompt = system_prompt
 
     def build_system_prompt(self, user_message: str = "") -> str:
         """Build system prompt.
@@ -128,6 +130,8 @@ class ContextBuilder:
         Returns:
             System prompt text.
         """
+        if self._custom_system_prompt is not None:
+            return self._custom_system_prompt
         now = datetime.now()
 
         # Build memory section only if there are saved memories

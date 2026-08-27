@@ -199,7 +199,7 @@ def _build_agent_runner():
     from pathlib import Path
     from src.api.product_routes import _get_store
     from src.product.ai_runtime_config import AIRuntimeConfigService, build_configured_chat
-    from src.research_agent.runner import ResearchAgentRunner
+    from src.research_agent.runtime import ResearchAgentRuntime
     from src.research_agent.tools import build_research_tools
     from src.skill_runtime.manifest import load_skill_manifest
 
@@ -222,15 +222,15 @@ def _build_agent_runner():
         safe = "".join(ch for ch in name if ch.isalnum() or ch in "-_")
         path = Path(__file__).resolve().parents[2] / "skills" / safe / "SKILL.md"
         manifest = load_skill_manifest(path)
-        return {"name": manifest.slug, "description": manifest.description,
+        return {"name": manifest.slug, "description": manifest.description, "instructions": manifest.content,
                 "primary_source": manifest.policy.primary_source,
                 "datahub_endpoints": list(manifest.policy.datahub_endpoints)}
 
     tools = build_research_tools(data_search=data_search, skill_loader=skill_loader)
-    return ResearchAgentRunner(
+    return ResearchAgentRuntime(
         lambda: build_configured_chat(config.execution, temperature=config.temperature,
                                       timeout_seconds=config.timeout_seconds, max_retries=config.max_retries),
-        tools, timeout_seconds=config.timeout_seconds,
+        tools, max_iterations=50,
     )
 
 
