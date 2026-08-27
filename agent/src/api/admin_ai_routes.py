@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
@@ -66,12 +68,24 @@ class SourceCredentialsInput(BaseModel):
     clear_tpdog_token: bool = False
 
 
-PROVIDER_PRESETS = [
-    {"code": "openai", "name": "OpenAI", "default_model": "gpt-5.2", "default_base_url": "https://api.openai.com/v1", "api_key_required": True},
-    {"code": "deepseek", "name": "DeepSeek", "default_model": "deepseek-chat", "default_base_url": "https://api.deepseek.com/v1", "api_key_required": True},
-    {"code": "qwen", "name": "阿里云百炼", "default_model": "qwen-max", "default_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "api_key_required": True},
-    {"code": "openrouter", "name": "OpenRouter", "default_model": "deepseek/deepseek-v3.2", "default_base_url": "https://openrouter.ai/api/v1", "api_key_required": True},
-]
+def _load_provider_catalog() -> list[dict]:
+    path = Path(__file__).resolve().parents[1] / "providers" / "llm_providers.json"
+    providers = json.loads(path.read_text(encoding="utf-8"))
+    return [
+        {
+            "code": item["name"],
+            "name": item["label"],
+            "default_model": item["default_model"],
+            "default_base_url": item["default_base_url"],
+            "api_key_required": item["api_key_required"],
+            "auth_type": item.get("auth_type", "api_key"),
+            "login_command": item.get("login_command"),
+        }
+        for item in providers
+    ]
+
+
+PROVIDER_PRESETS = _load_provider_catalog()
 
 
 router = APIRouter(
