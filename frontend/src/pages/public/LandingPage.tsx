@@ -64,7 +64,7 @@ export function LandingPage() {
   const templates = discovery?.templates ?? [];
   const showSuggestions = phase === "idle" && !query.trim();
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={activeTask?.id ?? null} onNewAnalysis={resetConversation}>
-    <div className="relative flex h-full min-h-0 flex-col">
+    <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1 flex-col">
       <div className="min-h-0 flex-1 overflow-y-auto"><AIAnalysisTimeline phase={phase} question={query} plan={plan} task={activeTask} events={agentEvents} result={result} loadError={loadError} runError={runError} onRun={run} onRetry={plan?.executable ? run : () => void buildPlan()} onUseSuggested={(question) => { setTemplate(null); void buildPlan(question, null); }} onResetPlan={editQuestion} /></div>
       <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-white via-white/95 to-transparent px-4 pb-5 pt-12 sm:px-7"><div className="pointer-events-auto mx-auto max-w-3xl">
         {showSuggestions && templates.length > 0 && <div className="mb-3 flex gap-2 overflow-x-auto pb-1">{templates.map(item => <button key={item.id} type="button" onClick={() => chooseTemplate(item)} className="shrink-0 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 shadow-sm hover:border-primary/30 hover:text-primary">{item.label}</button>)}</div>}

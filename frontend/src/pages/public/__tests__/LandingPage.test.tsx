@@ -32,6 +32,7 @@ describe("LandingPage research planning flow", () => {
     expect(await screen.findByRole("heading", { name: "SigmX AI 分析" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "今天想分析什么？" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "对话历史" })).toBeInTheDocument();
+    expect(screen.getByTestId("ai-analysis-body")).toHaveClass("flex-1", "min-h-0");
     expect(screen.queryByText(/AgentLoop|模型|Data Hub 工具|Skills/)).not.toBeInTheDocument();
   });
   beforeEach(() => {
