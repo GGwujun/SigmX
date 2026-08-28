@@ -115,13 +115,13 @@ export function AIAnalysisShell({ recentTasks, activeTaskId, onNewAnalysis, chil
   const [historyOpen, setHistoryOpen] = useState(false);
 
   return (
-    <div className="min-h-[calc(100vh-64px)] bg-slate-100 px-3 py-4 text-slate-950 sm:px-5 lg:px-6">
-      <div className="mx-auto grid min-h-[calc(100vh-96px)] max-w-[1320px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[220px_minmax(0,1fr)]">
+    <div className="bg-slate-100 px-3 py-4 text-slate-950 sm:px-5 lg:px-6">
+      <div className="mx-auto grid h-[calc(100vh-128px)] min-h-[600px] max-w-[1320px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-[220px_minmax(0,1fr)]">
         <aside className="hidden border-r border-slate-200 lg:block">
           <HistoryPanel recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} />
         </aside>
 
-        <section className="flex min-w-0 flex-col">
+        <section className="flex min-h-0 min-w-0 flex-col">
           <header className="flex min-h-16 items-center justify-between border-b border-slate-200 px-4 sm:px-6">
             <div className="flex min-w-0 items-center gap-3">
               <button
