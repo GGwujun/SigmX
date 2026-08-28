@@ -18,7 +18,7 @@ const result = { task_id: task.id, question: task.question, template_id: "divide
 function responseFor(input: RequestInfo | URL, init?: RequestInit): Response {
   const url = String(input);
   if (url === "/api/public/discovery") return new Response(JSON.stringify(discovery), { status: 200 });
-  if (url === "/api/research/tasks?limit=5") return new Response(JSON.stringify([]), { status: 200 });
+  if (url === "/api/research/tasks?limit=20") return new Response(JSON.stringify([]), { status: 200 });
   if (url === "/api/research/plans" && init?.method === "POST") return new Response(JSON.stringify(plan), { status: 200 });
   if (url === "/api/research/tasks" && init?.method === "POST") return new Response(JSON.stringify(task), { status: 201 });
   if (url === "/api/research/tasks/task-real-1/result") return new Response(JSON.stringify(result), { status: 200 });
@@ -26,13 +26,13 @@ function responseFor(input: RequestInfo | URL, init?: RequestInit): Response {
 }
 
 describe("LandingPage research planning flow", () => {
-  it("presents AI Discovery as a visible research agent workspace", async () => {
+  it("presents a user-facing AI analysis chat without technical details", async () => {
     vi.stubGlobal("fetch", vi.fn(responseFor));
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
-    expect(await screen.findByRole("heading", { name: "AI 投研智能体" })).toBeInTheDocument();
-    expect(screen.getByText(/通用研究 Agent/)).toBeInTheDocument();
-    expect(screen.getByText("Data Hub 工具")).toBeInTheDocument();
-    expect(screen.getByText("自动匹配 Skills")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "SigmX AI 分析" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "今天想分析什么？" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "对话历史" })).toBeInTheDocument();
+    expect(screen.queryByText(/AgentLoop|模型|Data Hub 工具|Skills/)).not.toBeInTheDocument();
   });
   beforeEach(() => {
     localStorage.setItem("sigmx_auth_token", "jwt-token");
@@ -40,11 +40,10 @@ describe("LandingPage research planning flow", () => {
   });
   afterEach(() => { localStorage.clear(); sessionStorage.clear(); vi.unstubAllGlobals(); });
 
-  it("renders server market values", async () => {
+  it("renders server-provided analysis suggestions", async () => {
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
-    expect(await screen.findByText("3,825.76")).toBeInTheDocument();
-    expect(screen.getByText("866 / 4,265 家")).toBeInTheDocument();
-    expect(screen.getByText("35.52亿元")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "低估值高股息" })).toBeInTheDocument();
+    expect(screen.queryByText("3,825.76")).not.toBeInTheDocument();
   });
 
   it("generates an explicit plan before creating a persisted task", async () => {
@@ -96,9 +95,9 @@ describe("LandingPage research planning flow", () => {
   });
 
   it("shows the signed-in user's recent completed research", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/research/tasks?limit=5" ? new Response(JSON.stringify([task]), { status: 200 }) : responseFor(input, init)));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/research/tasks?limit=20" ? new Response(JSON.stringify([task]), { status: 200 }) : responseFor(input, init)));
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
-    expect(await screen.findByRole("heading", { name: "最近研究" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "对话历史" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: discovery.templates[0].prompt })).toHaveAttribute("href", "/research/result/task-real-1");
   });
 });
