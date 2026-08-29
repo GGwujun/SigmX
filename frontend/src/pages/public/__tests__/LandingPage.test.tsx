@@ -29,9 +29,10 @@ describe("LandingPage research planning flow", () => {
   it("presents a user-facing AI analysis chat without technical details", async () => {
     vi.stubGlobal("fetch", vi.fn(responseFor));
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
-    expect(await screen.findByRole("heading", { name: "SigmX AI 分析" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "AI 发现" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "今天想分析什么？" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "对话历史" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("给 AI 发现发送消息")).toBeInTheDocument();
     expect(screen.getByTestId("ai-analysis-body")).toHaveClass("flex-1", "min-h-0");
     expect(screen.queryByText(/AgentLoop|模型|Data Hub 工具|Skills/)).not.toBeInTheDocument();
   });
@@ -55,7 +56,7 @@ describe("LandingPage research planning flow", () => {
     expect(screen.getByText("市盈率（TTM）不高于 20 倍")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "开始研究" }));
     expect(await screen.findByText("平安银行")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看完整结果" })).toHaveAttribute("href", "/research/result/task-real-1");
+    expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/research/result/task-real-1");
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/research/tasks", expect.objectContaining({ method: "POST" })));
   });
 

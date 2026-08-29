@@ -36,7 +36,9 @@ describe("AIAnalysisShell", () => {
     );
 
     expect(screen.getByRole("heading", { name: "对话历史" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "SigmX AI 分析" })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("搜索对话")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "AI 发现" })).toBeInTheDocument();
+    expect(screen.queryByText("股票、行业与市场研究助手")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: recentTask.question })).toHaveAttribute(
       "href",
       `/research/result/${recentTask.id}`,

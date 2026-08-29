@@ -46,10 +46,12 @@ describe("AIAnalysisTimeline", () => {
   it("renders result cards and full-result navigation", () => {
     render(<MemoryRouter><AIAnalysisTimeline {...base} phase="done" plan={plan} task={task} result={result} /></MemoryRouter>);
     expect(screen.getByText("筛得 1 家符合条件的公司。")).toBeInTheDocument();
+    expect(screen.getByText("AI 分析")).toBeInTheDocument();
+    expect(screen.getByText("已完成 1 个分析步骤")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /平安银行/ })).toHaveAttribute("href", "/stock/000001.SZ");
     expect(screen.getByText("PE 6")).toBeInTheDocument();
     expect(screen.getByText("股息率 5%")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看完整结果" })).toHaveAttribute("href", "/research/result/task-1");
+    expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/research/result/task-1");
     expect(screen.queryByText("glm-5.1")).not.toBeInTheDocument();
   });
 
