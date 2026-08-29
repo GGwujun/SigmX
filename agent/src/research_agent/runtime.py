@@ -95,7 +95,7 @@ class ResearchAgentRuntime:
         known = {str(item.get("id")) for item in evidence if item.get("id")}
         conclusions = payload.get("conclusions") or []
         if _cites_unknown_evidence(conclusions, known):
-            repaired = self._repair_output(llm, request, payload, sorted(known))
+            repaired = self._repair_output(llm, request, payload, sorted(known), emit)
             if repaired is not None:
                 payload = repaired
                 conclusions = payload.get("conclusions") or []
@@ -110,26 +110,42 @@ class ResearchAgentRuntime:
         )
 
     def _repair_output(self, llm: Any, request: ResearchRunRequest,
-                       payload: dict[str, Any], known_ids: list[str]) -> dict[str, Any] | None:
+                       payload: dict[str, Any], known_ids: list[str],
+                       emit: Callable[[dict[str, Any]], None]) -> dict[str, Any] | None:
         """Ask the model to fix conclusions that cite hallucinated evidence ids.
 
         Returns the repaired payload, or ``None`` when the repair itself
         fails — the caller then rejects the output rather than serving
         unverifiable claims.
         """
+        if known_ids:
+            instruction = (
+                "invalid_output 中的 conclusions 引用了不存在的 evidence id。"
+                "只能使用 valid_evidence_ids 里逐字出现的 id;无法引用的结论直接删除。"
+                "只输出修正后的 JSON 对象:summary、conclusions[{text,evidence_ids}]、risks。"
+            )
+        else:
+            instruction = (
+                "本次研究没有获取到任何可用证据,valid_evidence_ids 为空。"
+                "conclusions 必须输出空数组 [],不允许引用任何 evidence id;"
+                "在 summary 中如实说明数据不可用的情况与原因。"
+                "只输出修正后的 JSON 对象:summary、conclusions[]、risks。"
+            )
         prompt = json.dumps({
             "question": request.question,
             "invalid_output": payload,
             "valid_evidence_ids": known_ids,
-            "instruction": (
-                "invalid_output 中的 conclusions 引用了不存在的 evidence id。"
-                "只能使用 valid_evidence_ids 里逐字出现的 id;无法引用的结论直接删除。"
-                "只输出修正后的 JSON 对象:summary、conclusions[{text,evidence_ids}]、risks。"
-            ),
+            "instruction": instruction,
         }, ensure_ascii=False)
+        emit({"type": "repair_started", "reason": "unknown_evidence"})
         try:
             response = llm.chat([{"role": "user", "content": prompt}])
             repaired = json.loads(response.content or "{}")
         except Exception:  # noqa: BLE001 — any repair failure falls back to rejection
+            emit({"type": "repair_failed"})
             return None
-        return repaired if isinstance(repaired, dict) else None
+        if not isinstance(repaired, dict):
+            emit({"type": "repair_failed"})
+            return None
+        emit({"type": "repair_completed"})
+        return repaired

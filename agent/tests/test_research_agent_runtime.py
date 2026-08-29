@@ -116,3 +116,25 @@ def test_runtime_rejects_output_when_repair_still_hallucinates(tmp_path) -> None
 
     with pytest.raises(ValueError, match="unknown evidence"):
         runtime.run(ResearchRunRequest("寻找现金流改善公司", {"skills": []}), lambda event: None)
+
+
+def test_runtime_repair_with_empty_evidence_requires_empty_conclusions(tmp_path) -> None:
+    class EmptyEvidenceLLM(HallucinatingEvidenceLLM):
+        def chat(self, messages, tools=None, timeout=None):
+            self.chat_calls += 1
+            assert "conclusions 必须输出空数组" in messages[0]["content"]
+            return LLMResponse(content=json.dumps({
+                "summary": "数据源暂不可用，无法形成可验证结论", "conclusions": [], "risks": ["数据源不可用"],
+            }, ensure_ascii=False))
+
+    llm = EmptyEvidenceLLM(repaired_ids=[])
+    tools = build_research_tools(
+        data_search=lambda query: {"evidence": []},
+        skill_loader=lambda name: {"name": name},
+    )
+    runtime = ResearchAgentRuntime(lambda: llm, tools, max_iterations=50, runs_dir=tmp_path)
+
+    output = runtime.run(ResearchRunRequest("寻找现金流改善公司", {"skills": []}), lambda event: None)
+
+    assert output.conclusions == []
+    assert "数据" in output.summary

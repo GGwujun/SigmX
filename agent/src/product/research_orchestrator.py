@@ -29,6 +29,26 @@ class ResearchOrchestrator:
         # after each event is persisted, so SSE subscribers get real-time updates
         # while the database remains the replay source of truth.
         self._publisher = publisher
+        self._recover_stale_tasks()
+
+    def _recover_stale_tasks(self) -> None:
+        """Fail tasks left queued/running by a previous process.
+
+        The executor threads die with the process, so without recovery those
+        tasks would hang in "running" forever and the chat would show a
+        spinner that never resolves.
+        """
+        with self.store.transaction() as conn:
+            rows = conn.execute(
+                "SELECT id FROM research_tasks WHERE status IN ('queued','running')",
+            ).fetchall()
+            for row in rows:
+                conn.execute(
+                    "UPDATE research_tasks SET status='failed',error=?,finished_at=? WHERE id=?",
+                    ("服务重启导致任务中断，请重新发起分析", _now(), row["id"]),
+                )
+        for row in rows:
+            self._event(row["id"], "failed", {"message": "服务重启导致任务中断"})
 
     def start(self, user_id: str, *, question: str, template_id: str | None,
               scope: dict[str, Any], constraints: list[dict[str, Any]], idempotency_key: str,

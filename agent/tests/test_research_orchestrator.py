@@ -98,3 +98,23 @@ def test_agent_failure_marks_task_failed_instead_of_leaving_it_running(tmp_path)
     failed = _wait(orchestrator, "u1", task.id)
     assert failed.status == "failed"
     assert "model unavailable" in (failed.error or "")
+
+
+def test_orchestrator_marks_stale_tasks_failed_on_startup(tmp_path) -> None:
+    from src.data.market_store import MarketStore
+    from src.product.public_research import PublicResearchService
+    from src.product.research_tasks import ResearchTaskService
+    from src.product.store import ProductStore
+
+    store = ProductStore(tmp_path / "product.db")
+    service = ResearchTaskService(store, PublicResearchService(MarketStore(tmp_path / "market.db")))
+    ResearchOrchestrator(store, service)
+    task = service.create("u1", question="低估值", template_id=None, scope={}, constraints=[],
+                          idempotency_key="stale-task", agent_mode=False)
+    assert task.status == "queued"
+
+    ResearchOrchestrator(store, service)  # simulates a process restart
+
+    recovered = service.get("u1", task.id)
+    assert recovered.status == "failed"
+    assert "重启" in (recovered.error or "")
