@@ -48,7 +48,9 @@ export function LandingPage() {
       });
     };
     // Live stream first (real-time model output); if it fails, fall back to
-    // cursor polling inside the status loop below.
+    // cursor polling inside the status loop below. While the stream is
+    // healthy the status check drops to a slow 5s watchdog — all progress
+    // arrives over SSE, no event polling.
     let streaming = true;
     void streamResearchEvents(task.id, 0, event => mergeEvents([event]))
       .catch(() => { streaming = false; });
@@ -58,7 +60,7 @@ export function LandingPage() {
         if (!streaming) {
           void listResearchEvents(task.id, after).then(mergeEvents).catch(() => undefined);
         }
-      });
+      }, () => (streaming ? 5000 : 700));
       const [tailEvents, result] = await Promise.all([
         listResearchEvents(task.id, after).catch(() => []),
         getResearchResult(task.id),

@@ -65,6 +65,11 @@ export async function streamResearchEvents(taskId: string, after: number, onEven
     }
     throw new Error(`事件流请求失败（${response.status}）`);
   }
+  // Guard against SPA-fallback HTML (old backend without the stream route):
+  // a real SSE stream must announce itself as text/event-stream.
+  if (!(response.headers.get("content-type") ?? "").includes("text/event-stream")) {
+    throw new Error("事件流端点不可用");
+  }
   const reader = response.body?.getReader();
   if (!reader) throw new Error("事件流响应体为空");
   const decoder = new TextDecoder();
@@ -98,10 +103,10 @@ export const getResearchThread = (taskId: string) =>
 export const followUpResearchTask = (taskId: string, question: string) =>
   json<ResearchTask>(`/api/research/tasks/${encodeURIComponent(taskId)}/follow-up`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ question }) });
 
-export async function waitForResearchTask(task: ResearchTask, onUpdate?: (task: ResearchTask) => void): Promise<ResearchTask> {
+export async function waitForResearchTask(task: ResearchTask, onUpdate?: (task: ResearchTask) => void, interval: number | (() => number) = 700): Promise<ResearchTask> {
   let current = task;
   while (["queued", "running"].includes(current.status)) {
-    await new Promise(resolve => window.setTimeout(resolve, 700));
+    await new Promise(resolve => window.setTimeout(resolve, typeof interval === "function" ? interval() : interval));
     current = await getResearchTask(task.id);
     onUpdate?.(current);
   }
