@@ -14,11 +14,13 @@ describe("IntelligencePage real feed", () => {
     expect(await screen.findByText("交易所发布回购新规")).toBeInTheDocument();
     expect(screen.getByText("短期缓存命中 · 减少重复抓取")).toBeInTheDocument();
     expect(screen.queryByText(/演示/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "查看详情" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "转为研究问题" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /查看 交易所发布回购新规 新闻详情/ }));
     expect(within(screen.getByRole("dialog", { name: "情报详情" })).getByRole("link", { name: "查看原文" })).toHaveAttribute("href", "https://example.com/news");
     fireEvent.change(screen.getByLabelText("情报检索问题"), { target: { value: "回购" } });
     fireEvent.click(screen.getByRole("button", { name: "智能搜索" }));
     expect(await screen.findByText(/搜索“回购”/)).toBeInTheDocument();
-    expect(fetch).toHaveBeenLastCalledWith("/api/public/intelligence?q=%E5%9B%9E%E8%B4%AD&limit=30");
+    expect(fetch).toHaveBeenLastCalledWith("/api/public/intelligence?q=%E5%9B%9E%E8%B4%AD&limit=60");
   });
 });
