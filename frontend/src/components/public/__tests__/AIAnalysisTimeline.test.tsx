@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { AIAnalysisTimeline } from "../AIAnalysisTimeline";
@@ -23,21 +23,22 @@ describe("AIAnalysisTimeline", () => {
     expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
   });
 
-  it("keeps the model's full reasoning in a collapsed disclosure", () => {
+  it("keeps every reasoning segment and tool activity in order", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
       { id: 1, type: "running", payload: {} },
       { id: 2, type: "thinking_delta", payload: { delta: "先锁定估值与股息率条件，", iter: 1 } },
-      { id: 3, type: "thinking_delta", payload: { delta: "再查询市场数据。", iter: 1 } },
+      { id: 3, type: "tool_call", payload: { tool: "secret_stock_tool", iter: 1 } },
+      { id: 4, type: "thinking_delta", payload: { delta: "数据已就位，开始交叉验证。", iter: 2 } },
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
-    const toggle = screen.getByRole("button", { name: /思考过程/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    fireEvent.click(toggle);
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("先锁定估值与股息率条件，再查询市场数据。")).toBeInTheDocument();
+    // Both reasoning segments stay visible — newer messages never overwrite older ones
+    expect(screen.getByText("先锁定估值与股息率条件，")).toBeInTheDocument();
+    expect(screen.getByText("数据已就位，开始交叉验证。")).toBeInTheDocument();
+    expect(screen.getAllByText("正在查询研究数据")).not.toHaveLength(0);
+    expect(screen.queryByText(/secret_stock_tool/)).not.toBeInTheDocument();
   });
 
-  it("turns real runtime events into a single safe status line", () => {
+  it("turns real runtime events into a safe process timeline", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
       { id: 1, type: "running", payload: {} },
       { id: 2, type: "tool_call", payload: { tool: "secret_stock_tool", api_url: "https://secret" } },
@@ -45,11 +46,12 @@ describe("AIAnalysisTimeline", () => {
       { id: 4, type: "llm_usage", payload: { model: "glm-5.1" } },
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
-    expect(screen.getByText("正在整理和分析数据")).toBeInTheDocument();
-    // GPT-style: no plan step list, no activity history — only the latest status
+    expect(screen.getAllByText("正在整理和分析数据")).not.toHaveLength(0);
+    // Process timeline shows activity markers, but never the static plan
+    // steps, raw tool names, urls, or model identifiers
+    expect(screen.getByText("正在查询研究数据")).toBeInTheDocument();
+    expect(screen.getByText("已获取一批可用数据")).toBeInTheDocument();
     expect(screen.queryByText("筛选市场候选")).not.toBeInTheDocument();
-    expect(screen.queryByText("正在查询研究数据")).not.toBeInTheDocument();
-    expect(screen.queryByText("已获取一批可用数据")).not.toBeInTheDocument();
     expect(screen.queryByText(/secret_stock_tool|https:\/\/secret|glm-5.1/)).not.toBeInTheDocument();
   });
 

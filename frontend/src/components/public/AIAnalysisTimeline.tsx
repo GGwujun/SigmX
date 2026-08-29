@@ -1,22 +1,26 @@
 import { useState } from "react";
-import { AlertCircle, ArrowRight, ChevronDown, ChevronRight, Copy, LoaderCircle, RefreshCw, RotateCcw, Sparkles } from "lucide-react";
+import { AlertCircle, ArrowRight, ChevronDown, ChevronRight, Copy, LoaderCircle, RefreshCw, RotateCcw, Sparkles, Wrench } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { ResearchConversationTurn, ResearchEvent, ResearchResult, ResearchTask } from "@/lib/researchApi";
 
 interface Props { turns: ResearchConversationTurn[]; pendingQuestion: string; planning: boolean; pendingError: string; loadError: string; onRetry: (task: ResearchTask) => void }
 
+function activityMessage(event: ResearchEvent): string {
+  if (event.type === "queued") return "研究任务已进入执行队列";
+  if (event.type === "running") return "正在检索和核验证据";
+  if (event.type === "tool_call" || event.type === "tool_started") return "正在查询研究数据";
+  if (event.type === "tool_progress") return "正在获取并解析数据";
+  if (event.type === "tool_result" || event.type === "tool_completed") return event.payload.status === "error" ? "部分数据源暂不可用，正在尝试其他来源" : "已获取一批可用数据";
+  if (event.type === "text_delta") return "正在生成分析结论";
+  if (event.type === "llm_usage") return "正在整理和分析数据";
+  if (event.type === "runtime_completed" || event.type === "completed") return "分析完成，正在生成结论";
+  return "";
+}
+
 function safeActivity(events: ResearchEvent[]) {
   const messages: string[] = [];
   for (const event of events) {
-    let message = "";
-    if (event.type === "queued") message = "研究任务已进入执行队列";
-    else if (event.type === "running") message = "正在检索和核验证据";
-    else if (event.type === "tool_call" || event.type === "tool_started") message = "正在查询研究数据";
-    else if (event.type === "tool_progress") message = "正在获取并解析数据";
-    else if (event.type === "tool_result" || event.type === "tool_completed") message = event.payload.status === "error" ? "部分数据源暂不可用，正在尝试其他来源" : "已获取一批可用数据";
-    else if (event.type === "text_delta") message = "正在生成分析结论";
-    else if (event.type === "llm_usage") message = "正在整理和分析数据";
-    else if (event.type === "runtime_completed" || event.type === "completed") message = "分析完成，正在生成结论";
+    const message = activityMessage(event);
     if (message && messages[messages.length - 1] !== message) messages.push(message);
   }
   return messages.slice(-5);
@@ -28,32 +32,50 @@ export function AIAnalysisTimeline({ turns, pendingQuestion, planning, pendingEr
 }
 
 function ConversationTurn({ turn, onRetry }: { turn: ResearchConversationTurn; onRetry: (task: ResearchTask) => void }) {
-  return <><UserMessage>{turn.task.question}</UserMessage><Assistant>{turn.result ? <><ThinkingBlock events={turn.events} /><Result result={turn.result} /></> : turn.task.status === "failed" ? <ErrorReply message={turn.task.error || "分析执行失败"} onRetry={() => onRetry(turn.task)} /> : <RunningProgress events={turn.events} />}</Assistant></>;
+  return <><UserMessage>{turn.task.question}</UserMessage><Assistant>{turn.result ? <><ProcessTimeline events={turn.events} /><Result result={turn.result} /></> : turn.task.status === "failed" ? <ErrorReply message={turn.task.error || "分析执行失败"} onRetry={() => onRetry(turn.task)} /> : <RunningProgress events={turn.events} />}</Assistant></>;
 }
 
-/** Concatenate the model's full reasoning stream — never truncated, so older
- *  thinking is never overwritten by newer chunks. */
-function thinkingText(events: ResearchEvent[]): string {
+type ProcessItem = { kind: "thinking"; key: string; text: string } | { kind: "activity"; key: string; message: string };
+
+/** Rebuild the analysis process as an ordered timeline: reasoning segments
+ *  interleaved with tool-activity markers, every segment kept — nothing is
+ *  overwritten by later messages. text_delta (the final JSON answer) is
+ *  never shown raw. */
+function ProcessTimeline({ events }: { events: ResearchEvent[] }) {
+  const items: ProcessItem[] = [];
   let thinking = "";
+  const flush = () => {
+    if (thinking.trim()) items.push({ kind: "thinking", key: `t-${items.length}`, text: thinking });
+    thinking = "";
+  };
   for (const event of events) {
-    if (event.type === "thinking_delta") thinking += String(event.payload.delta ?? "");
+    if (event.type === "thinking_delta") { thinking += String(event.payload.delta ?? ""); continue; }
+    if (event.type === "text_delta") continue;
+    const message = activityMessage(event);
+    if (!message) continue;
+    flush();
+    const last = items[items.length - 1];
+    if (!(last && last.kind === "activity" && last.message === message)) {
+      items.push({ kind: "activity", key: `e-${event.id || items.length}`, message });
+    }
   }
-  return thinking;
+  flush();
+  if (!items.length) return null;
+  return <div className="my-3 space-y-2">{items.map(item => item.kind === "thinking"
+    ? <ThinkingSegment key={item.key} text={item.text} />
+    : <p key={item.key} className="flex items-center gap-2 text-[12px] text-zinc-400"><Wrench className="h-3 w-3 shrink-0" />{item.message}</p>)}</div>;
 }
 
-/** Collapsible "思考过程" disclosure (ChatGPT-style): collapsed by default with
- *  a one-line live preview; expands to the full reasoning in a scrollable panel. */
-function ThinkingBlock({ events }: { events: ResearchEvent[] }) {
+/** One reasoning segment: fully visible when short, clamped with an expand
+ *  toggle when long — older segments are never cut off by newer ones. */
+function ThinkingSegment({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
-  const thinking = thinkingText(events);
-  if (!thinking) return null;
-  return <div className="my-3 rounded-lg border border-zinc-100 bg-zinc-50/60">
-    <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)} className="flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] text-zinc-500">
-      {expanded ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
-      <span className="shrink-0 font-medium">思考过程</span>
-      {!expanded && <span className="truncate text-zinc-400">{thinking.slice(-160)}</span>}
-    </button>
-    {expanded && <div className="max-h-72 overflow-y-auto border-t border-zinc-100 px-3 py-2"><p className="whitespace-pre-wrap text-[13px] leading-6 text-zinc-500">{thinking}</p></div>}
+  const long = text.length > 240;
+  return <div className="rounded-lg border border-zinc-100 bg-zinc-50/60 px-3 py-2">
+    <p className={`whitespace-pre-wrap text-[13px] leading-6 text-zinc-500 ${long && !expanded ? "line-clamp-3" : ""}`}>{text}</p>
+    {long && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)} className="mt-1 flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600">
+      {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}{expanded ? "收起思考" : "展开思考"}
+    </button>}
   </div>;
 }
 
@@ -63,11 +85,9 @@ function Assistant({ children }: { children: React.ReactNode }) { return <articl
 function RunningProgress({ events }: { events: ResearchEvent[] }) {
   const activity = safeActivity(events);
   const currentActivity = activity[activity.length - 1];
-  // text_delta is the final JSON answer — never shown raw; it only drives the
-  // "正在生成分析结论" status above. Reasoning lives in the collapsible block.
   return <>
     <p className="flex items-center gap-2 text-[14px] text-zinc-500"><LoaderCircle className="h-4 w-4 animate-spin text-zinc-400" />{currentActivity || "正在准备分析"}</p>
-    <ThinkingBlock events={events} />
+    <ProcessTimeline events={events} />
   </>;
 }
 
