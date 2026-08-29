@@ -23,7 +23,7 @@ describe("AIAnalysisTimeline", () => {
     expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
   });
 
-  it("turns real runtime events into safe streaming activity", () => {
+  it("turns real runtime events into a single safe status line", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
       { id: 1, type: "running", payload: {} },
       { id: 2, type: "tool_call", payload: { tool: "secret_stock_tool", api_url: "https://secret" } },
@@ -31,9 +31,11 @@ describe("AIAnalysisTimeline", () => {
       { id: 4, type: "llm_usage", payload: { model: "glm-5.1" } },
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
-    expect(screen.getAllByText("正在整理和分析数据")).not.toHaveLength(0);
-    expect(screen.getByText("正在查询研究数据")).toBeInTheDocument();
-    expect(screen.getByText("已获取一批可用数据")).toBeInTheDocument();
+    expect(screen.getByText("正在整理和分析数据")).toBeInTheDocument();
+    // GPT-style: no plan step list, no activity history — only the latest status
+    expect(screen.queryByText("筛选市场候选")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在查询研究数据")).not.toBeInTheDocument();
+    expect(screen.queryByText("已获取一批可用数据")).not.toBeInTheDocument();
     expect(screen.queryByText(/secret_stock_tool|https:\/\/secret|glm-5.1/)).not.toBeInTheDocument();
   });
 
