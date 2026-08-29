@@ -23,36 +23,39 @@ describe("AIAnalysisTimeline", () => {
     expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
   });
 
-  it("keeps every reasoning segment and tool activity in order", () => {
+  it("renders model replies, tool activity, and continued replies in Agent order", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
-      { id: 1, type: "running", payload: {} },
-      { id: 2, type: "thinking_delta", payload: { delta: "先锁定估值与股息率条件，", iter: 1 } },
-      { id: 3, type: "tool_call", payload: { tool: "secret_stock_tool", iter: 1 } },
-      { id: 4, type: "thinking_delta", payload: { delta: "数据已就位，开始交叉验证。", iter: 2 } },
+      { id: 1, type: "assistant_delta", payload: { segment_id: "s1", delta: "我先核验行情。", iter: 1 } },
+      { id: 2, type: "tool_call", payload: { tool: "search_market_data", iter: 1 } },
+      { id: 3, type: "tool_result", payload: { tool: "search_market_data", status: "ok", evidence_count: 8 } },
+      { id: 4, type: "assistant_delta", payload: { segment_id: "s2", delta: "行情已经拿到，继续分析财务质量。", iter: 2 } },
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
-    // Both reasoning segments stay visible — newer messages never overwrite older ones
-    expect(screen.getByText("先锁定估值与股息率条件，")).toBeInTheDocument();
-    expect(screen.getByText("数据已就位，开始交叉验证。")).toBeInTheDocument();
-    expect(screen.getAllByText("正在查询研究数据")).not.toHaveLength(0);
-    expect(screen.queryByText(/secret_stock_tool/)).not.toBeInTheDocument();
+
+    const firstReply = screen.getByText("我先核验行情。");
+    const tool = screen.getByRole("button", { name: /查询研究数据/ });
+    const secondReply = screen.getByText("行情已经拿到，继续分析财务质量。");
+    expect(firstReply.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(tool.compareDocumentPosition(secondReply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("turns real runtime events into a safe process timeline", () => {
+  it("never renders raw thinking or final JSON deltas", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
-      { id: 1, type: "running", payload: {} },
-      { id: 2, type: "tool_call", payload: { tool: "secret_stock_tool", api_url: "https://secret" } },
-      { id: 3, type: "tool_result", payload: { tool: "secret_stock_tool", evidence_count: 8 } },
-      { id: 4, type: "llm_usage", payload: { model: "glm-5.1" } },
+      { id: 1, type: "thinking_delta", payload: { delta: "internal English reasoning" } },
+      { id: 2, type: "text_delta", payload: { delta: "{\"summary\":\"raw JSON\"}" } },
+      { id: 3, type: "assistant_delta", payload: { segment_id: "safe", delta: "正在核验公开数据。" } },
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
-    expect(screen.getAllByText("正在整理和分析数据")).not.toHaveLength(0);
-    // Process timeline shows activity markers, but never the static plan
-    // steps, raw tool names, urls, or model identifiers
-    expect(screen.getByText("正在查询研究数据")).toBeInTheDocument();
-    expect(screen.getByText("已获取一批可用数据")).toBeInTheDocument();
-    expect(screen.queryByText("筛选市场候选")).not.toBeInTheDocument();
-    expect(screen.queryByText(/secret_stock_tool|https:\/\/secret|glm-5.1/)).not.toBeInTheDocument();
+    expect(screen.getByText("正在核验公开数据。")).toBeInTheDocument();
+    expect(screen.queryByText(/internal English reasoning|raw JSON/)).not.toBeInTheDocument();
+  });
+
+  it("shows a streaming cursor on the latest live assistant segment", () => {
+    const turn: ResearchConversationTurn = { task, result: null, events: [
+      { id: 1, type: "assistant_delta", payload: { segment_id: "live", delta: "正在分析最新数据。" } },
+    ] };
+    render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
+    expect(screen.getByTestId("assistant-streaming-cursor")).toBeInTheDocument();
   });
 
   it("renders results inline and keeps multiple restored turns in one chat", () => {
