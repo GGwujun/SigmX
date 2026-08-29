@@ -144,6 +144,16 @@ class ResearchTaskService:
     def run(self, user_id: str, task_id: str) -> ResearchTask:
         return self._run(user_id, task_id)
 
+    def mark_running(self, user_id: str, task_id: str) -> ResearchTask:
+        self.get(user_id, task_id)
+        started_at = self._now()
+        with self.store.transaction() as conn:
+            conn.execute(
+                "UPDATE research_tasks SET status='running',steps_json=?,started_at=? WHERE id=? AND user_id=?",
+                (json.dumps([asdict(step) for step in self._steps("running")], ensure_ascii=False), started_at, task_id, user_id),
+            )
+        return self.get(user_id, task_id)
+
     def get(self, user_id: str, task_id: str) -> ResearchTask:
         with self.store._lock:
             row = self.store._get_conn().execute(

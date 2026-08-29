@@ -272,7 +272,7 @@ def _build_agent_runner():
         lambda: build_configured_chat(config.execution, temperature=config.temperature,
                                       timeout_seconds=config.timeout_seconds, max_retries=config.max_retries,
                                       reasoning_effort=config.reasoning_effort),
-        tools, max_iterations=50,
+        tools, max_iterations=12,
     )
 
 
@@ -352,6 +352,14 @@ async def list_research_events(task_id: str, after: int = 0, user: dict = Depend
         return _get_orchestrator().events(user["id"], task_id, after)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+
+
+@router.get("/{task_id}/thread")
+async def get_research_thread(task_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    try:
+        return {"turns": _get_orchestrator().thread(user["id"], task_id)}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究对话不存在") from exc
 
 
 @router.post("/{task_id}/retry", response_model=ResearchTaskResponse, status_code=status.HTTP_201_CREATED)

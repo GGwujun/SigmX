@@ -1,4 +1,5 @@
 import json
+import pytest
 
 from src.providers.chat import LLMResponse, ToolCallRequest
 from src.research_agent.runner import ResearchRunRequest
@@ -38,3 +39,26 @@ def test_runtime_uses_agent_loop_and_collects_evidence(tmp_path) -> None:
     assert output.evidence[0]["id"] == "e-1"
     assert output.model == "test-model"
     assert "extract_shadow_strategy" not in llm.system_prompt
+
+
+class RepeatingToolLLM:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def stream_chat(self, messages, tools=None, on_text_chunk=None, timeout=None):
+        self.calls += 1
+        return LLMResponse(tool_calls=[ToolCallRequest(str(self.calls), "search_market_data", {"query": "继续检索"})])
+
+
+def test_runtime_stops_repetitive_research_after_twelve_iterations(tmp_path) -> None:
+    llm = RepeatingToolLLM()
+    tools = build_research_tools(
+        data_search=lambda query: {"evidence": []},
+        skill_loader=lambda name: {"name": name},
+    )
+    runtime = ResearchAgentRuntime(lambda: llm, tools, runs_dir=tmp_path)
+
+    with pytest.raises(RuntimeError):
+        runtime.run(ResearchRunRequest("持续检索", {"skills": []}), lambda event: None)
+
+    assert llm.calls == 12

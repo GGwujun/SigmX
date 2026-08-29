@@ -58,8 +58,10 @@ def test_retry_creates_child_task(tmp_path):
 
 def test_agent_mode_uses_research_runner_and_persists_conclusions(tmp_path):
     from src.research_agent.runner import AgentResearchOutput
+    observed_statuses = []
     class _Runner:
         def run(self, request, emit, cancel=None):
+            observed_statuses.append(service.list("u1", 1)[0].status)
             emit({"type": "tool_completed", "tool": "search_market_data", "evidence_count": 1})
             return AgentResearchOutput(
                 summary="现金流质量改善", conclusions=[{"text": "候选值得继续研究", "evidence_ids": ["e1"]}],
@@ -79,6 +81,7 @@ def test_agent_mode_uses_research_runner_and_persists_conclusions(tmp_path):
     result = service.result("u1", task.id)
     assert result.conclusions[0]["evidence_ids"] == ["e1"]
     assert result.model == "test-model"
+    assert observed_statuses == ["running"]
 
 
 def test_agent_failure_marks_task_failed_instead_of_leaving_it_running(tmp_path):

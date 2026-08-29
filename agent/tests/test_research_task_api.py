@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -210,3 +211,30 @@ def test_confirmed_plan_uses_async_task_and_exposes_events_and_retry() -> None:
     assert events
     retried = asyncio.run(routes.retry_research_task(task.id, user={"id": "u1"}))
     assert retried.id != task.id
+
+
+def test_research_thread_restores_parent_and_follow_up_oldest_first() -> None:
+    parent = routes._orchestrator.start(
+        "u1", question="低估值 高股息", template_id="dividend", scope={}, constraints=[],
+        idempotency_key="thread-parent", plan={"execution_mode": "rules_fallback"},
+    )
+    for _ in range(100):
+        parent = routes._orchestrator.get("u1", parent.id)
+        if parent.status == "succeeded":
+            break
+        time.sleep(.01)
+    child = routes._orchestrator.start(
+        "u1", question="再看看银行业", template_id="dividend", scope={}, constraints=[],
+        idempotency_key="thread-child", plan={"execution_mode": "rules_fallback"}, parent_task_id=parent.id,
+    )
+    for _ in range(100):
+        child = routes._orchestrator.get("u1", child.id)
+        if child.status == "succeeded":
+            break
+        time.sleep(.01)
+
+    thread = asyncio.run(routes.get_research_thread(child.id, user={"id": "u1"}))
+
+    assert [turn["task"]["id"] for turn in thread["turns"]] == [parent.id, child.id]
+    assert all(turn["result"] is not None for turn in thread["turns"])
+    assert all(isinstance(turn["events"], list) for turn in thread["turns"])

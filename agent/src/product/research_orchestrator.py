@@ -49,6 +49,7 @@ class ResearchOrchestrator:
             meta = self.metadata(user_id, task_id)
             plan = meta["plan"]
             if plan.get("execution_mode") == "agent" and self.runner_factory is not None:
+                self.service.mark_running(user_id, task_id)
                 runner = self.runner_factory()
                 task = self.service.get(user_id, task_id)
                 output = runner.run(
@@ -99,6 +100,19 @@ class ResearchOrchestrator:
             ).fetchall()
         return [{"id": row["id"], "type": row["event_type"],
                  "payload": json.loads(row["payload_json"]), "created_at": row["created_at"]} for row in rows]
+
+    def thread(self, user_id: str, task_id: str) -> list[dict[str, Any]]:
+        turns: list[dict[str, Any]] = []
+        current_id: str | None = task_id
+        visited: set[str] = set()
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            task = self.service.get(user_id, current_id)
+            result = asdict(self.service.result(user_id, current_id)) if task.status == "succeeded" else None
+            turns.append({"task": asdict(task), "events": self.events(user_id, current_id), "result": result})
+            current_id = self.metadata(user_id, current_id)["parent_task_id"]
+        turns.reverse()
+        return turns
 
     def _event(self, task_id: str, event_type: str, payload: dict[str, Any]) -> None:
         safe = {key: value for key, value in payload.items() if key.lower() not in {"api_key", "secret", "token"}}

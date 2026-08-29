@@ -45,7 +45,7 @@ class _CallableResearchTool(BaseTool):
 class ResearchAgentRuntime:
     def __init__(
         self, llm_factory: Callable[[], Any], tools: list[ResearchTool], *,
-        max_iterations: int = 50, runs_dir: str | Path | None = None,
+        max_iterations: int = 12, runs_dir: str | Path | None = None,
     ) -> None:
         self.llm_factory = llm_factory
         self.tools = tools

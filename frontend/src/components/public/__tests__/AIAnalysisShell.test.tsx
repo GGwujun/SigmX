@@ -41,7 +41,7 @@ describe("AIAnalysisShell", () => {
     expect(screen.queryByText("股票、行业与市场研究助手")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: recentTask.question })).toHaveAttribute(
       "href",
-      `/research/result/${recentTask.id}`,
+      `/?conversation=${recentTask.id}`,
     );
     expect(screen.getByText("当前对话")).toBeInTheDocument();
     expect(screen.queryByText(/glm-|provider|api url/i)).not.toBeInTheDocument();

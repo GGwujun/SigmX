@@ -22,6 +22,7 @@ function responseFor(input: RequestInfo | URL, init?: RequestInit): Response {
   if (url === "/api/research/plans" && init?.method === "POST") return new Response(JSON.stringify(plan), { status: 200 });
   if (url === "/api/research/tasks" && init?.method === "POST") return new Response(JSON.stringify(task), { status: 201 });
   if (url === "/api/research/tasks/task-real-1/result") return new Response(JSON.stringify(result), { status: 200 });
+  if (url === "/api/research/tasks/task-real-1/thread") return new Response(JSON.stringify({ turns: [{ task, events: [{ id: 1, type: "completed", payload: { message: "研究结果已生成" }, created_at: task.finished_at }], result }] }), { status: 200 });
   return new Response("not found", { status: 404 });
 }
 
@@ -48,16 +49,34 @@ describe("LandingPage research planning flow", () => {
     expect(screen.queryByText("3,825.76")).not.toBeInTheDocument();
   });
 
-  it("generates an explicit plan before creating a persisted task", async () => {
+  it("automatically plans and runs research without exposing a plan confirmation", async () => {
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /低估值高股息/ }));
-    fireEvent.click(screen.getByRole("button", { name: "生成研究计划" }));
-    expect(await screen.findByRole("heading", { name: "研究计划" })).toBeInTheDocument();
-    expect(screen.getByText("市盈率（TTM）不高于 20 倍")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "开始研究" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
     expect(await screen.findByText("平安银行")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "查看完整分析" })).toHaveAttribute("href", "/research/result/task-real-1");
+    expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "开始研究" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "查看完整分析" })).not.toBeInTheDocument();
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/research/tasks", expect.objectContaining({ method: "POST" })));
+  });
+
+  it("restores a saved analysis inside the chat workspace", async () => {
+    render(<MemoryRouter initialEntries={["/?conversation=task-real-1"]}><LandingPage /></MemoryRouter>);
+
+    expect(await screen.findByText(result.summary)).toBeInTheDocument();
+    expect(screen.getByText(task.question)).toBeInTheDocument();
+    expect(screen.getByText("平安银行")).toBeInTheDocument();
+    expect(fetch).toHaveBeenCalledWith("/api/research/tasks/task-real-1/thread", expect.anything());
+  });
+
+  it("clears the composer after sending while keeping the question in the conversation", async () => {
+    render(<MemoryRouter><LandingPage /></MemoryRouter>);
+    const composer = await screen.findByLabelText("研究问题");
+    fireEvent.change(composer, { target: { value: "帮我筛选低估值、高股息的 A 股公司" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+
+    expect(screen.getByText("帮我筛选低估值、高股息的 A 股公司")).toBeInTheDocument();
+    expect(composer).toHaveValue("");
   });
 
   it("blocks task creation for unavailable conditions and offers a replacement", async () => {
@@ -66,10 +85,10 @@ describe("LandingPage research planning flow", () => {
     vi.stubGlobal("fetch", fetchMock);
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
     fireEvent.change(await screen.findByLabelText("研究问题"), { target: { value: unavailable.question } });
-    fireEvent.click(screen.getByRole("button", { name: "生成研究计划" }));
-    expect(await screen.findByText("暂不可用")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "开始研究" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "采用可执行版本" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    expect(await screen.findByRole("heading", { name: "分析没有完成" })).toBeInTheDocument();
+    expect(screen.getByText("多期数据尚未接入")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/research/tasks")).toBe(false);
   });
 
@@ -77,9 +96,8 @@ describe("LandingPage research planning flow", () => {
     localStorage.clear();
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /低估值高股息/ }));
-    fireEvent.click(screen.getByRole("button", { name: "生成研究计划" }));
-    fireEvent.click(await screen.findByRole("button", { name: "开始研究" }));
-    expect(sessionStorage.getItem("sigmx.pendingResearchPlan.v1")).toContain("plan-1");
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+    await waitFor(() => expect(sessionStorage.getItem("sigmx.pendingResearchPlan.v1")).toContain("plan-1"));
     expect(fetch).not.toHaveBeenCalledWith("/api/research/tasks", expect.anything());
   });
 
@@ -90,8 +108,7 @@ describe("LandingPage research planning flow", () => {
     }));
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
     fireEvent.click(await screen.findByRole("button", { name: /低估值高股息/ }));
-    fireEvent.click(screen.getByRole("button", { name: "生成研究计划" }));
-    fireEvent.click(await screen.findByRole("button", { name: "开始研究" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
 
     await waitFor(() => expect(sessionStorage.getItem("sigmx.pendingResearchPlan.v1")).toContain("plan-1"));
   });
@@ -100,6 +117,6 @@ describe("LandingPage research planning flow", () => {
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/research/tasks?limit=20" ? new Response(JSON.stringify([task]), { status: 200 }) : responseFor(input, init)));
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
     expect(await screen.findByRole("heading", { name: "对话历史" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: discovery.templates[0].prompt })).toHaveAttribute("href", "/research/result/task-real-1");
+    expect(screen.getByRole("link", { name: discovery.templates[0].prompt })).toHaveAttribute("href", "/?conversation=task-real-1");
   });
 });
