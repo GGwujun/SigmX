@@ -50,7 +50,6 @@ class LegacyNewsAdapter(IntelligenceSourceAdapter):
 
 
 def default_legacy_sources() -> list[LegacyNewsAdapter]:
-    from src.api.news_routes import _fetch_bing_news, _fetch_wallstreetcn
     from src.data.astock_client import eastmoney_global_news, sina_7x24_news
     from src.data.tushare_news_client import fetch_tushare_news
 
@@ -86,5 +85,6 @@ def default_legacy_sources() -> list[LegacyNewsAdapter]:
         LegacyNewsAdapter("xueqiu", "雪球", "media", tushare("xq")),
         LegacyNewsAdapter("jinshi", "金十数据", "media", tushare("jinshi")),
         LegacyNewsAdapter("jinrongjie", "金融界", "media", tushare("jinrongjie")),
-        LegacyNewsAdapter("bing", "Bing", "search", lambda limit, query: _fetch_bing_news(f"A股 {query}".strip(), limit)),
+        # Bing 网页搜索兜底源已下线:来源不可控且无发布时间,九个一手媒体源
+        # 接通后只会稀释聚类质量。
     ]
