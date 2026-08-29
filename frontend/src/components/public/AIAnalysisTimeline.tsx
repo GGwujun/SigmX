@@ -28,7 +28,7 @@ function safeActivity(events: ResearchEvent[]) {
 
 export function AIAnalysisTimeline({ turns, pendingQuestion, planning, pendingError, loadError, onRetry }: Props) {
   if (!turns.length && !pendingQuestion) return <div className="mx-auto flex min-h-[480px] max-w-2xl flex-col items-center justify-center px-6 pb-28 text-center"><span className="grid h-10 w-10 place-items-center rounded-full bg-zinc-950 text-white shadow-[0_1px_2px_rgba(0,0,0,.16)]"><Sparkles className="h-[18px] w-[18px] stroke-[1.8]" /></span><h2 className="mt-5 text-[24px] font-semibold leading-8 tracking-[-0.035em] text-zinc-950">今天想分析什么？</h2><p className="mt-2.5 max-w-xl text-[14px] leading-6 text-zinc-500">描述你关注的股票、行业或筛选条件，我会查询数据、核验证据并直接给出分析。</p>{loadError && <p className="mt-5 text-sm text-amber-700">部分市场信息暂时不可用，但仍可继续创建分析。</p>}</div>;
-  return <div className="mx-4 space-y-10 py-9 pb-10 sm:mx-8 lg:mx-12 xl:mx-20 2xl:mx-24">{turns.map(turn => <ConversationTurn key={turn.task.id} turn={turn} onRetry={onRetry} />)}{pendingQuestion && <><UserMessage>{pendingQuestion}</UserMessage><Assistant>{planning ? <><p className="text-[14px] leading-6 text-zinc-800">正在理解你的问题</p><p className="mt-1 text-[13px] leading-5 text-zinc-500">接下来会自动查询数据并完成分析</p></> : <ErrorReply message={pendingError || "暂时无法开始本次分析，请稍后再试。"} />}</Assistant></>}</div>;
+  return <div className="mx-auto w-full max-w-[960px] space-y-8 px-6 py-8 pb-12">{turns.map(turn => <ConversationTurn key={turn.task.id} turn={turn} onRetry={onRetry} />)}{pendingQuestion && <><UserMessage>{pendingQuestion}</UserMessage><Assistant>{planning ? <><p className="text-[14px] leading-6 text-zinc-800">正在理解你的问题</p><p className="mt-1 text-[13px] leading-5 text-zinc-500">接下来会自动查询数据并完成分析</p></> : <ErrorReply message={pendingError || "暂时无法开始本次分析，请稍后再试。"} />}</Assistant></>}</div>;
 }
 
 function ConversationTurn({ turn, onRetry }: { turn: ResearchConversationTurn; onRetry: (task: ResearchTask) => void }) {
@@ -61,19 +61,20 @@ function ProcessTimeline({ events }: { events: ResearchEvent[] }) {
   }
   flush();
   if (!items.length) return null;
-  return <div className="my-3 space-y-2">{items.map(item => item.kind === "thinking"
+  return <div className="my-3 space-y-2.5">{items.map(item => item.kind === "thinking"
     ? <ThinkingSegment key={item.key} text={item.text} />
-    : <p key={item.key} className="flex items-center gap-2 text-[12px] text-zinc-400"><Wrench className="h-3 w-3 shrink-0" />{item.message}</p>)}</div>;
+    : <p key={item.key} className="flex items-center gap-2 pl-1 text-[12px] leading-5 text-zinc-400"><Wrench className="h-3 w-3 shrink-0 stroke-[1.8]" />{item.message}</p>)}</div>;
 }
 
-/** One reasoning segment: fully visible when short, clamped with an expand
- *  toggle when long — older segments are never cut off by newer ones. */
+/** One reasoning segment: plain muted text with a soft left guide, fully
+ *  visible when short, clamped with an expand toggle when long — older
+ *  segments are never cut off by newer ones. */
 function ThinkingSegment({ text }: { text: string }) {
   const [expanded, setExpanded] = useState(false);
   const long = text.length > 240;
-  return <div className="rounded-lg border border-zinc-100 bg-zinc-50/60 px-3 py-2">
-    <p className={`whitespace-pre-wrap text-[13px] leading-6 text-zinc-500 ${long && !expanded ? "line-clamp-3" : ""}`}>{text}</p>
-    {long && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)} className="mt-1 flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-600">
+  return <div className="border-l-2 border-zinc-200/80 py-0.5 pl-3">
+    <p className={`whitespace-pre-wrap text-[13px] leading-6 text-zinc-400 ${long && !expanded ? "line-clamp-3" : ""}`}>{text}</p>
+    {long && <button type="button" aria-expanded={expanded} onClick={() => setExpanded(value => !value)} className="mt-1 flex items-center gap-1 text-[11px] text-zinc-400 transition-colors hover:text-zinc-600">
       {expanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}{expanded ? "收起思考" : "展开思考"}
     </button>}
   </div>;

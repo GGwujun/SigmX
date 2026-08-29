@@ -7,7 +7,11 @@ interface Props { recentTasks: ResearchTask[]; activeTaskId: string | null; onNe
 const isToday = (value: string) => new Date(value).toDateString() === new Date().toDateString();
 
 function HistoryList({ tasks, activeTaskId, onSelect }: { tasks: ResearchTask[]; activeTaskId: string | null; onSelect?: () => void }) {
-  const groups = useMemo(() => ({ today: tasks.filter(item => isToday(item.created_at)), earlier: tasks.filter(item => !isToday(item.created_at)) }), [tasks]);
+  const groups = useMemo(() => {
+    // Retries of the same question produce many identical rows — keep the newest one.
+    const unique = tasks.filter((item, index, all) => all.findIndex(other => other.question === item.question) === index);
+    return { today: unique.filter(item => isToday(item.created_at)), earlier: unique.filter(item => !isToday(item.created_at)) };
+  }, [tasks]);
   if (!tasks.length) return <div className="mx-4 mt-12 text-center text-sm text-zinc-400"><History className="mx-auto mb-3 h-[18px] w-[18px] stroke-[1.7]" /><p className="font-medium text-zinc-600">还没有分析记录</p><p className="mt-1.5 text-xs leading-5 text-zinc-400">开始一次分析后会显示在这里</p></div>;
   const group = (label: string, items: ResearchTask[]) => items.length ? <section className="mt-6"><h3 className="px-3 text-[12px] font-medium text-zinc-500">{label}</h3><div className="mt-1.5 space-y-0.5">{items.map(item => <Link key={item.id} to={`/?conversation=${item.id}`} aria-label={item.question} aria-current={item.id === activeTaskId ? "page" : undefined} onClick={onSelect} className={`block truncate rounded-[9px] px-3 py-[9px] text-[13px] leading-5 transition-colors ${item.id === activeTaskId ? "bg-zinc-200/75 font-medium text-zinc-950" : "text-zinc-700 hover:bg-zinc-200/55 hover:text-zinc-950"}`}>{item.question}</Link>)}</div></section> : null;
   return <>{group("今天", groups.today)}{group("更早", groups.earlier)}</>;
