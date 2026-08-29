@@ -50,14 +50,34 @@ def test_failed_refresh_falls_back_to_cache_no_older_than_24_hours(tmp_path: Pat
     assert expired["articles"] == []
 
 
-def test_news_aggregation_deduplicates_same_url_across_sources(monkeypatch) -> None:
-    monkeypatch.setattr(news_routes, "_fetch_wallstreetcn", lambda limit, keyword: [
-        {"title": "原始标题", "url": "https://example.test/same", "source": "源一", "published": "", "snippet": ""},
-    ])
-    monkeypatch.setattr(news_routes, "_fetch_bing_news", lambda query, max_results: [
-        {"title": "转载标题", "url": "https://example.test/same", "source": "源二", "published": "", "snippet": ""},
-    ])
+def test_news_aggregation_deduplicates_same_title_across_sources(monkeypatch) -> None:
+    rows = {
+        "wallstreetcn": [
+            {"title": "相同标题", "snippet": "华尔街见闻版本", "published": "Fri, 29 Aug 2026 10:00:00 +0800", "url": ""},
+            {"title": "独有标题", "snippet": "只有见闻有", "published": "Fri, 29 Aug 2026 09:00:00 +0800", "url": ""},
+        ],
+        "cls": [
+            {"title": "相同标题", "snippet": "财联社转载", "published": "Fri, 29 Aug 2026 10:05:00 +0800", "url": ""},
+        ],
+    }
+    monkeypatch.setattr("src.data.tushare_news_client.fetch_tushare_news",
+                        lambda src, limit: rows[src])
 
-    result = news_routes._build_news_list("测试")
+    result = news_routes._build_news_list("")
 
-    assert len(result["articles"]) == 1
+    assert [a["title"] for a in result["articles"]] == ["相同标题", "独有标题"]
+    assert result["sources"] == ["华尔街见闻", "财联社"]
+
+
+def test_news_aggregation_skips_unavailable_source(monkeypatch) -> None:
+    def fake_fetch(src: str, limit: int) -> list[dict]:
+        if src == "wallstreetcn":
+            raise RuntimeError("cookie 过期")
+        return [{"title": "财联社快讯", "snippet": "内容", "published": "", "url": ""}]
+
+    monkeypatch.setattr("src.data.tushare_news_client.fetch_tushare_news", fake_fetch)
+
+    result = news_routes._build_news_list("")
+
+    assert [a["title"] for a in result["articles"]] == ["财联社快讯"]
+    assert result["sources"] == ["财联社"]

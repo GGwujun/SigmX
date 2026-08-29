@@ -136,31 +136,51 @@ def _fetch_bing_news(query: str, max_results: int = 15) -> list[dict[str, Any]]:
 
 
 def _build_news_list(keyword: str = "") -> dict[str, Any]:
-    """Aggregate news from RSSHub + Bing, deduplicate by title."""
-    # RSSHub wallstreetcn first (fresher, more relevant)
-    rss_articles = _fetch_wallstreetcn(limit=25, keyword=keyword)
-    seen_titles = {a["title"].strip().lower()[:60] for a in rss_articles}
-    seen_urls = {str(a.get("url") or "").strip() for a in rss_articles if a.get("url")}
+    """Aggregate news from tushare 资讯页 sources, deduplicate by title.
 
-    # DDG as supplement
-    bing_query = f"A股 {keyword}" if keyword else "A股"
-    bing_articles = _fetch_bing_news(bing_query, max_results=15)
-    for a in bing_articles:
-        title_key = a["title"].strip().lower()[:60]
-        url_key = str(a.get("url") or "").strip()
-        if title_key not in seen_titles and (not url_key or url_key not in seen_urls):
+    Bing 网页搜索兜底已下线(来源不可控、无发布时间);华尔街见闻/财联社
+    走 tushare 页面直连(TUSHARE_COOKIE),源不可用时跳过而不是回退到
+    搜索抓取。
+    """
+    from email.utils import parsedate_to_datetime
+    from src.data.tushare_news_client import fetch_tushare_news
+
+    articles: list[dict[str, Any]] = []
+    seen_titles: set[str] = set()
+    used_sources: list[str] = []
+    for src, source_name in (("wallstreetcn", "华尔街见闻"), ("cls", "财联社")):
+        try:
+            rows = fetch_tushare_news(src, limit=25)
+        except Exception as exc:  # noqa: BLE001 — one dead source must not empty the feed
+            logger.warning("tushare news source %s unavailable: %s", src, exc)
+            continue
+        used_sources.append(source_name)
+        for row in rows:
+            if keyword and keyword not in row["title"] and keyword not in row["snippet"]:
+                continue
+            title_key = row["title"].strip().lower()[:60]
+            if title_key in seen_titles:
+                continue
             seen_titles.add(title_key)
-            if url_key:
-                seen_urls.add(url_key)
-            rss_articles.append(a)
+            articles.append({
+                "title": row["title"], "url": "", "source": source_name,
+                "published": row["published"], "snippet": row["snippet"][:200], "_provider": src,
+            })
+
+    def _sort_key(article: dict[str, Any]) -> datetime:
+        try:
+            parsed = parsedate_to_datetime(article.get("published", ""))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError, OverflowError):
+            return datetime.min.replace(tzinfo=timezone.utc)
 
     # Sort by published date (newest first), unknown dates at bottom
-    rss_articles.sort(key=lambda a: a.get("published", ""), reverse=True)
+    articles.sort(key=_sort_key, reverse=True)
 
     return {
-        "articles": rss_articles,
+        "articles": articles,
         "query": keyword or "A股",
-        "sources": ["华尔街见闻", "Bing"],
+        "sources": used_sources,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
