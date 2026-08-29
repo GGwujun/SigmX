@@ -180,7 +180,13 @@ def _get_intelligence_services():
 
         db_path = Path(os.getenv("SIGMX_INTELLIGENCE_DB_PATH", str(Path.home() / ".vibe-trading" / "intelligence.db")))
         store = IntelligenceStore(db_path)
-        _intelligence_service = IntelligenceService(store, [*default_official_sources(), *default_legacy_sources(), GdeltSourceAdapter()])
+        sources = [*default_official_sources(), *default_legacy_sources()]
+        # GDELT 需要海外网络(api.gdeltproject.org 国内直连 SSL 失败)。
+        # 默认不注册,避免每次请求都触发"部分情报源不可用"的降级提示;
+        # 有海外代理的部署环境用 SIGMX_GDELT_ENABLED=1 显式开启。
+        if os.getenv("SIGMX_GDELT_ENABLED", "").strip() == "1":
+            sources.append(GdeltSourceAdapter())
+        _intelligence_service = IntelligenceService(store, sources)
         _event_service = GlobalEventService(store)
     return _intelligence_service, _event_service
 
