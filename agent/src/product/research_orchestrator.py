@@ -19,11 +19,16 @@ def _now() -> str:
 
 
 class ResearchOrchestrator:
-    def __init__(self, store: ProductStore, service: ResearchTaskService, *, workers: int = 2, runner_factory=None) -> None:
+    def __init__(self, store: ProductStore, service: ResearchTaskService, *, workers: int = 2, runner_factory=None,
+                 publisher: Any = None) -> None:
         self.store = store
         self.service = service
         self.pool = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="sigmx-research")
         self.runner_factory = runner_factory
+        # Optional live-event sink: called with (task_id, db_event_id, event_type, payload)
+        # after each event is persisted, so SSE subscribers get real-time updates
+        # while the database remains the replay source of truth.
+        self._publisher = publisher
 
     def start(self, user_id: str, *, question: str, template_id: str | None,
               scope: dict[str, Any], constraints: list[dict[str, Any]], idempotency_key: str,
@@ -117,7 +122,12 @@ class ResearchOrchestrator:
     def _event(self, task_id: str, event_type: str, payload: dict[str, Any]) -> None:
         safe = {key: value for key, value in payload.items() if key.lower() not in {"api_key", "secret", "token"}}
         with self.store.transaction() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "INSERT INTO research_task_events(task_id,event_type,payload_json,created_at) VALUES (?,?,?,?)",
                 (task_id, event_type, json.dumps(safe, ensure_ascii=False), _now()),
             )
+        if self._publisher is not None:
+            try:
+                self._publisher(task_id, int(cursor.lastrowid), event_type, safe)
+            except Exception:  # noqa: BLE001 — live streaming must never break research execution
+                pass

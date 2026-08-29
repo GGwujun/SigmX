@@ -107,17 +107,21 @@ class ChatLLM:
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         on_text_chunk: Optional[Any] = None,
+        on_reasoning_chunk: Optional[Any] = None,
         timeout: Optional[int] = None,
     ) -> LLMResponse:
         """Stream the LLM and optionally forward text deltas (e.g. thinking).
 
-        Iterates AIMessageChunk; each text delta invokes ``on_text_chunk``.
+        Iterates AIMessageChunk; each text delta invokes ``on_text_chunk`` and
+        each reasoning delta (thinking models) invokes ``on_reasoning_chunk``.
         Aggregates chunks into one response; on failure falls back to ``chat()``.
 
         Args:
             messages: Messages in OpenAI format.
             tools: Tool definitions for function calling.
             on_text_chunk: Optional callback ``(delta: str) -> None``.
+            on_reasoning_chunk: Optional callback ``(delta: str) -> None`` for
+                reasoning/thinking content streamed separately by the model.
             timeout: Optional per-call timeout in seconds.
 
         Returns:
@@ -130,6 +134,10 @@ class ChatLLM:
             for chunk in llm.stream(messages, config=config):
                 if chunk.content and on_text_chunk:
                     on_text_chunk(chunk.content)
+                if on_reasoning_chunk:
+                    reasoning = (getattr(chunk, "additional_kwargs", None) or {}).get("reasoning_content")
+                    if reasoning:
+                        on_reasoning_chunk(reasoning)
                 accumulated = chunk if accumulated is None else accumulated + chunk
             if accumulated is None:
                 return LLMResponse(content="", tool_calls=[], finish_reason="stop")

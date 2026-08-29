@@ -51,6 +51,47 @@ export const getResearchTask = (taskId: string) =>
 export const listResearchEvents = (taskId: string, after = 0) =>
   json<ResearchEvent[]>(`/api/research/tasks/${encodeURIComponent(taskId)}/events?after=${after}`, { headers: authHeaders() });
 
+/**
+ * Stream research task events over SSE (fetch reader so auth headers work).
+ * Resolves when the server closes the stream (terminal event); rejects on
+ * HTTP/transport errors so callers can fall back to cursor polling.
+ */
+export async function streamResearchEvents(taskId: string, after: number, onEvent: (event: ResearchEvent) => void): Promise<void> {
+  const response = await fetch(`/api/research/tasks/${encodeURIComponent(taskId)}/stream?after=${after}`, { headers: authHeaders() });
+  if (!response.ok) {
+    if (response.status === 401) {
+      clearAuth();
+      throw new Error("登录已过期，请重新登录");
+    }
+    throw new Error(`事件流请求失败（${response.status}）`);
+  }
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("事件流响应体为空");
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const block of parts) {
+      let id = 0;
+      let eventType = "";
+      let dataStr = "";
+      for (const line of block.split("\n")) {
+        if (line.startsWith("id: ")) id = Number(line.slice(4)) || 0;
+        else if (line.startsWith("event: ")) eventType = line.slice(7).trim();
+        else if (line.startsWith("data: ")) dataStr = line.slice(6);
+      }
+      if (!eventType || eventType === "heartbeat" || !dataStr) continue;
+      try {
+        onEvent({ id, type: eventType, payload: JSON.parse(dataStr) });
+      } catch { /* ignore a single malformed frame, keep streaming */ }
+    }
+  }
+}
+
 export const getResearchThread = (taskId: string) =>
   json<ResearchThread>(`/api/research/tasks/${encodeURIComponent(taskId)}/thread`, { headers: authHeaders() });
 

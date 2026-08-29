@@ -13,6 +13,7 @@ function safeActivity(events: ResearchEvent[]) {
     else if (event.type === "tool_call" || event.type === "tool_started") message = "正在查询研究数据";
     else if (event.type === "tool_progress") message = "正在获取并解析数据";
     else if (event.type === "tool_result" || event.type === "tool_completed") message = event.payload.status === "error" ? "部分数据源暂不可用，正在尝试其他来源" : "已获取一批可用数据";
+    else if (event.type === "text_delta") message = "正在生成分析结论";
     else if (event.type === "llm_usage") message = "正在整理和分析数据";
     else if (event.type === "runtime_completed" || event.type === "completed") message = "分析完成，正在生成结论";
     if (message && messages[messages.length - 1] !== message) messages.push(message);
@@ -35,7 +36,18 @@ function Assistant({ children }: { children: React.ReactNode }) { return <articl
 function RunningProgress({ events }: { events: ResearchEvent[] }) {
   const activity = safeActivity(events);
   const currentActivity = activity[activity.length - 1];
-  return <p className="flex items-center gap-2 text-[14px] text-zinc-500"><LoaderCircle className="h-4 w-4 animate-spin text-zinc-400" />{currentActivity || "正在准备分析"}</p>;
+  // The model's real reasoning stream (thinking_delta), rendered GPT-style.
+  // text_delta is the final JSON answer — never shown raw; it only drives the
+  // "正在生成分析结论" status above.
+  let thinking = "";
+  for (const event of events) {
+    if (event.type === "thinking_delta") thinking += String(event.payload.delta ?? "");
+  }
+  const thinkingPreview = thinking.slice(-800);
+  return <>
+    <p className="flex items-center gap-2 text-[14px] text-zinc-500"><LoaderCircle className="h-4 w-4 animate-spin text-zinc-400" />{currentActivity || "正在准备分析"}</p>
+    {thinkingPreview && <p className="mt-3 whitespace-pre-wrap text-[13px] leading-6 text-zinc-400">{thinkingPreview}</p>}
+  </>;
 }
 
 function ErrorReply({ message, onRetry }: { message: string; onRetry?: () => void }) { return <div className="flex items-start gap-3 text-red-700"><AlertCircle className="mt-0.5 h-5 w-5 shrink-0" /><div><h2 className="font-semibold">分析没有完成</h2><p className="mt-2 text-sm leading-6 text-zinc-600">{message}</p>{onRetry && <button type="button" onClick={onRetry} className="mt-4 inline-flex items-center gap-2 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-800 hover:bg-zinc-50"><RotateCcw className="h-4 w-4" />重新尝试</button>}</div></div>; }

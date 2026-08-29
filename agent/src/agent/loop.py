@@ -14,6 +14,7 @@ Tool execution:
 from __future__ import annotations
 
 import concurrent.futures
+import inspect
 import json
 import logging
 import os
@@ -458,16 +459,21 @@ class AgentLoop:
                     thinking_chunks.append(delta)
                     self._emit("text_delta", {"delta": delta, "iter": iteration})
 
+                def _on_reasoning_chunk(delta: str) -> None:
+                    self._emit("thinking_delta", {"delta": delta, "iter": iteration})
+
                 # On last iteration, drop tool definitions to force text output
                 is_last_iteration = (iteration == self.max_iterations)
                 tool_defs = None if is_last_iteration else self.registry.get_definitions()
                 if is_last_iteration:
                     trace.write({"type": "forced_text_only", "iter": iteration})
 
-                response = self.llm.stream_chat(
+                response = self._stream_llm(
                     messages,
-                    tools=tool_defs,
+                    tool_defs,
                     on_text_chunk=_on_text_chunk,
+                    on_reasoning_chunk=_on_reasoning_chunk,
+                    iteration=iteration,
                 )
                 usage = getattr(response, "usage_metadata", None) or {}
                 if usage:
@@ -1011,6 +1017,22 @@ class AgentLoop:
                 self._event_callback(event_type, data)
             except Exception:
                 pass
+
+    def _stream_llm(self, messages, tool_defs, *, on_text_chunk, on_reasoning_chunk, iteration):
+        """Call ``llm.stream_chat`` with reasoning-delta support when available.
+
+        Custom LLM wrappers (and older fakes) may not accept the
+        ``on_reasoning_chunk`` keyword; fall back to text-only streaming for
+        those instead of failing the run.
+        """
+        stream_chat = self.llm.stream_chat
+        kwargs = {"on_text_chunk": on_text_chunk}
+        try:
+            if "on_reasoning_chunk" in inspect.signature(stream_chat).parameters:
+                kwargs["on_reasoning_chunk"] = on_reasoning_chunk
+        except (TypeError, ValueError):
+            pass
+        return stream_chat(messages, tools=tool_defs, **kwargs)
 
     def _update_memory(self, tool_name: str) -> None:
         """Update workspace memory counters after tool execution."""

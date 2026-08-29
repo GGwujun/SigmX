@@ -613,3 +613,51 @@ class TestChatOpenAIWithReasoningOutboundPayload:
 
         for m in payload["messages"]:
             assert "reasoning_content" not in m
+
+
+class TestStreamChatReasoningCallback:
+    """ChatLLM.stream_chat forwards reasoning deltas to on_reasoning_chunk.
+
+    This is what lets AgentLoop emit ``thinking_delta`` events so web
+    clients can render the model's real thinking stream.
+    """
+
+    @staticmethod
+    def _fake_llm(chunks: list) -> Any:
+        class FakeLLM:
+            def bind_tools(self, tools: Any) -> "FakeLLM":
+                return self
+
+            def stream(self, messages: Any, config: Any = None) -> Any:
+                return iter(chunks)
+
+        return FakeLLM()
+
+    def test_forwards_reasoning_and_text_deltas_separately(self) -> None:
+        from langchain_core.messages import AIMessageChunk
+
+        chunks = [
+            AIMessageChunk(content="", additional_kwargs={"reasoning_content": "第一步 "}),
+            AIMessageChunk(content="", additional_kwargs={"reasoning_content": "第二步"}),
+            AIMessageChunk(content='{"summary":"done"}'),
+        ]
+        llm = ChatLLM(client=self._fake_llm(chunks))
+        reasoning: list[str] = []
+        text: list[str] = []
+
+        llm.stream_chat([], on_text_chunk=text.append, on_reasoning_chunk=reasoning.append)
+
+        assert "".join(reasoning) == "第一步 第二步"
+        assert "".join(text) == '{"summary":"done"}'
+
+    def test_reasoning_callback_optional_for_plain_models(self) -> None:
+        from langchain_core.messages import AIMessageChunk
+
+        chunks = [AIMessageChunk(content="hello"), AIMessageChunk(content=" world")]
+        llm = ChatLLM(client=self._fake_llm(chunks))
+        text: list[str] = []
+
+        response = llm.stream_chat([], on_text_chunk=text.append, on_reasoning_chunk=lambda d: None)
+
+        assert "".join(text) == "hello world"
+        assert response.content == "hello world"

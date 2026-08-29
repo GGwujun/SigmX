@@ -3,7 +3,7 @@ import { ArrowUp, LoaderCircle, Plus } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AIAnalysisShell } from "@/components/public/AIAnalysisShell";
 import { AIAnalysisTimeline } from "@/components/public/AIAnalysisTimeline";
-import { createResearchPlan, createResearchTask, followUpResearchTask, getDiscovery, getResearchResult, getResearchThread, listResearchEvents, listResearchTasks, waitForResearchTask, type PublicDiscovery, type ResearchConversationTurn, type ResearchPlan, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
+import { createResearchPlan, createResearchTask, followUpResearchTask, getDiscovery, getResearchResult, getResearchThread, listResearchEvents, listResearchTasks, streamResearchEvents, waitForResearchTask, type PublicDiscovery, type ResearchConversationTurn, type ResearchEvent, type ResearchPlan, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
 import { clearPendingResearchPlan, loadPendingResearchPlan, savePendingResearchPlan } from "@/lib/pendingResearchPlan";
 import { isAuthenticated } from "@/lib/apiAuth";
 import { trackPersonalFunnel } from "@/lib/personalFunnel";
@@ -30,32 +30,62 @@ export function LandingPage() {
     if (isAuthenticated()) listResearchTasks(20).then(setRecentTasks).catch(() => undefined);
   }, []);
 
-  useEffect(() => {
-    if (!conversationId || !isAuthenticated()) { if (!conversationId) setTurns([]); return; }
-    let cancelled = false;
-    setLoadError("");
-    getResearchThread(conversationId).then(thread => { if (!cancelled) setTurns(thread.turns); }).catch((error: Error) => { if (!cancelled) setLoadError(error.message); });
-    return () => { cancelled = true; };
-  }, [conversationId]);
-
   const updateTurn = useCallback((taskId: string, update: (turn: ResearchConversationTurn) => ResearchConversationTurn) => {
     setTurns(current => current.map(turn => turn.task.id === taskId ? update(turn) : turn));
   }, []);
 
   const monitorTask = useCallback(async (task: ResearchTask) => {
+    // Events merge by database id so the SSE stream and the polling fallback
+    // share one cursor without duplicating frames.
+    let after = 0;
+    const mergeEvents = (incoming: ResearchEvent[]) => {
+      if (!incoming.length) return;
+      after = Math.max(after, ...incoming.map(event => event.id));
+      updateTurn(task.id, turn => {
+        const seen = new Set(turn.events.map(event => event.id));
+        const fresh = incoming.filter(event => !seen.has(event.id));
+        return fresh.length ? { ...turn, events: [...turn.events, ...fresh] } : turn;
+      });
+    };
+    // Live stream first (real-time model output); if it fails, fall back to
+    // cursor polling inside the status loop below.
+    let streaming = true;
+    void streamResearchEvents(task.id, 0, event => mergeEvents([event]))
+      .catch(() => { streaming = false; });
     try {
       const completedTask = await waitForResearchTask(task, current => {
         updateTurn(task.id, turn => ({ ...turn, task: current }));
-        void listResearchEvents(task.id).then(events => updateTurn(task.id, turn => ({ ...turn, events }))).catch(() => undefined);
+        if (!streaming) {
+          void listResearchEvents(task.id, after).then(mergeEvents).catch(() => undefined);
+        }
       });
-      const [events, result] = await Promise.all([listResearchEvents(task.id).catch(() => []), getResearchResult(task.id)]);
-      updateTurn(task.id, turn => ({ ...turn, task: completedTask, events, result }));
+      const [tailEvents, result] = await Promise.all([
+        listResearchEvents(task.id, after).catch(() => []),
+        getResearchResult(task.id),
+      ]);
+      mergeEvents(tailEvents);
+      updateTurn(task.id, turn => ({ ...turn, task: completedTask, result }));
       setRecentTasks(current => [completedTask, ...current.filter(item => item.id !== completedTask.id)]);
     } catch (error) {
       const message = error instanceof Error ? error.message : "分析执行失败";
       updateTurn(task.id, turn => ({ ...turn, task: { ...turn.task, status: "failed", error: message } }));
     }
   }, [updateTurn]);
+
+  useEffect(() => {
+    if (!conversationId || !isAuthenticated()) { if (!conversationId) setTurns([]); return; }
+    let cancelled = false;
+    setLoadError("");
+    getResearchThread(conversationId).then(thread => {
+      if (cancelled) return;
+      setTurns(thread.turns);
+      // Re-attach to any turn still running (page reload mid-analysis).
+      thread.turns.forEach(turn => {
+        if (["queued", "running"].includes(turn.task.status)) void monitorTask(turn.task);
+      });
+    }).catch((error: Error) => { if (!cancelled) setLoadError(error.message); });
+    return () => { cancelled = true; };
+  }, [conversationId, monitorTask]);
 
   const executePlan = useCallback(async (plan: ResearchPlan) => {
     if (!plan.executable) {

@@ -35,10 +35,12 @@ def research_service(tmp_path: Path):
     routes._service = ResearchTaskService(product_store, PublicResearchService(market_store))
     routes._orchestrator = ResearchOrchestrator(product_store, routes._service)
     routes._plan_service = ResearchPlanService()
+    routes._event_bus = None
     yield
     routes._service = None
     routes._orchestrator = None
     routes._plan_service = None
+    routes._event_bus = None
 
 
 def _body(key: str = "research-1") -> routes.CreateResearchTaskRequest:
@@ -238,3 +240,69 @@ def test_research_thread_restores_parent_and_follow_up_oldest_first() -> None:
     assert [turn["task"]["id"] for turn in thread["turns"]] == [parent.id, child.id]
     assert all(turn["result"] is not None for turn in thread["turns"])
     assert all(isinstance(turn["events"], list) for turn in thread["turns"])
+
+
+class _DummyRequest:
+    async def is_disconnected(self) -> bool:
+        return False
+
+
+async def _collect_frames(response) -> list[str]:
+    return [frame async for frame in response.body_iterator]
+
+
+def test_stream_replays_persisted_events_for_finished_task() -> None:
+    body = _body("stream-done")
+    body.plan = {"execution_mode": "rules_fallback", "conditions": []}
+    task = asyncio.run(routes.create_research_task(body, user={"id": "u1"}))
+    for _ in range(200):
+        task = routes._orchestrator.get("u1", task.id)
+        if task.status == "succeeded":
+            break
+        time.sleep(.01)
+    assert task.status == "succeeded"
+
+    async def run() -> list[str]:
+        response = await routes.stream_research_events(task.id, _DummyRequest(), after=0, user={"id": "u1"})
+        return await _collect_frames(response)
+
+    frames = asyncio.run(run())
+
+    assert frames, "expected replayed SSE frames"
+    assert all(frame.startswith("id: ") for frame in frames)
+    assert any("event: completed" in frame for frame in frames)
+
+
+def test_stream_pushes_live_events_until_terminal_event() -> None:
+    routes._orchestrator = ResearchOrchestrator(
+        routes._service.store, routes._service, publisher=routes._publish_task_event,
+    )
+    task = routes._service.create(
+        "u1", question="低估值 高股息", template_id="dividend", scope={}, constraints=[],
+        idempotency_key="stream-live", agent_mode=False,
+    )
+    assert task.status == "queued"
+
+    async def run() -> list[str]:
+        response = await routes.stream_research_events(task.id, _DummyRequest(), after=0, user={"id": "u1"})
+        stream = asyncio.ensure_future(_collect_frames(response))
+        await asyncio.sleep(0.05)  # let the generator finish replay and subscribe
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, routes._orchestrator._event, task.id, "running", {"message": "go"})
+        await loop.run_in_executor(None, routes._orchestrator._event, task.id, "thinking_delta", {"delta": "分析中", "iter": 1})
+        await loop.run_in_executor(None, routes._orchestrator._event, task.id, "completed", {"message": "done"})
+        return await asyncio.wait_for(stream, timeout=5)
+
+    frames = asyncio.run(run())
+
+    assert any("event: running" in frame for frame in frames)
+    assert any("event: thinking_delta" in frame and "分析中" in frame for frame in frames)
+    assert frames[-1].startswith("id: ") and "event: completed" in frames[-1]
+
+
+def test_stream_rejects_other_users_task() -> None:
+    task = asyncio.run(routes.create_research_task(_body("stream-owner"), user={"id": "u1"}))
+
+    with pytest.raises(routes.HTTPException) as error:
+        asyncio.run(routes.stream_research_events(task.id, _DummyRequest(), after=0, user={"id": "u2"}))
+    assert error.value.status_code == 404

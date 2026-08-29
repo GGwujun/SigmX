@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, UploadFile, File, Response, status
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, UploadFile, File, Response, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.api.auth_routes import require_user
 from src.product.research_plans import AIResearchPlanService, ResearchPlanService
 from src.product.research_tasks import InvalidResearchConstraint, ResearchDataUnavailable, ResearchTaskService
 from src.product.research_orchestrator import ResearchOrchestrator
+from src.session.events import EventBus, SSEEvent
 
 
 class ResearchConstraintRequest(BaseModel):
@@ -160,6 +164,27 @@ _service: ResearchTaskService | None = None
 _orchestrator: ResearchOrchestrator | None = None
 _plan_service = None
 _research_file_store = None
+_event_bus: EventBus | None = None
+
+_TERMINAL_EVENT_TYPES = {"completed", "failed", "cancelled"}
+
+
+def _get_event_bus() -> EventBus:
+    global _event_bus
+    if _event_bus is None:
+        # Buffer only covers the reconnect gap; full history replays from the DB.
+        _event_bus = EventBus(max_buffer_size=1000)
+    return _event_bus
+
+
+def _publish_task_event(task_id: str, event_id: int, event_type: str, payload: dict[str, Any]) -> None:
+    """Publish a persisted research event to live SSE subscribers.
+
+    The SSE ``id`` is the database row id so live events and DB replay share
+    one cursor space (``?after=`` / ``Last-Event-ID``).
+    """
+    _get_event_bus().publish(SSEEvent(event_id=str(event_id), event_type=event_type,
+                                      data=payload, session_id=task_id))
 
 
 def _get_plan_service():
@@ -217,7 +242,8 @@ def _get_orchestrator() -> ResearchOrchestrator:
     global _orchestrator
     if _orchestrator is None:
         service = _get_service()
-        _orchestrator = ResearchOrchestrator(service.store, service, runner_factory=_build_agent_runner)
+        _orchestrator = ResearchOrchestrator(service.store, service, runner_factory=_build_agent_runner,
+                                             publisher=_publish_task_event)
     return _orchestrator
 
 
@@ -352,6 +378,48 @@ async def list_research_events(task_id: str, after: int = 0, user: dict = Depend
         return _get_orchestrator().events(user["id"], task_id, after)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+
+
+def _sse_frame(event_id: int, event_type: str, payload: dict[str, Any]) -> str:
+    return f"id: {event_id}\nevent: {event_type}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+@router.get("/{task_id}/stream")
+async def stream_research_events(task_id: str, request: Request, after: int = 0,
+                                 user: dict = Depends(require_user)) -> StreamingResponse:
+    """SSE live stream of research task events.
+
+    Replays persisted events after the ``after`` cursor from the database,
+    then pushes new events in real time through the in-process event bus.
+    The stream closes after a terminal event (completed/failed/cancelled).
+    """
+    orchestrator = _get_orchestrator()
+    try:
+        task = orchestrator.get(user["id"], task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    bus = _get_event_bus()
+    bus.set_loop(asyncio.get_running_loop())
+
+    async def event_generator():
+        last_id = after
+        for event in orchestrator.events(user["id"], task_id, after):
+            last_id = max(last_id, int(event["id"]))
+            yield _sse_frame(int(event["id"]), str(event["type"]), event["payload"])
+        if task.status in ("succeeded", "failed", "cancelled"):
+            return
+        async for event in bus.subscribe(task_id, last_event_id=str(last_id) if last_id else None):
+            if await request.is_disconnected():
+                break
+            yield event.to_sse()
+            if event.event_type in _TERMINAL_EVENT_TYPES:
+                break
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{task_id}/thread")

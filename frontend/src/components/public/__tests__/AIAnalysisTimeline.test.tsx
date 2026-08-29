@@ -23,6 +23,16 @@ describe("AIAnalysisTimeline", () => {
     expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
   });
 
+  it("streams the model's real reasoning while analyzing", () => {
+    const turn: ResearchConversationTurn = { task, result: null, events: [
+      { id: 1, type: "running", payload: {} },
+      { id: 2, type: "thinking_delta", payload: { delta: "先锁定估值与股息率条件，", iter: 1 } },
+      { id: 3, type: "thinking_delta", payload: { delta: "再查询市场数据。", iter: 1 } },
+    ] };
+    render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
+    expect(screen.getByText("先锁定估值与股息率条件，再查询市场数据。")).toBeInTheDocument();
+  });
+
   it("turns real runtime events into a single safe status line", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
       { id: 1, type: "running", payload: {} },
