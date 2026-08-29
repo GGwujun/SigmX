@@ -18,8 +18,12 @@ from src.research_agent.policy import build_research_registry
 _SYSTEM_PROMPT = """你是 SigmX Web AI 投研智能体。你只能执行只读金融研究。
 严禁访问或操作交易、订单、券商、账户、持仓、Mandate、影子账户、Shell 和任意服务器文件。
 先加载相关 Skill，再使用被授予的工具完成数据检索、计算、比较和反向验证。
-所有重要数值结论必须引用工具返回的 evidence id。
+所有重要数值结论必须引用工具返回的 evidence id,evidence_ids 必须逐字复制工具返回结果中的 id 字段,禁止编造或改写。
 最终只输出 JSON 对象：summary、conclusions[{text,evidence_ids}]、risks。不要输出 JSON 以外的文字。"""
+
+
+def _cites_unknown_evidence(conclusions: list[dict[str, Any]], known: set[str]) -> bool:
+    return any(not set(map(str, item.get("evidence_ids", []))).issubset(known) for item in conclusions)
 
 
 class _CallableResearchTool(BaseTool):
@@ -90,7 +94,12 @@ class ResearchAgentRuntime:
             raise ValueError("research agent returned invalid JSON") from exc
         known = {str(item.get("id")) for item in evidence if item.get("id")}
         conclusions = payload.get("conclusions") or []
-        if any(not set(map(str, item.get("evidence_ids", []))).issubset(known) for item in conclusions):
+        if _cites_unknown_evidence(conclusions, known):
+            repaired = self._repair_output(llm, request, payload, sorted(known))
+            if repaired is not None:
+                payload = repaired
+                conclusions = payload.get("conclusions") or []
+        if _cites_unknown_evidence(conclusions, known):
             raise ValueError("AI conclusion references unknown evidence")
         emit({"type": "runtime_completed", "iterations": result.get("iterations", 0),
               "max_iterations": self.max_iterations, "tools": registry.tool_names})
@@ -99,3 +108,28 @@ class ResearchAgentRuntime:
             evidence=evidence, risks=[str(item) for item in payload.get("risks", [])],
             model=getattr(llm, "model_name", None),
         )
+
+    def _repair_output(self, llm: Any, request: ResearchRunRequest,
+                       payload: dict[str, Any], known_ids: list[str]) -> dict[str, Any] | None:
+        """Ask the model to fix conclusions that cite hallucinated evidence ids.
+
+        Returns the repaired payload, or ``None`` when the repair itself
+        fails — the caller then rejects the output rather than serving
+        unverifiable claims.
+        """
+        prompt = json.dumps({
+            "question": request.question,
+            "invalid_output": payload,
+            "valid_evidence_ids": known_ids,
+            "instruction": (
+                "invalid_output 中的 conclusions 引用了不存在的 evidence id。"
+                "只能使用 valid_evidence_ids 里逐字出现的 id;无法引用的结论直接删除。"
+                "只输出修正后的 JSON 对象:summary、conclusions[{text,evidence_ids}]、risks。"
+            ),
+        }, ensure_ascii=False)
+        try:
+            response = llm.chat([{"role": "user", "content": prompt}])
+            repaired = json.loads(response.content or "{}")
+        except Exception:  # noqa: BLE001 — any repair failure falls back to rejection
+            return None
+        return repaired if isinstance(repaired, dict) else None

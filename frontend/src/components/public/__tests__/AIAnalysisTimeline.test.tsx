@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { AIAnalysisTimeline } from "../AIAnalysisTimeline";
@@ -23,13 +23,17 @@ describe("AIAnalysisTimeline", () => {
     expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
   });
 
-  it("streams the model's real reasoning while analyzing", () => {
+  it("keeps the model's full reasoning in a collapsed disclosure", () => {
     const turn: ResearchConversationTurn = { task, result: null, events: [
       { id: 1, type: "running", payload: {} },
       { id: 2, type: "thinking_delta", payload: { delta: "先锁定估值与股息率条件，", iter: 1 } },
       { id: 3, type: "thinking_delta", payload: { delta: "再查询市场数据。", iter: 1 } },
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
+    const toggle = screen.getByRole("button", { name: /思考过程/ });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("先锁定估值与股息率条件，再查询市场数据。")).toBeInTheDocument();
   });
 
