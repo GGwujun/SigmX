@@ -145,3 +145,27 @@ def test_ai_plan_normalizes_model_skill_aliases_to_installed_research_skills() -
     plan = AIResearchPlanService(lambda: FakeLLM()).create("现金流质量", None, {})
 
     assert plan.skills == ("fundamental-filter", "financial-statement")
+
+
+def test_ai_plan_treats_nullable_optional_collections_as_empty() -> None:
+    class FakeLLM:
+        model_name = "test-planner"
+
+        def chat(self, messages, tools=None, timeout=None):
+            return LLMResponse(content='''{
+              "conditions":[
+                {"metric":"pe_ttm","label":"市盈率估值","operator":"observe","value":[35,60]},
+                {"metric":"announcement_event","label":"公告事件","operator":"contains_any","value":["业绩预告","商誉减值"]}
+              ],
+              "ranking":null,
+              "datasets":null,
+              "skills":null
+            }''')
+
+    plan = AIResearchPlanService(lambda: FakeLLM()).create("分析估值", None, {})
+
+    assert plan.ranking == ()
+    assert plan.datasets == ()
+    assert plan.skills == ()
+    assert plan.conditions[0].value == "[35, 60]"
+    assert plan.conditions[1].value == '["业绩预告", "商誉减值"]'

@@ -293,12 +293,12 @@ class AIResearchPlanService:
             {"role": "user", "content": json.dumps({"question": normalized, "template_id": template_id, "scope": scope}, ensure_ascii=False)},
         ], timeout=timeout_seconds)
         payload = self._parse(response.content or "")
-        conditions = tuple(self._condition(item) for item in payload.get("conditions", []))
+        conditions = tuple(self._condition(item) for item in (payload.get("conditions") or []))
         if not conditions:
             raise ValueError("AI research plan contains no conditions")
         datasets = tuple(
             ResearchDataset(str(item.get("key") or "dataset"), str(item.get("name") or "研究数据"), "supported")
-            for item in payload.get("datasets", []) if isinstance(item, dict)
+            for item in (payload.get("datasets") or []) if isinstance(item, dict)
         )
         if not datasets:
             metric_names = {item.metric for item in conditions}
@@ -315,7 +315,7 @@ class AIResearchPlanService:
             template_id=template_id,
             scope={"market": "A股", "exclude_st": True, **scope, **(payload.get("scope") or {})},
             conditions=conditions,
-            ranking=tuple(item for item in payload.get("ranking", []) if isinstance(item, dict)),
+            ranking=tuple(item for item in (payload.get("ranking") or []) if isinstance(item, dict)),
             datasets=datasets,
             steps=_STEPS,
             executable=all(item.status == "supported" for item in conditions),
@@ -323,7 +323,7 @@ class AIResearchPlanService:
             execution_mode="agent",
             model=getattr(llm, "model_name", None),
             skills=tuple(dict.fromkeys(
-                normalized for item in payload.get("skills", []) if item
+                normalized for item in (payload.get("skills") or []) if item
                 for normalized in [RESEARCH_SKILL_ALIASES.get(str(item), str(item))]
                 if normalized in RESEARCH_SKILLS
             )),
@@ -353,12 +353,18 @@ class AIResearchPlanService:
             # statement periods. Do not let model wording silently promise a
             # three-year series that the active dataset does not guarantee.
             period = "最近两期可比财报"
+        raw_value = item.get("value")
+        value = (
+            json.dumps(raw_value, ensure_ascii=False)
+            if isinstance(raw_value, (list, dict))
+            else raw_value
+        )
         return ResearchCondition(
             id=uuid.uuid4().hex,
             metric=metric,
             label=str(item.get("label") or metric),
             operator=str(item["operator"]) if item.get("operator") is not None else None,
-            value=item.get("value"),
+            value=value,
             period=period,
             benchmark=str(item["benchmark"]) if item.get("benchmark") is not None else None,
             status="supported",
