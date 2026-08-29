@@ -314,6 +314,9 @@ async def create_research_plan(
         from src.product.ai_runtime_config import AIConfigurationError
         if isinstance(exc, AIConfigurationError):
             raise HTTPException(status_code=503, detail="AI 投研尚未配置，请管理员先在运营后台完成模型连接与模型策略配置。") from exc
+        reason = str(exc)
+        if "429" in reason or "1113" in reason or "RateLimitError" in reason:
+            raise HTTPException(status_code=503, detail="AI 服务当前繁忙（模型并发或额度限制），请稍后重试。") from exc
         raise HTTPException(status_code=503, detail="AI 研究规划暂时不可用") from exc
     return ResearchPlanResponse(**asdict(plan), constraints=plan.to_constraints())
 
