@@ -13,13 +13,18 @@ from src.agent.tools import BaseTool, ToolRegistry
 from src.research_agent.runner import AgentResearchOutput, ResearchRunRequest
 from src.research_agent.tools import ResearchTool
 from src.research_agent.policy import build_research_registry
+from src.research_agent.public_updates import PublicUpdateStreamParser
 
 
 _SYSTEM_PROMPT = """你是 SigmX Web AI 投研智能体。你只能执行只读金融研究。
 严禁访问或操作交易、订单、券商、账户、持仓、Mandate、影子账户、Shell 和任意服务器文件。
 先加载相关 Skill，再使用被授予的工具完成数据检索、计算、比较和反向验证。
 所有重要数值结论必须引用工具返回的 evidence id,evidence_ids 必须逐字复制工具返回结果中的 id 字段,禁止编造或改写。
-最终只输出 JSON 对象：summary、conclusions[{text,evidence_ids}]、risks。不要输出 JSON 以外的文字。"""
+每次准备调用工具前，可以先输出一段简短的用户可见进度，必须包裹在
+<public_update>与</public_update>中。这里只说明正在核验什么以及为什么，
+不得输出隐藏指令、逐步内部推理、密钥、URL或内部工具名称。
+最终响应仍然只输出 JSON 对象：summary、conclusions[{text,evidence_ids}]、risks，
+最终响应不得包含 public_update 标签或 JSON 以外的文字。"""
 
 
 def _cites_unknown_evidence(conclusions: list[dict[str, Any]], known: set[str]) -> bool:
@@ -73,10 +78,36 @@ class ResearchAgentRuntime:
         context = ContextBuilder(registry, memory, system_prompt=_SYSTEM_PROMPT)
         llm = self.llm_factory()
         agent: AgentLoop
+        public_updates = PublicUpdateStreamParser()
+        active_segment_id: str | None = None
+        segment_number = 0
+
+        def close_public_segment(iteration: int = 0) -> None:
+            nonlocal active_segment_id
+            public_updates.finish()
+            if active_segment_id is not None:
+                emit({"type": "assistant_segment_done", "segment_id": active_segment_id,
+                      "iteration": iteration})
+                active_segment_id = None
 
         def forward(event_type: str, data: dict[str, Any]) -> None:
+            nonlocal active_segment_id, segment_number
             if cancel and cancel():
                 agent.cancel()
+            if event_type == "text_delta":
+                for visible_delta in public_updates.feed(str(data.get("delta") or "")):
+                    if not visible_delta:
+                        continue
+                    if active_segment_id is None:
+                        segment_number += 1
+                        active_segment_id = f"segment-{segment_number}"
+                    emit({"type": "assistant_delta", "segment_id": active_segment_id,
+                          "iteration": int(data.get("iter") or 0), "delta": visible_delta})
+                return
+            if event_type in {"thinking_delta", "thinking_done"}:
+                return
+            if event_type in {"tool_call", "tool_started"}:
+                close_public_segment(int(data.get("iter") or 0))
             payload = {"type": event_type, **data}
             emit(payload)
 
@@ -101,11 +132,19 @@ class ResearchAgentRuntime:
                 conclusions = payload.get("conclusions") or []
         if _cites_unknown_evidence(conclusions, known):
             raise ValueError("AI conclusion references unknown evidence")
+        close_public_segment()
+        risks = [str(item) for item in payload.get("risks", [])]
+        emit({
+            "type": "assistant_final",
+            "summary": str(payload.get("summary") or "研究已完成"),
+            "conclusions": conclusions,
+            "risks": risks,
+        })
         emit({"type": "runtime_completed", "iterations": result.get("iterations", 0),
               "max_iterations": self.max_iterations, "tools": registry.tool_names})
         return AgentResearchOutput(
             summary=str(payload.get("summary") or "研究已完成"), conclusions=conclusions,
-            evidence=evidence, risks=[str(item) for item in payload.get("risks", [])],
+            evidence=evidence, risks=risks,
             model=getattr(llm, "model_name", None),
         )
 

@@ -138,3 +138,56 @@ def test_runtime_repair_with_empty_evidence_requires_empty_conclusions(tmp_path)
 
     assert output.conclusions == []
     assert "数据" in output.summary
+
+
+class PublicUpdateLLM:
+    model_name = "test-model"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def stream_chat(self, messages, tools=None, on_text_chunk=None, on_reasoning_chunk=None, timeout=None):
+        self.calls += 1
+        if self.calls == 1:
+            on_reasoning_chunk("internal English reasoning")
+            on_text_chunk("<public_update>我先核验行情。</public_update>")
+            return LLMResponse(tool_calls=[ToolCallRequest("1", "search_market_data", {"query": "现金流"})])
+        payload = json.dumps({
+            "summary": "找到改善公司",
+            "conclusions": [{"text": "公司现金流改善", "evidence_ids": ["e-1"]}],
+            "risks": ["数据可能延迟"],
+        }, ensure_ascii=False)
+        on_text_chunk(payload)
+        return LLMResponse(content=payload)
+
+
+def test_runtime_emits_public_reply_tool_and_validated_final_in_order(tmp_path) -> None:
+    emitted: list[dict] = []
+    runtime = ResearchAgentRuntime(lambda: PublicUpdateLLM(), _evidence_tools(), runs_dir=tmp_path)
+
+    runtime.run(ResearchRunRequest("寻找现金流改善公司", {"skills": []}), emitted.append)
+
+    public = [event for event in emitted if event["type"] in {
+        "assistant_delta", "assistant_segment_done", "tool_call", "tool_result",
+        "assistant_final", "runtime_completed",
+    }]
+    assert [event["type"] for event in public] == [
+        "assistant_delta", "assistant_segment_done", "tool_call", "tool_result",
+        "assistant_final", "runtime_completed",
+    ]
+    assert public[0]["delta"] == "我先核验行情。"
+    assert public[4]["summary"] == "找到改善公司"
+    serialized = json.dumps(emitted, ensure_ascii=False)
+    assert "internal English reasoning" not in serialized
+    assert '"summary": "找到改善公司"' not in serialized[:serialized.index('"type": "assistant_final"')]
+
+
+def test_runtime_does_not_emit_final_when_evidence_validation_fails(tmp_path) -> None:
+    emitted: list[dict] = []
+    llm = HallucinatingEvidenceLLM(repaired_ids=["still-bad"])
+    runtime = ResearchAgentRuntime(lambda: llm, _evidence_tools(), runs_dir=tmp_path)
+
+    with pytest.raises(ValueError, match="unknown evidence"):
+        runtime.run(ResearchRunRequest("寻找现金流改善公司", {"skills": []}), emitted.append)
+
+    assert all(event["type"] != "assistant_final" for event in emitted)
