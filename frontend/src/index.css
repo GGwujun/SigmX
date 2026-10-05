@@ -4,6 +4,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@media (min-width: 1280px) {
+  [class*="xl:grid-cols-[minmax(0,1fr)_260px]"] {
+    grid-template-columns: minmax(0, 1fr) 260px;
+  }
+}
+
 @layer base {
   :root {
     /* Signal Black light surfaces */

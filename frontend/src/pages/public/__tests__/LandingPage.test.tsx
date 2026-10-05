@@ -30,11 +30,11 @@ describe("LandingPage research planning flow", () => {
   it("presents a user-facing AI analysis chat without technical details", async () => {
     vi.stubGlobal("fetch", vi.fn(responseFor));
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
-    expect(await screen.findByRole("heading", { name: "AI 发现" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "今天想分析什么？" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "今天想分析什么？" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "对话历史" })).toBeInTheDocument();
     expect(screen.getByPlaceholderText("给 AI 发现发送消息")).toBeInTheDocument();
     expect(screen.getByTestId("ai-analysis-body")).toHaveClass("flex-1", "min-h-0");
+    expect(screen.getByTestId("analysis-composer")).toHaveClass("max-w-[760px]");
     expect(screen.queryByText(/AgentLoop|模型|Data Hub 工具|Skills/)).not.toBeInTheDocument();
   });
   beforeEach(() => {
@@ -67,6 +67,13 @@ describe("LandingPage research planning flow", () => {
     expect(screen.getByText(task.question)).toBeInTheDocument();
     expect(screen.getByText("平安银行")).toBeInTheDocument();
     expect(fetch).toHaveBeenCalledWith("/api/research/tasks/task-real-1/thread", expect.anything());
+    const flow = screen.getByTestId("active-conversation-scroll");
+    const stream = screen.getByTestId("conversation-stream");
+    const composer = screen.getByTestId("analysis-composer");
+    expect(flow).toContainElement(stream);
+    expect(flow).not.toContainElement(composer);
+    expect(screen.getByTestId("ai-analysis-body")).toContainElement(composer);
+    expect(screen.getByTestId("composer-dock")).toHaveClass("absolute", "bottom-0");
   });
 
   it("clears the composer after sending while keeping the question in the conversation", async () => {

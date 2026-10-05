@@ -38,7 +38,7 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
   return (
     <div className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-40 border-b bg-background shadow-sm">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4">
+        <div data-testid="public-header-inner" className="mx-auto flex h-14 max-w-[1440px] items-center justify-between px-5 sm:px-8 lg:px-10">
           <Link to="/" className="flex items-center gap-2 font-bold">
             <SigmXLogo className="h-6 w-6" />
             <span>SigmX</span>
@@ -51,7 +51,7 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
             <button type="button" aria-label={mobileOpen ? "关闭导航" : "打开导航"} aria-expanded={mobileOpen} onClick={() => setMobileOpen((value) => !value)} className="grid h-9 w-9 place-items-center rounded-md border md:hidden">{mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}</button>
           </div>
         </div>
-        {mobileOpen && <nav aria-label="移动导航" className="border-t bg-background p-3 md:hidden"><div className="mx-auto grid max-w-6xl gap-1">{links.map((item) => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} className={`rounded-md px-3 py-2.5 text-sm ${item.active ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted"}`}>{item.label}</Link>)}</div></nav>}
+        {mobileOpen && <nav aria-label="移动导航" className="border-t bg-background p-3 md:hidden"><div className="mx-auto grid max-w-[1440px] gap-1">{links.map((item) => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} className={`rounded-md px-3 py-2.5 text-sm ${item.active ? "bg-primary/10 font-semibold text-primary" : "text-muted-foreground hover:bg-muted"}`}>{item.label}</Link>)}</div></nav>}
       </header>
 
       <main className="flex-1">
@@ -59,7 +59,7 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
       </main>
 
       <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-        <div className="mx-auto max-w-6xl px-4">
+        <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-10">
           SigmX · 产品分离、平台能力共享 · © {new Date().getFullYear()}
         </div>
       </footer>

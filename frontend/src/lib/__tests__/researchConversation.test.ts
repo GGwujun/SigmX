@@ -33,6 +33,18 @@ describe("buildResearchConversation", () => {
     expect(blocks).toEqual([{ kind: "assistant", id: "s1", text: "正在核验数据。" }]);
   });
 
+  it("keeps one activity row when a tool emits both call and started events", () => {
+    const blocks = buildResearchConversation([
+      event(1, "tool_call", { tool: "load_research_skill" }),
+      event(2, "tool_started", { tool: "load_research_skill" }),
+      event(3, "tool_result", { tool: "load_research_skill", status: "ok" }),
+    ], null);
+
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "tool", label: "加载研究方法", status: "completed" }),
+    ]);
+  });
+
   it("never exposes raw thinking or final JSON text deltas", () => {
     const blocks = buildResearchConversation([
       event(1, "thinking_delta", { delta: "internal English reasoning" }),

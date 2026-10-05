@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { AIAnalysisTimeline } from "../AIAnalysisTimeline";
@@ -21,6 +21,7 @@ describe("AIAnalysisTimeline", () => {
     expect(screen.getByText(question)).toBeInTheDocument();
     expect(screen.getByText("正在理解你的问题")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "研究计划" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("conversation-stream")).toHaveClass("max-w-[760px]", "space-y-6");
   });
 
   it("renders model replies, tool activity, and continued replies in Agent order", () => {
@@ -32,11 +33,45 @@ describe("AIAnalysisTimeline", () => {
     ] };
     render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
 
+    const process = screen.getByRole("button", { name: /分析过程，进行中/ });
     const firstReply = screen.getByText("我先核验行情。");
-    const tool = screen.getByRole("button", { name: /查询研究数据/ });
+    const tool = screen.getByText("查询研究数据");
     const secondReply = screen.getByText("行情已经拿到，继续分析财务质量。");
+    expect(process).toHaveAttribute("aria-expanded", "true");
     expect(firstReply.compareDocumentPosition(tool) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(tool.compareDocumentPosition(secondReply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps all live model and tool activity in one analysis-process thread", () => {
+    const turn: ResearchConversationTurn = { task, result: null, events: [
+      { id: 1, type: "assistant_delta", payload: { segment_id: "s1", delta: "开始核验。" } },
+      { id: 2, type: "tool_call", payload: { tool: "load_research_skill" } },
+      { id: 3, type: "tool_result", payload: { tool: "load_research_skill", status: "ok" } },
+      { id: 4, type: "tool_call", payload: { tool: "search_market_data" } },
+      { id: 5, type: "tool_result", payload: { tool: "search_market_data", status: "ok", evidence_count: 8 } },
+    ] };
+    render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
+
+    expect(screen.getAllByRole("button", { name: /分析过程/ })).toHaveLength(1);
+    expect(screen.getByText("加载研究方法")).toBeInTheDocument();
+    expect(screen.getByText("查询研究数据")).toBeInTheDocument();
+  });
+
+  it("collapses the analysis process after a final answer is available", () => {
+    const completed = { ...task, status: "succeeded" };
+    const turn: ResearchConversationTurn = { task: completed, result, events: [
+      { id: 1, type: "assistant_delta", payload: { segment_id: "s1", delta: "正在核验行情与估值。" } },
+      { id: 2, type: "tool_call", payload: { tool: "search_market_data" } },
+      { id: 3, type: "tool_result", payload: { tool: "search_market_data", status: "ok", evidence_count: 8 } },
+    ] };
+    render(<MemoryRouter><AIAnalysisTimeline {...base} turns={[turn]} /></MemoryRouter>);
+
+    const process = screen.getByRole("button", { name: /分析过程，已完成/ });
+    expect(process).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("正在核验行情与估值。")).not.toBeInTheDocument();
+    expect(screen.getByText(result.summary)).toBeInTheDocument();
+    fireEvent.click(process);
+    expect(screen.getByText("正在核验行情与估值。")).toBeInTheDocument();
   });
 
   it("never renders raw thinking or final JSON deltas", () => {

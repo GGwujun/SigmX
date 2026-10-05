@@ -40,6 +40,12 @@ describe("PublicLayout", () => {
     expect(screen.getByRole("banner")).not.toHaveClass("bg-background/95");
   });
 
+  it("uses the same wide content grid as the core public pages", () => {
+    render(<MemoryRouter><PublicLayout /></MemoryRouter>);
+
+    expect(screen.getByTestId("public-header-inner")).toHaveClass("max-w-[1440px]", "lg:px-10");
+  });
+
   it("opens a complete account menu and only exposes operations to admins", async () => {
     setToken("test-token");
     setUser({ id: "1", email: "admin@sigmx.local", created_at: "2026-08-23", disclaimer_accepted_at: null, is_admin: true });

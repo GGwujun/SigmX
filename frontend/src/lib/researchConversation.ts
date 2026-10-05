@@ -59,6 +59,12 @@ export function buildResearchConversation(
 
     if (event.type === "tool_call" || event.type === "tool_started") {
       const tool = stringValue(event.payload.tool);
+      if (event.type === "tool_started") {
+        const pending = [...blocks].reverse().find(
+          (item): item is ToolConversationBlock => item.kind === "tool" && item.tool === tool && item.status === "running",
+        );
+        if (pending) continue;
+      }
       blocks.push({
         kind: "tool",
         id: `tool-${event.id}`,

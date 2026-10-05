@@ -1,48 +1,85 @@
-# AI Discovery ChatGPT-style Design QA
+# Design QA — 情报搜索、全球事件与投研 Skills
 
-- Source visual truth: `artifacts/ai-discovery-chatgpt-qa/reference-chatgpt.png`
-- Implementation screenshot: `artifacts/ai-discovery-chatgpt-qa/implementation-desktop.png`
-- Combined comparison: `artifacts/ai-discovery-chatgpt-qa/comparison-desktop.png`
-- Mobile evidence: `artifacts/ai-discovery-chatgpt-qa/implementation-mobile.png`
-- Browser URL: `http://localhost:5900/`
-- Desktop CSS viewport reported by browser: 1186 × 706; captured pixels: 1181 × 702
-- Mobile CSS viewport: 390 × 844; captured pixels: 385 × 832
-- Source pixels: 1586 × 992
-- Density normalization: source and implementation were placed at native pixel size in one horizontal comparison; composition was judged proportionally because the source mock and connected browser expose different pixel widths.
-- State: source shows completed analysis; implementation screenshot shows the empty/new-analysis state. Shared shell, history rail, header, composer, typography, spacing, and palette were compared. Completed, planning, running, and error content structures are covered by component tests; visual state coverage remains a follow-up.
+## Scope
 
-## Full-view comparison evidence
+- Source references: `exec-843f08c9-24e1-4952-b325-5d8a2c9f8b38.png` and `exec-24b3de1b-04dd-475d-8253-31fe305bb82b.png`.
+- Prototype routes: `/intelligence`, `/global-events`, `/skills`.
+- Verification viewport: 1440 × 900.
+- Existing `PublicLayout` header, navigation, footer and route shell were preserved.
+- Second-pass refinement places the title/subtitle and search on one compact row at desktop widths; both search fields are 40px high and page headings are 24px.
 
-The combined image confirms the implementation follows the selected direction: warm-white main canvas, restrained light-gray sidebar, narrow centered conversation column, plain-text history rows, minimal header, low-shadow rounded composer, quiet disclaimer, and no model/provider/API details. The existing SigmX public navigation remains above the page as an intentional product-shell constraint.
+## Visual comparison
 
-## Focused region evidence
+### 情报搜索
 
-No separate crops were required because the full comparison keeps the sidebar, center column, and composer text legible. The composer and history were also checked interactively in the browser; mobile input remains in-view and the history drawer opens.
+- Compact title and search row aligns with the two adjacent research pages.
+- Editorial feed uses source/time metadata, restrained actions and a sticky overview panel instead of a heavy dashboard card.
+- Degraded-source warnings are converted to concise user-facing copy and no longer expose transport exceptions.
+- Live results are limited to ten initially with a load-more control.
 
-## Required fidelity surfaces
+### 全球事件
 
-- Typography: Chinese system sans-serif, restrained 14–15px UI/body scale, clear 24px empty-state heading, readable line height. Passed.
-- Spacing/layout: 240px sidebar, centered 820px conversation/composer width, consistent 8px-derived rhythm, fixed visible composer. Passed.
-- Colors/tokens: near-white canvas, `#f7f7f8` sidebar, zinc neutrals, limited dark/teal emphasis. Passed.
-- Image/assets: no raster imagery is required by the selected design; existing Lucide interface icons are appropriate and sharp. Passed.
-- Copy/content: “AI 发现”, “搜索对话”, “给 AI 发现发送消息”, and investment disclaimer match the selected direction. Passed.
+- Title, subtitle, search, restrained filter chips, editorial timeline, inline AI summary and right-side market-impact panel match the selected content-area reference.
+- Real API data is denser and may contain English source titles; first render is limited to eight events with an explicit load-more control.
+- Responsive behavior moves the impact panel below the timeline before the wide breakpoint.
 
-## Findings
+### 投研 Skills
 
-- [P3] Existing public navigation is visible above the page while the isolated mock starts at the AI surface. This is intentional because the production route lives inside `PublicLayout`; removing it would alter site-wide navigation.
-- [P3] The empty-state screenshot cannot visually prove completed-result density. Component tests cover the exact completed/result DOM and navigation, but a future visual-fixture route would make screenshot regression stronger.
+- Title, search, category tabs, two featured cards and three-column library match the selected content-area reference.
+- Cards use the live published-skill manifest rather than invented catalog entries.
+- First render is limited to twelve library cards with an explicit load-more control; search and category interactions remain functional.
 
-## Interaction and accessibility checks
+## Interaction and quality checks
 
-- New analysis, history links, template prompts, composer submission, mobile history drawer, plan confirmation, retry, stock links, and full-analysis link retain accessible names.
-- Mobile composer measured fully inside the viewport.
-- Fresh browser tab reported no console warnings or errors.
-- Screenshot evidence cannot establish full keyboard order, screen-reader announcements, or WCAG compliance.
+- Search inputs, category controls, detail navigation, event evidence drawer and AI-analysis handoff remain active.
+- No browser console errors on either route.
+- No clipping or horizontal overflow at 1440 × 900.
+- Primary content begins substantially higher in the viewport; compact controls preserve clear hierarchy without crowding.
+- P0/P1/P2 visual issues: none remaining.
+- P3 note: source event titles are shown verbatim, so language and title length vary more than in the visual reference.
+
+## Result
+
+final result: passed
+
+---
+
+# Design QA — AI 发现聊天区
+
+## Evidence
+
+- Source visual truth: `C:/Users/Lenovo/AppData/Local/Temp/codex-clipboard-24341e8e-7a9a-4b24-875c-d5ddadead703.png`.
+- Implementation capture: `E:/gwj/SigmX/.qa-artifacts/ai-chat-after-1920.png`.
+- Viewport and normalization: source 1920 × 879 px; implementation 1920 × 879 CSS px, device pixel ratio 1, 1920 × 879 px. No density normalization required.
+- State: wide desktop, light theme, one running conversation with two model reply segments, a completed tool activity, a failed tool activity, history sidebar, and follow-up composer.
+- Full-view comparison: the focused AI workspace was compared at equal dimensions. The public header is intentionally excluded from the isolated component capture because this change does not modify it.
+- Focused-region evidence: conversation column, tool activity rows, sidebar, and bottom composer were all legible in the full-size equal-dimension capture; no additional crop was required.
 
 ## Comparison history
 
-1. Initial implementation used card-heavy messages and a framed application shell.
-2. Rebuilt shell and timeline to remove large cards, dark user bubbles, repeated status metadata, and heavy shadows.
-3. Post-fix evidence shows the ChatGPT-style sidebar, conversation canvas, typography, and composer with no actionable P0/P1/P2 mismatch.
+- Earlier P1: model text and tool rows stretched across the full workspace, producing weak reading hierarchy. Fixed by aligning the conversation and composer to an 820px centered reading column.
+- Earlier P1: `tool_call` plus `tool_started` created duplicate “加载研究方法” rows. Fixed by pairing the started event with the existing running activity.
+- Earlier P2: the secondary “AI 发现” title bar consumed vertical space and duplicated the active top navigation label. Removed from the workspace shell.
+- Earlier P2: full-width shaded tool rows looked like a data table. Replaced with compact, content-width Agent activity lines and restrained expandable metadata.
+- Post-fix evidence: `ai-chat-after-1920.png` shows one activity per operation, continuous model prose, compact vertical rhythm, and composer alignment with the response column.
+
+## Required fidelity surfaces
+
+- Fonts and typography: retained the product font stack; model prose is 15px with 1.8 line-height and slightly tightened tracking; tool metadata is subordinate at 11–12px.
+- Spacing and layout rhythm: conversation begins near the top of the workspace, uses 32px turn rhythm, and no longer contains the large blank band visible in the source issue capture.
+- Colors and tokens: retained neutral zinc product tokens; user messages use a quiet zinc-100 surface and tools use low-contrast semantic status icons.
+- Image quality and assets: no raster imagery is part of the chat surface; existing brand and Lucide icon assets remain sharp at native scale.
+- Copy and content: model text remains primary; tool labels and statuses are concise, Chinese, and no fixed research-plan copy is introduced.
+
+## Findings
+
+- No actionable P0/P1/P2 findings remain for the scoped AI chat workspace.
+- P3: very long model paragraphs may benefit from Markdown paragraph/list rendering in a later content-formatting pass.
+
+## Interaction checks
+
+- Tool activity expand/collapse remains interactive.
+- Running cursor, failure status, retry state, history selection, and composer controls remain covered by automated component tests.
+- Duplicate tool lifecycle events are covered by a reducer regression test.
 
 final result: passed
