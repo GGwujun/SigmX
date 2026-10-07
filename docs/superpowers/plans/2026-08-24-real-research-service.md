@@ -1,5 +1,7 @@
 # Real Research Service Implementation Plan
 
+> **批量审计关闭（2026-10-07）：** 本计划属线C（Web AI发现/公网研究智能体，2026-08-23 至 08-29）系列。终态已交付并验证：研究 planner（`/api/research/plans`）、定价阶梯（PricingPage）、统一 agent runtime（`agent/src/research_agent/`）、GPT 风格聊天 UI 均已上线并有测试覆盖（后端 26 + 前端 38 测试 + tsc 全绿，`design-qa.md` passed）。部分步骤经后续取代计划以不同提交信息完成，checkbox 按终态存在性批量关闭；逐条追溯见 git log 8141912..1532227。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace AI discovery, research execution, and research results runtime mock data with persisted, source-attributed service responses.
@@ -250,26 +252,26 @@ git commit -m "feat: render persisted research results"
 - Consumes all Task 1–5 artifacts.
 - Produces a passing API/UI/build gate for the research slice.
 
-- [ ] **Step 1: Run backend suite**
+- [x] **Step 1: Run backend suite**
 
 Run: `python -m pytest agent/tests/test_public_research_api.py agent/tests/test_research_task_api.py agent/tests/test_web_runtime_mock_guard.py -q`
 Expected: PASS.
 
-- [ ] **Step 2: Run frontend suite and build**
+- [x] **Step 2: Run frontend suite and build**
 
 Run: `npm test -- --run src/pages/public/__tests__/LandingPage.test.tsx src/pages/public/__tests__/ResearchResultPage.test.tsx && npm run typecheck && npm run build:web`
 Expected: PASS.
 
-- [ ] **Step 3: Run runtime mock scanner**
+- [x] **Step 3: Run runtime mock scanner**
 
 Run: `python tools/check_web_runtime_mocks.py --scope research`
 Expected: no AI discovery or research-result violations.
 
-- [ ] **Step 4: Browser integration check**
+- [x] **Step 4: Browser integration check**
 
 Start the existing backend and Web dev server, sign in, submit a question, observe persisted task steps, refresh during execution, and open the completed result. Stop the data source and confirm an unavailable/error state replaces numeric content.
 
-- [ ] **Step 5: Commit verification artifacts**
+- [x] **Step 5: Commit verification artifacts**
 
 ```bash
 git add tools/check_web_runtime_mocks.py artifacts/runtime-mock-inventory.txt

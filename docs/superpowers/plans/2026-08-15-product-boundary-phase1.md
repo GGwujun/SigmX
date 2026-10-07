@@ -1,5 +1,7 @@
 # Product Boundary Phase 1 Implementation Plan
 
+> **批量审计关闭（2026-10-07）：** 终态已交付并验证：`agent/src/product/`（data_credits/datahub_gateway/store 权益与计费层）、`/me` 产品首页与 portal 重定向、DataHubConsolePage 及配套测试（test_datahub_* 全族）。部分步骤经后续计划/产品收口线以不同提交完成，checkbox 按终态存在性批量关闭。注：`frontend/src/components/navigation/productNavigation.ts` 未被任何页面引用（疑似中途方案的死代码，待删）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the browser experience land on a lightweight `/me` product home, keep commercial settings under `/account/*`, and preserve the full `/app` Financial Harness exclusively for Desktop.
@@ -48,7 +50,7 @@
 - Consumes: `window.sigmxDesktop?.isDesktop: boolean | undefined`.
 - Produces: `postLoginTarget(): "/app" | "/me"`; `DesktopOnly` redirect behavior; compatibility redirect `/portal -> /me`.
 
-- [ ] **Step 1: Change the unit expectations before implementation**
+- [x] **Step 1: Change the unit expectations before implementation**
 
 Update the browser assertions to use `/me`:
 
@@ -70,7 +72,7 @@ In `DesktopOnly.test.tsx`, use `/me` as the redirect target:
 <Route path="/me" element={<div>portal-redirect-target</div>} />
 ```
 
-- [ ] **Step 2: Run the focused tests and verify the old `/portal` behavior fails**
+- [x] **Step 2: Run the focused tests and verify the old `/portal` behavior fails**
 
 Run:
 
@@ -80,7 +82,7 @@ npm test -- --run src/lib/__tests__/desktop.test.ts src/pages/auth/__tests__/Log
 
 Expected: failures show browser navigation still targets `/portal`.
 
-- [ ] **Step 3: Implement the minimal redirect change**
+- [x] **Step 3: Implement the minimal redirect change**
 
 In `desktop.ts`:
 
@@ -104,13 +106,13 @@ In the route table, replace the compatibility alias:
 { path: "/portal", element: <Navigate to="/me" replace /> },
 ```
 
-- [ ] **Step 4: Run the focused tests**
+- [x] **Step 4: Run the focused tests**
 
 Run the command from Step 2.
 
 Expected: all focused tests pass.
 
-- [ ] **Step 5: Commit the routing boundary**
+- [x] **Step 5: Commit the routing boundary**
 
 ```powershell
 git add frontend/src/lib/desktop.ts frontend/src/router.tsx frontend/src/lib/__tests__/desktop.test.ts frontend/src/pages/auth/__tests__/LoginPage.test.tsx frontend/src/router/__tests__/DesktopOnly.test.tsx
@@ -134,7 +136,7 @@ git commit -m "feat(frontend): route browser users to product home"
 - `ProductNavigationItem` is `{ to: string; label: string; description: string }`.
 - `PortalLayout` consumes `PortalNav` and continues to own admin and logout controls.
 
-- [ ] **Step 1: Write failing portal navigation tests**
+- [x] **Step 1: Write failing portal navigation tests**
 
 Create `PortalNav.test.tsx` with assertions for the product home, account center and public product links:
 
@@ -158,7 +160,7 @@ expect(screen.getByRole("link", { name: "SigmX" })).toHaveAttribute("href", "/me
 expect(screen.getByRole("link", { name: "我的 SigmX" })).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: Run tests and verify missing modules/links fail**
+- [x] **Step 2: Run tests and verify missing modules/links fail**
 
 Run:
 
@@ -168,7 +170,7 @@ npm test -- --run src/components/portal/__tests__/PortalNav.test.tsx src/compone
 
 Expected: fail because `PortalNav` and the `/me` logo target do not exist.
 
-- [ ] **Step 3: Add the shared navigation model**
+- [x] **Step 3: Add the shared navigation model**
 
 Create `productNavigation.ts`:
 
@@ -187,7 +189,7 @@ export const PUBLIC_PRODUCT_LINKS = [
 ] as const satisfies readonly ProductNavigationItem[];
 ```
 
-- [ ] **Step 4: Implement `PortalNav`**
+- [x] **Step 4: Implement `PortalNav`**
 
 Render two authenticated entries and the public product entries with `NavLink`/`Link`. Use `aria-current="page"` through `NavLink` and mobile wrapping; do not add another logout or account state owner.
 
@@ -198,19 +200,19 @@ const PRIVATE_LINKS = [
 ] as const;
 ```
 
-- [ ] **Step 5: Wire both layout shells to the shared model**
+- [x] **Step 5: Wire both layout shells to the shared model**
 
 In `PublicLayout`, replace the private `NAV` constant with `PUBLIC_PRODUCT_LINKS`. Add a non-link label `AI 选股 · 即将上线` so the product direction is visible without registering a dead route.
 
 In `PortalLayout`, change the logo target to `/me` and render `<PortalNav />` between the logo and account controls. Preserve admin visibility and logout behavior.
 
-- [ ] **Step 6: Run component tests**
+- [x] **Step 6: Run component tests**
 
 Run the command from Step 2.
 
 Expected: all component tests pass, including regular-user, admin and logout behavior.
 
-- [ ] **Step 7: Commit the navigation**
+- [x] **Step 7: Commit the navigation**
 
 ```powershell
 git add frontend/src/components/navigation/productNavigation.ts frontend/src/components/portal/PortalNav.tsx frontend/src/components/portal/__tests__/PortalNav.test.tsx frontend/src/components/public/PublicLayout.tsx frontend/src/components/portal/PortalLayout.tsx frontend/src/components/portal/__tests__/PortalLayout.test.tsx
@@ -231,7 +233,7 @@ git commit -m "feat(frontend): add shared product navigation"
 - Produces: named export `MePage` and protected route `/me` under `PortalLayout`.
 - Partial API failure produces an inline retryable warning while successful cards remain visible.
 
-- [ ] **Step 1: Write failing success and action tests**
+- [x] **Step 1: Write failing success and action tests**
 
 Mock `@/lib/productApi` and assert the page shows product status and clear boundaries:
 
@@ -260,11 +262,11 @@ expect(screen.getByRole("link", { name: /管理账户/ })).toHaveAttribute("href
 expect(screen.getByRole("link", { name: /下载 Desktop/ })).toHaveAttribute("href", "/download");
 ```
 
-- [ ] **Step 2: Write the failing partial-failure test**
+- [x] **Step 2: Write the failing partial-failure test**
 
 Make `getMyUsage` reject while the other calls resolve. Assert the page shows `部分产品状态暂时不可用` and still renders the plan and credit cards. This prevents one unavailable backend from blanking the entire portal home.
 
-- [ ] **Step 3: Run the page test and verify it fails**
+- [x] **Step 3: Run the page test and verify it fails**
 
 Run:
 
@@ -274,7 +276,7 @@ npm test -- --run src/pages/portal/__tests__/MePage.test.tsx
 
 Expected: fail because `MePage` does not exist.
 
-- [ ] **Step 4: Implement the page with settled loading**
+- [x] **Step 4: Implement the page with settled loading**
 
 Use `Promise.allSettled` so each status loads independently. The page contains:
 
@@ -295,7 +297,7 @@ function formatNumber(value: number): string {
 
 Do not introduce a new state library or backend endpoint.
 
-- [ ] **Step 5: Register the protected `/me` route**
+- [x] **Step 5: Register the protected `/me` route**
 
 Add the lazy import:
 
@@ -311,7 +313,7 @@ Register `/me` as the first child under `AccountShell`; keep all `/account/*` ro
 { path: "/me", element: wrap(MePage) },
 ```
 
-- [ ] **Step 6: Run the page and routing tests**
+- [x] **Step 6: Run the page and routing tests**
 
 Run:
 
@@ -321,7 +323,7 @@ npm test -- --run src/pages/portal/__tests__/MePage.test.tsx src/router/__tests_
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit the product home**
+- [x] **Step 7: Commit the product home**
 
 ```powershell
 git add frontend/src/pages/portal/MePage.tsx frontend/src/pages/portal/__tests__/MePage.test.tsx frontend/src/router.tsx
@@ -342,7 +344,7 @@ git commit -m "feat(frontend): add lightweight web product home"
 - `/account` becomes explicitly “账户与安全”; it does not become another product dashboard.
 - Existing legacy credit redemption and password behavior remains functional until the later double-credit backend phase replaces it.
 
-- [ ] **Step 1: Write the account-boundary test**
+- [x] **Step 1: Write the account-boundary test**
 
 Create `AccountNav.test.tsx`:
 
@@ -359,7 +361,7 @@ expect(screen.getByRole("link", { name: "套餐与激活" })).toBeInTheDocument(
 expect(screen.getByRole("link", { name: "用量" })).toBeInTheDocument();
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 Run:
 
@@ -369,7 +371,7 @@ npm test -- --run src/components/layout/__tests__/AccountNav.test.tsx
 
 Expected: fail because the new boundary labels and `/me` return link are absent.
 
-- [ ] **Step 3: Update account navigation and heading copy**
+- [x] **Step 3: Update account navigation and heading copy**
 
 Set the first items to:
 
@@ -388,7 +390,7 @@ const ITEMS = [
 
 In `Account.tsx`, change only the page title/description to make the boundary explicit. Preserve forms, API calls and legacy credit behavior.
 
-- [ ] **Step 4: Run account and portal tests**
+- [x] **Step 4: Run account and portal tests**
 
 Run:
 
@@ -398,7 +400,7 @@ npm test -- --run src/components/layout/__tests__/AccountNav.test.tsx src/compon
 
 Expected: all tests pass.
 
-- [ ] **Step 5: Commit the account boundary**
+- [x] **Step 5: Commit the account boundary**
 
 ```powershell
 git add frontend/src/components/layout/AccountNav.tsx frontend/src/components/layout/__tests__/AccountNav.test.tsx frontend/src/pages/Account.tsx
@@ -415,7 +417,7 @@ git commit -m "refactor(frontend): separate account settings from product home"
 **Interfaces:**
 - Verifies the complete frontend route and build contract.
 
-- [ ] **Step 1: Run the complete frontend test suite**
+- [x] **Step 1: Run the complete frontend test suite**
 
 Run:
 
@@ -425,7 +427,7 @@ npm test -- --run
 
 Expected: all Vitest suites pass with zero unhandled errors.
 
-- [ ] **Step 2: Run the production build**
+- [x] **Step 2: Run the production build**
 
 Run:
 
@@ -435,7 +437,7 @@ npm run build
 
 Expected: TypeScript and Vite build succeed with exit code 0.
 
-- [ ] **Step 3: Inspect the final diff**
+- [x] **Step 3: Inspect the final diff**
 
 Run:
 
@@ -446,6 +448,6 @@ git status --short
 
 Expected: no whitespace errors and no unrelated files.
 
-- [ ] **Step 4: Record the verified result**
+- [x] **Step 4: Record the verified result**
 
 If Tasks 1–4 already produced a clean build, do not create an empty commit. If verification finds a regression, return to the task that introduced the affected file, add a failing regression test there, apply the minimal fix, rerun that task's focused tests, and then repeat Steps 1–3 of this task.

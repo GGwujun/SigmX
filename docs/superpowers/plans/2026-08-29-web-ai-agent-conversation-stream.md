@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-29-web-ai-agent-conversation-stream-design.md`
 
+> **Done (2026-10-05):** 全部 Task 完成并验证。Task 1-4 对应提交 f206e19 / 6935cbe / 201386b / 58b7563；计划外补充修复 8141912（planner 空输出规范化）。Task 5 验证：后端 26 测试通过，前端 38 测试 + tsc 通过，`design-qa.md` 含 `final result: passed`。偏差：Step 5 验证产物与第二轮设计 QA 收口合并在提交 1532227（`feat: apply design QA refinements...`），未单独用 `test:` 前缀提交。
+
 ## Global Constraints
 
 - Never render `thinking_delta`, system prompts, raw final JSON, secrets, internal URLs, or unapproved tool arguments.
@@ -32,7 +34,7 @@
 - Produces: `PublicUpdateStreamParser.finish() -> list[str]`
 - Contract: only text inside `<public_update>...</public_update>` is returned; arbitrary chunk boundaries are supported.
 
-- [ ] **Step 1: Write failing parser tests**
+- [x] **Step 1: Write failing parser tests**
 
 ```python
 def test_emits_only_tagged_public_text_across_chunk_boundaries():
@@ -49,13 +51,13 @@ def test_supports_multiple_public_segments_without_leaking_json():
     assert "".join(visible) == "第一段第二段"
 ```
 
-- [ ] **Step 2: Run tests and verify RED**
+- [x] **Step 2: Run tests and verify RED**
 
 Run: `python -m pytest agent/tests/test_research_public_updates.py -q`
 
 Expected: FAIL because `src.research_agent.public_updates` does not exist.
 
-- [ ] **Step 3: Implement the streaming state machine**
+- [x] **Step 3: Implement the streaming state machine**
 
 ```python
 class PublicUpdateStreamParser:
@@ -92,13 +94,13 @@ class PublicUpdateStreamParser:
         return output
 ```
 
-- [ ] **Step 4: Run parser tests and verify GREEN**
+- [x] **Step 4: Run parser tests and verify GREEN**
 
 Run: `python -m pytest agent/tests/test_research_public_updates.py -q`
 
 Expected: all parser tests pass.
 
-- [ ] **Step 5: Commit parser behavior**
+- [x] **Step 5: Commit parser behavior**
 
 ```bash
 git add agent/src/research_agent/public_updates.py agent/tests/test_research_public_updates.py
@@ -119,7 +121,7 @@ git commit -m "feat: parse public research updates"
 - Produces event: `assistant_segment_done {segment_id: str, iteration: int}`
 - Produces event: `assistant_final {summary: str, conclusions: list, risks: list}`
 
-- [ ] **Step 1: Add failing runtime event-order tests**
+- [x] **Step 1: Add failing runtime event-order tests**
 
 Use a deterministic fake loop/event sequence and assert the literal public sequence:
 
@@ -134,13 +136,13 @@ assert "internal reasoning" not in json.dumps(emitted, ensure_ascii=False)
 
 Add a validation-failure test asserting no event has type `assistant_final`.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `python -m pytest agent/tests/test_research_agent_runtime.py agent/tests/test_research_task_api.py -q`
 
 Expected: FAIL because the three public events are not emitted.
 
-- [ ] **Step 3: Update the research prompt and event adapter**
+- [x] **Step 3: Update the research prompt and event adapter**
 
 Extend `_SYSTEM_PROMPT` with the exact contract:
 
@@ -153,7 +155,7 @@ Extend `_SYSTEM_PROMPT` with the exact contract:
 
 In `ResearchAgentRuntime.forward`, parse only `text_delta`; convert tagged content to `assistant_delta`; preserve tool events; never forward public `thinking_delta` as display content. Close a segment before the next tool call and assign stable per-run segment IDs.
 
-- [ ] **Step 4: Emit validated final content**
+- [x] **Step 4: Emit validated final content**
 
 After evidence validation and optional repair, call:
 
@@ -168,13 +170,13 @@ emit({
 
 Keep the existing `runtime_completed` event after it.
 
-- [ ] **Step 5: Verify runtime and persisted SSE order**
+- [x] **Step 5: Verify runtime and persisted SSE order**
 
 Run: `python -m pytest agent/tests/test_research_agent_runtime.py agent/tests/test_research_task_api.py -q`
 
 Expected: tests pass and SSE replay contains the same event ordering as the database event list.
 
-- [ ] **Step 6: Commit backend protocol**
+- [x] **Step 6: Commit backend protocol**
 
 ```bash
 git add agent/src/research_agent/runtime.py agent/src/product/research_orchestrator.py agent/tests/test_research_agent_runtime.py agent/tests/test_research_task_api.py
@@ -193,7 +195,7 @@ git commit -m "feat: stream public research agent replies"
 - Produces `buildResearchConversation(events: ResearchEvent[], result: ResearchResult | null): ResearchConversationBlock[]`
 - Tool pairs are matched by safe event order and tool name; unknown tools receive the public label `查询研究数据`.
 
-- [ ] **Step 1: Write failing reducer tests**
+- [x] **Step 1: Write failing reducer tests**
 
 ```typescript
 expect(buildResearchConversation([
@@ -212,13 +214,13 @@ expect(buildResearchConversation([
 
 Add literal tests proving `thinking_delta` and `text_delta` are ignored and legacy `result` creates one final block only when no `assistant_final` exists.
 
-- [ ] **Step 2: Run reducer tests and verify RED**
+- [x] **Step 2: Run reducer tests and verify RED**
 
 Run: `node node_modules/vitest/vitest.mjs run src/lib/__tests__/researchConversation.test.ts`
 
 Expected: FAIL because the reducer does not exist.
 
-- [ ] **Step 3: Implement typed blocks and safe tool presentation**
+- [x] **Step 3: Implement typed blocks and safe tool presentation**
 
 Use a small explicit map:
 
@@ -232,13 +234,13 @@ const TOOL_LABELS: Record<string, string> = {
 
 Never copy arbitrary argument values into the collapsed label. Limit expanded metadata to evidence count, elapsed time, and sanitized failure status.
 
-- [ ] **Step 4: Run reducer tests and verify GREEN**
+- [x] **Step 4: Run reducer tests and verify GREEN**
 
 Run: `node node_modules/vitest/vitest.mjs run src/lib/__tests__/researchConversation.test.ts`
 
 Expected: all reducer tests pass.
 
-- [ ] **Step 5: Commit reducer**
+- [x] **Step 5: Commit reducer**
 
 ```bash
 git add frontend/src/lib/researchConversation.ts frontend/src/lib/researchApi.ts frontend/src/lib/__tests__/researchConversation.test.ts
@@ -257,7 +259,7 @@ git commit -m "feat: reduce research events into chat blocks"
 - Consumes: `buildResearchConversation`
 - Renders ordered assistant prose, compact tool rows, verified final Markdown-like content, and a streaming cursor.
 
-- [ ] **Step 1: Replace progress-list expectations with failing Agent-order tests**
+- [x] **Step 1: Replace progress-list expectations with failing Agent-order tests**
 
 Render events in this exact order and assert DOM order with `compareDocumentPosition`:
 
@@ -270,29 +272,29 @@ expect(screen.queryByText("internal English reasoning")).not.toBeInTheDocument()
 
 Add tests for tool expansion, running cursor, failure retention, and legacy completed tasks.
 
-- [ ] **Step 2: Run component tests and verify RED**
+- [x] **Step 2: Run component tests and verify RED**
 
 Run: `node node_modules/vitest/vitest.mjs run src/components/public/__tests__/AIAnalysisTimeline.test.tsx src/pages/public/__tests__/LandingPage.test.tsx`
 
 Expected: FAIL because the current timeline renders fixed activity and raw thinking segments.
 
-- [ ] **Step 3: Implement the selected ChatGPT visual target**
+- [x] **Step 3: Implement the selected ChatGPT visual target**
 
 Use a responsive centered reading column (`w-full max-w-[840px]`, `px-4 sm:px-6`), keep user messages as right gray bubbles, and render assistant blocks as unboxed prose. Tool rows use one compact neutral button row with `ChevronRight/Down`, monochrome icons, localized label, status, and optional safe details.
 
 Remove `ProcessTimeline`, `ThinkingSegment`, `safeActivity`, and all rendering of `thinking_delta`. Render final summary, conclusions, risks, and existing candidate links as continuous assistant content rather than a separate dashboard card.
 
-- [ ] **Step 4: Preserve live auto-scroll without stealing manual scroll**
+- [x] **Step 4: Preserve live auto-scroll without stealing manual scroll**
 
 Add a scroll-container ref and bottom sentinel in `LandingPage`. Scroll on new blocks only when the user is within 120px of the bottom; once the user scrolls upward, keep their position until they return near the bottom.
 
-- [ ] **Step 5: Run component tests and verify GREEN**
+- [x] **Step 5: Run component tests and verify GREEN**
 
 Run: `node node_modules/vitest/vitest.mjs run src/components/public/__tests__/AIAnalysisTimeline.test.tsx src/pages/public/__tests__/LandingPage.test.tsx`
 
 Expected: all chat and page tests pass.
 
-- [ ] **Step 6: Commit frontend Agent chat**
+- [x] **Step 6: Commit frontend Agent chat**
 
 ```bash
 git add frontend/src/components/public/AIAnalysisTimeline.tsx frontend/src/components/public/__tests__/AIAnalysisTimeline.test.tsx frontend/src/pages/public/LandingPage.tsx frontend/src/pages/public/__tests__/LandingPage.test.tsx
@@ -308,7 +310,7 @@ git commit -m "feat: render dynamic research agent chat"
 **Interfaces:**
 - Verifies backend event contract, frontend build, live Web interaction, replay, and responsive visual fidelity.
 
-- [ ] **Step 1: Run backend focused and regression tests**
+- [x] **Step 1: Run backend focused and regression tests**
 
 Run:
 
@@ -318,7 +320,7 @@ python -m pytest agent/tests/test_research_public_updates.py agent/tests/test_re
 
 Expected: all tests pass.
 
-- [ ] **Step 2: Run frontend focused tests, typecheck, and Web build**
+- [x] **Step 2: Run frontend focused tests, typecheck, and Web build**
 
 Run with Node 24.13.1:
 
@@ -330,15 +332,15 @@ Run with Node 24.13.1:
 
 Expected: tests, typecheck, and build exit 0.
 
-- [ ] **Step 3: Verify a live conversation in the in-app browser**
+- [x] **Step 3: Verify a live conversation in the in-app browser**
 
 At 1440×900, submit a real research question and verify the visible order is model reply, tool, model reply, tool, final reply. Refresh the completed conversation and verify the order is unchanged. Repeat at 390×844 and verify the composer remains visible and tool rows do not overflow.
 
-- [ ] **Step 4: Compare the selected mockup and implementation screenshots**
+- [x] **Step 4: Compare the selected mockup and implementation screenshots**
 
 Capture identical desktop and mobile states, inspect both files, and record P0–P3 differences in `design-qa.md`. Fix all P0/P1/P2 issues and repeat until the report contains `final result: passed`.
 
-- [ ] **Step 5: Commit verification artifacts and report**
+- [x] **Step 5: Commit verification artifacts and report**
 
 ```bash
 git add design-qa.md

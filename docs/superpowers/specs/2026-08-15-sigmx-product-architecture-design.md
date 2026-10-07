@@ -316,3 +316,20 @@ AlphaForge 报告查看器已提供“发布 Web 快照”操作。对话框不�
 ## 15. 非目标
 
 第一阶段不实现自然语言查询引擎、SSR 迁移、插件市场、真实支付或实盘执行。企业组织、成员、服务账号和共享配额不属于当前产品规划。
+
+## 16. Desktop Harness 实现收口（2026-10-07）
+
+第 13.5 项「Desktop Harness 收口」已交付，具体面如下：
+
+**后端（`agent/src/harness/`，全部 `require_user` 鉴权，`api_server.py:3413` 注册于公开/产品路由之外）：**
+
+- `GET /api/harness/status` — 模式/数据源/治理/云连接状态与降级说明
+- `GET /api/harness/tools` — 治理工具注册表（含 data_locality/governance_level/requires_confirmation，无 `execute` 工具）
+- `GET|POST /api/harness/runs`、`GET /api/harness/runs/{id}`、`POST /api/harness/runs/{id}/cancel` — 权威运行中心（读现有 store，不建第二运行库）
+- `GET /api/harness/assets` — 本地资产目录
+- `POST /api/harness/context/preview` — 脱敏上下文预览（本地文件引用不外泄内容）
+- `POST /api/datahub/desktop-session` — 设备绑定 24 小时短期 Data Hub 凭据（`credential_kind`/`device_id` schema v8；自动吊销上一会话；不计入长期 Key 上限）
+
+**前端：** `HarnessOverview` 挂载于 `/app`（`DesktopOnly` 守卫内，浏览器访问重定向 `/me`；桌面标识仅来自 Electron preload 注入的 `window.sigmxDesktop`）。Settings 的 Connected 配置改为会话优先。
+
+**验证：** harness 套件 19 + datahub 套件 59 + 前端全量 345 测试通过；`vite build --mode web` 通过；`scripts/verify_product_architecture.py` complete=59/missing=0（13.2 Desktop Harness rollout 有测试与运行时证据）；全码库无「自动交易」类违规文案。

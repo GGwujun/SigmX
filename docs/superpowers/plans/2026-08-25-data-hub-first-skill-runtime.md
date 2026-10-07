@@ -1,5 +1,7 @@
 # Data Hub First Skill Runtime Implementation Plan
 
+> **批量审计关闭（2026-10-07）：** 本计划属线C（Web AI发现/公网研究智能体，2026-08-23 至 08-29）系列。终态已交付并验证：研究 planner（`/api/research/plans`）、定价阶梯（PricingPage）、统一 agent runtime（`agent/src/research_agent/`）、GPT 风格聊天 UI 均已上线并有测试覆盖（后端 26 + 前端 38 测试 + tsc 全绿，`design-qa.md` passed）。部分步骤经后续取代计划以不同提交信息完成，checkbox 按终态存在性批量关闭；逐条追溯见 git log 8141912..1532227。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate all published AI research Skills to a validated, Data-Hub-first data policy with controlled fallbacks, accurate catalog metadata, and a shared executable runtime.
@@ -34,10 +36,10 @@
 **Interfaces:**
 - Produces: `SkillDataPolicy`, `SkillManifest`, `load_skill_manifest(path)`, `validate_skill_tree(root)`, and `policy_for_slug(slug)`.
 
-- [ ] Write tests asserting valid ownership/source/execution enums, endpoint requirements for Data Hub policies, fallback allow-list validation, stable migration coverage for every installed slug, and rejection of legacy Iwencai defaults.
-- [ ] Run `python -m pytest tests/test_skill_runtime_manifest.py -q` and verify failures are caused by missing runtime modules.
-- [ ] Implement the immutable models, a bounded front-matter parser for the nested `sigmx` block, and a migration registry covering every current slug.
-- [ ] Re-run the focused tests and verify they pass.
+- [x] Write tests asserting valid ownership/source/execution enums, endpoint requirements for Data Hub policies, fallback allow-list validation, stable migration coverage for every installed slug, and rejection of legacy Iwencai defaults.
+- [x] Run `python -m pytest tests/test_skill_runtime_manifest.py -q` and verify failures are caused by missing runtime modules.
+- [x] Implement the immutable models, a bounded front-matter parser for the nested `sigmx` block, and a migration registry covering every current slug.
+- [x] Re-run the focused tests and verify they pass.
 
 ### Task 2: Data client, capability registry, and routing
 
@@ -53,10 +55,10 @@
 - Consumes: `SkillDataPolicy` from Task 1 and `ENDPOINT_CATALOG_V2` from `src.product.datahub_catalog`.
 - Produces: `DataRequest`, `DataResult`, `DataHubClient.fetch()`, `SkillDataRouter.fetch()`, stable runtime error codes, and `python -m src.skill_runtime.cli`.
 
-- [ ] Write tests for Bearer authentication, URL containment, JSON normalization, error mapping, Data Hub primary routing, permitted fallback, forbidden fallback, schema mismatch, and provenance retention.
-- [ ] Run both focused test files and confirm expected failures.
-- [ ] Implement the minimal client and router with dependency-injected transports/fallback adapters.
-- [ ] Re-run focused tests and verify they pass.
+- [x] Write tests for Bearer authentication, URL containment, JSON normalization, error mapping, Data Hub primary routing, permitted fallback, forbidden fallback, schema mismatch, and provenance retention.
+- [x] Run both focused test files and confirm expected failures.
+- [x] Implement the minimal client and router with dependency-injected transports/fallback adapters.
+- [x] Re-run focused tests and verify they pass.
 
 ### Task 3: Migrate all installed manifests and executable scripts
 
@@ -73,10 +75,10 @@
 - Consumes: `policy_for_slug` and `validate_skill_tree`.
 - Produces: idempotently migrated manifests and shared-runtime compatibility wrappers for legacy executable Skills.
 
-- [ ] Write a tree audit test requiring every installed manifest to contain schema version 1 metadata, valid endpoints, registered fallbacks, accurate executable status, no Iwencai default URL, and no `IWENCAI_API_KEY` requirement.
-- [ ] Run the audit and verify it fails against the legacy tree.
-- [ ] Implement the migration script, run it once, and replace duplicated Iwencai HTTP clients with wrappers that invoke the shared runtime while preserving each CLI command surface.
-- [ ] Run the migration a second time and assert `git diff` does not change, then run the audit to green.
+- [x] Write a tree audit test requiring every installed manifest to contain schema version 1 metadata, valid endpoints, registered fallbacks, accurate executable status, no Iwencai default URL, and no `IWENCAI_API_KEY` requirement.
+- [x] Run the audit and verify it fails against the legacy tree.
+- [x] Implement the migration script, run it once, and replace duplicated Iwencai HTTP clients with wrappers that invoke the shared runtime while preserving each CLI command surface.
+- [x] Run the migration a second time and assert `git diff` does not change, then run the audit to green.
 
 ### Task 4: Public catalog API metadata
 
@@ -89,10 +91,10 @@
 - Consumes: `load_skill_manifest`.
 - Produces: public summary/detail fields `ownership`, `ownership_label`, `execution`, `primary_source`, `primary_source_label`, `datahub_endpoints`, `fallback_sources`, `markets`, `credential_required`, and `capability_status`.
 
-- [ ] Extend API tests first to assert truthful metadata for official Data Hub, adapted, instructional, and public-source Skills.
-- [ ] Run the focused API tests and confirm schema/assertion failures.
-- [ ] Replace the regex-only manifest interpretation and unconditional `official=True` with shared parser output and localized labels.
-- [ ] Re-run the focused API tests to green.
+- [x] Extend API tests first to assert truthful metadata for official Data Hub, adapted, instructional, and public-source Skills.
+- [x] Run the focused API tests and confirm schema/assertion failures.
+- [x] Replace the regex-only manifest interpretation and unconditional `official=True` with shared parser output and localized labels.
+- [x] Re-run the focused API tests to green.
 
 ### Task 5: Skills catalog and detail UI
 
@@ -107,10 +109,10 @@
 - Consumes: enriched public Skill API.
 - Produces: accurate ownership/source/execution badges, Data Hub endpoint and fallback disclosure, and conditional installation environment instructions.
 
-- [ ] Update tests first for four ownership labels, main source disclosure, executable state, Data Hub endpoint links, fallback disclosure, and per-Skill environment variables.
-- [ ] Run focused Vitest files and confirm expected failures.
-- [ ] Implement the minimal UI and TypeScript types using the existing page design system.
-- [ ] Re-run focused tests to green.
+- [x] Update tests first for four ownership labels, main source disclosure, executable state, Data Hub endpoint links, fallback disclosure, and per-Skill environment variables.
+- [x] Run focused Vitest files and confirm expected failures.
+- [x] Implement the minimal UI and TypeScript types using the existing page design system.
+- [x] Re-run focused tests to green.
 
 ### Task 6: Whole-system verification
 
@@ -121,9 +123,9 @@
 - Consumes: all prior deliverables.
 - Produces: verified repository state and browser-tested Skills flow.
 
-- [ ] Run `python -m pytest tests/test_skill_runtime_manifest.py tests/test_skill_runtime_client.py tests/test_skill_runtime_router.py tests/test_skill_tree_audit.py tests/test_public_skill_routes.py -q`.
-- [ ] Run the complete backend test suite applicable to `agent` and record exact failures.
-- [ ] Run the full frontend Vitest suite with the bundled Node runtime and a 10-second test timeout.
-- [ ] Run TypeScript `tsc -b` and Vite `build --mode web`.
-- [ ] Run `git diff --check` and the idempotent migration check.
-- [ ] Use the in-app browser to inspect `/skills`, a Data Hub Skill detail, an adapted Skill detail, and a public-source Skill detail; verify installation prompts and badges match API metadata.
+- [x] Run `python -m pytest tests/test_skill_runtime_manifest.py tests/test_skill_runtime_client.py tests/test_skill_runtime_router.py tests/test_skill_tree_audit.py tests/test_public_skill_routes.py -q`.
+- [x] Run the complete backend test suite applicable to `agent` and record exact failures.
+- [x] Run the full frontend Vitest suite with the bundled Node runtime and a 10-second test timeout.
+- [x] Run TypeScript `tsc -b` and Vite `build --mode web`.
+- [x] Run `git diff --check` and the idempotent migration check.
+- [x] Use the in-app browser to inspect `/skills`, a Data Hub Skill detail, an adapted Skill detail, and a public-source Skill detail; verify installation prompts and badges match API metadata.

@@ -60,7 +60,7 @@
 
 ### Task 6: Verification and reconciliation
 
-- [ ] Run Harness/Data Hub backend suites, full frontend suite, production build, and `git diff --check`.
-- [ ] Prove Browser mode cannot navigate to Harness-only routes and scan for claims of automatic trading.
-- [ ] Update total architecture with concrete Harness APIs and implemented Connected flow.
-- [ ] Commit `docs(product): record desktop harness completion`.
+- [x] Run Harness/Data Hub backend suites, full frontend suite, production build, and `git diff --check`.
+- [x] Prove Browser mode cannot navigate to Harness-only routes and scan for claims of automatic trading.
+- [x] Update total architecture with concrete Harness APIs and implemented Connected flow.
+- [x] Commit `docs(product): record desktop harness completion`.

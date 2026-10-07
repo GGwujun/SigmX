@@ -1,5 +1,7 @@
 # Data Hub Billing Core Implementation Plan
 
+> **批量审计关闭（2026-10-07）：** 终态已交付并验证：`agent/src/product/`（data_credits/datahub_gateway/store 权益与计费层）、`/me` 产品首页与 portal 重定向、DataHubConsolePage 及配套测试（test_datahub_* 全族）。部分步骤经后续计划/产品收口线以不同提交完成，checkbox 按终态存在性批量关闭。注：`frontend/src/components/navigation/productNavigation.ts` 未被任何页面引用（疑似中途方案的死代码，待删）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a separate Data Hub credit ledger, a versioned catalog for all 49 current `/api/v1/*` endpoints, new plan entitlements, and authenticated read APIs without wiring request charging yet.
@@ -50,7 +52,7 @@
 - Produces `ProductStore` schema version 2 with `data_credit_lots`, `data_credit_reservations`, `data_credit_allocations`, `data_credit_ledger`, and `datahub_endpoint_catalog`.
 - Produces plan entitlements keyed by `datahub.enabled`, `datahub.dataset_groups`, `datahub.monthly_credits`, `datahub.rate_limit_per_minute`, `datahub.concurrent_limit`, `datahub.max_rows_per_request`, `datahub.history_depth_days`, and `datahub.commercial_use`.
 
-- [ ] **Step 1: Write failing store and migration tests**
+- [x] **Step 1: Write failing store and migration tests**
 
 Add these behaviors to `test_product_store.py`:
 
@@ -84,7 +86,7 @@ def test_schema_v2_tables_exist(tmp_path: Path) -> None:
 
 Add a migration test that creates a `ProductStore`, overwrites the advanced plan with the four old Data Hub keys, removes migration version 2, reopens the store, and asserts the old keys are gone while `desktop.device_limit` remains unchanged.
 
-- [ ] **Step 2: Run the failing store tests**
+- [x] **Step 2: Run the failing store tests**
 
 Run:
 
@@ -94,7 +96,7 @@ python -m pytest agent/tests/test_product_store.py -q
 
 Expected: failures report missing new entitlements, tables, or version 2.
 
-- [ ] **Step 3: Replace canonical catalog entitlements**
+- [x] **Step 3: Replace canonical catalog entitlements**
 
 Allow list values in `PlanSeed.entitlements` and set exact values:
 
@@ -111,7 +113,7 @@ DATAHUB = {
 
 Flatten those values into the eight stable entitlement keys in each existing plan while preserving non-Data-Hub entitlements.
 
-- [ ] **Step 4: Add schema-v2 tables and migration**
+- [x] **Step 4: Add schema-v2 tables and migration**
 
 Set `_SCHEMA_VERSION = 2`, add the exact tables and constraints from the approved spec, and implement `_migrate_v2_datahub_entitlements(conn)`:
 
@@ -129,7 +131,7 @@ if conn.execute("SELECT 1 FROM product_migrations WHERE version = 2").fetchone()
 
 Call the migration after seeding and before stamping version 2. Keep migration idempotent.
 
-- [ ] **Step 5: Run store and existing catalog tests**
+- [x] **Step 5: Run store and existing catalog tests**
 
 Run:
 
@@ -139,7 +141,7 @@ python -m pytest agent/tests/test_product_store.py agent/tests/test_product_rout
 
 Expected: store tests pass; the old route assertion fails until Step 6 updates it.
 
-- [ ] **Step 6: Update route catalog assertions**
+- [x] **Step 6: Update route catalog assertions**
 
 In `test_product_routes.py`, assert:
 
@@ -148,7 +150,7 @@ assert advanced.entitlements["datahub.monthly_credits"] == 30_000
 assert advanced.entitlements["datahub.dataset_groups"] == ["basic.v1", "market.v1"]
 ```
 
-- [ ] **Step 7: Re-run and commit**
+- [x] **Step 7: Re-run and commit**
 
 Run the Step 5 command; expected all pass. Then:
 
@@ -172,7 +174,7 @@ git commit -m "feat(data-hub): add data credit schema and entitlements"
 - Produces `balance(owner_id) -> DataCreditBalance`, `list_lots(owner_id)`, `list_entries(owner_id, limit=100)`.
 - Produces `grant_monthly_data_credits(ledger, owner_id, plan_code, period: date) -> DataGrantResult | None`.
 
-- [ ] **Step 1: Write failing grant and balance tests**
+- [x] **Step 1: Write failing grant and balance tests**
 
 Create tests proving isolation and expiry:
 
@@ -196,7 +198,7 @@ def test_data_grant_is_idempotent(store: ProductStore) -> None:
 
 Also test expired lots are excluded, seven-day expiry is counted, non-positive grants raise `ValueError`, and different owners cannot see each other's lots or entries.
 
-- [ ] **Step 2: Run the new tests and verify import failure**
+- [x] **Step 2: Run the new tests and verify import failure**
 
 Run:
 
@@ -206,11 +208,11 @@ python -m pytest agent/tests/test_product_data_credits.py -q
 
 Expected: import failure because `data_credits.py` does not exist.
 
-- [ ] **Step 3: Implement minimal grant and read service**
+- [x] **Step 3: Implement minimal grant and read service**
 
 Define frozen DTOs `DataGrantResult`, `DataCreditBalance`, `DataCreditAuthorization`, and the declared exception types. Implement grant and reads with the same expiring-first semantics as research credits, but query only `data_credit_*` tables.
 
-- [ ] **Step 4: Add monthly grant tests and implementation**
+- [x] **Step 4: Add monthly grant tests and implementation**
 
 Test exact key and expiry:
 
@@ -224,11 +226,11 @@ assert lot["expires_at"] == "2026-09-01T00:00:00+00:00"
 
 The helper reads `datahub.monthly_credits` from `store.get_plan(plan_code)`, returns `None` for a zero-credit plan, and is idempotent within the month.
 
-- [ ] **Step 5: Run tests and export public types**
+- [x] **Step 5: Run tests and export public types**
 
 Run the Task 2 tests; expected all pass. Export `DataCreditLedger`, DTOs, exceptions, and `grant_monthly_data_credits` from `src.product.__init__`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add agent/src/product/data_credits.py agent/src/product/__init__.py agent/tests/test_product_data_credits.py
@@ -249,7 +251,7 @@ git commit -m "feat(data-hub): add isolated data credit ledger"
 - Produces `release(reservation_id, idempotency_key) -> DataCreditSettlement`.
 - Exceptions: `InsufficientDataCredits`, `UnknownDataCreditReservation`, `InvalidDataCreditSettlement`.
 
-- [ ] **Step 1: Write failing authorization tests**
+- [x] **Step 1: Write failing authorization tests**
 
 Add tests for expiring-first allocation, insufficient-balance rollback, and idempotent replay:
 
@@ -262,11 +264,11 @@ assert ledger.authorize("u1", "stocks.daily", 50, "req-1").reservation_id == aut
 
 Query `data_credit_allocations` to assert the expiring lot supplied 30 and the permanent lot supplied 20.
 
-- [ ] **Step 2: Run and verify failure, then implement authorization**
+- [x] **Step 2: Run and verify failure, then implement authorization**
 
 Run the focused authorization tests. Implement the operation inside one `BEGIN IMMEDIATE` transaction, inserting reservation and allocation rows and one negative `authorize` ledger row per lot.
 
-- [ ] **Step 3: Write failing settlement/release tests**
+- [x] **Step 3: Write failing settlement/release tests**
 
 Cover:
 
@@ -280,15 +282,15 @@ assert ledger.balance("u1").available == 65
 
 Also cover zero-cost settlement, full settlement, full release, repeated settlement/release, actual cost above authorization, released-then-settle, settled-then-release, and unknown reservation.
 
-- [ ] **Step 4: Implement settlement state machine**
+- [x] **Step 4: Implement settlement state machine**
 
 Restore unused allocations in reverse allocation order so the effective consumed amount still respects expiry-first selection. Write positive `release` rows for restored amounts and a zero-delta `settle` row with `metadata_json={"actual_cost": N}`. State transitions are `authorized -> settled` or `authorized -> released` only.
 
-- [ ] **Step 5: Add deterministic concurrency test**
+- [x] **Step 5: Add deterministic concurrency test**
 
 Use two `DataCreditLedger` instances backed by two `ProductStore` instances pointing at the same database, synchronize two threads with `threading.Barrier`, and attempt two 80-credit authorizations against a 100-credit balance. Assert exactly one succeeds, one raises `InsufficientDataCredits`, and final balance is 20.
 
-- [ ] **Step 6: Run and commit**
+- [x] **Step 6: Run and commit**
 
 Run:
 
@@ -317,7 +319,7 @@ git commit -m "feat(data-hub): add transactional data credit settlement"
 - Produces `EndpointPricing`, `DataHubEndpointCatalog`, `UnknownDataHubEndpoint`, `InvalidPricingRule`.
 - Produces `get(endpoint_code, version=None)`, `match(method, path, version=None)`, `list(version=None, enabled_only=True)`, `estimate(endpoint, requested_units)`, and `calculate(endpoint, actual_units)`.
 
-- [ ] **Step 1: Write failing pricing tests**
+- [x] **Step 1: Write failing pricing tests**
 
 Test literal prices:
 
@@ -331,11 +333,11 @@ assert catalog.estimate(catalog.get("stocks.daily"), 50_000) == 100
 
 Test unknown endpoint, disabled endpoint, negative units, invalid per-unit fields, exact method/path matching, and latest enabled version selection.
 
-- [ ] **Step 2: Write failing route coverage test**
+- [x] **Step 2: Write failing route coverage test**
 
 Parse `sigmx_routes.py` with the Python `ast` module, collect every literal router GET decorator whose path starts with `/api/v1/`, and assert equality with the catalog seed's `(method, path_pattern)` set. Assert the count is exactly 49.
 
-- [ ] **Step 3: Add the explicit 49-row seed**
+- [x] **Step 3: Add the explicit 49-row seed**
 
 Create `ENDPOINT_CATALOG_V1` from this complete route map. Each tuple is `(endpoint_code, path, dataset_group, pricing_mode, base_cost)`; `per_unit` rows additionally use `unit_name="rows"`, `unit_size=1000`, `unit_cost=10`, and `max_cost=100`:
 
@@ -393,15 +395,15 @@ V1_ENDPOINTS = [
 ]
 ```
 
-- [ ] **Step 4: Implement catalog validation and lookup**
+- [x] **Step 4: Implement catalog validation and lookup**
 
 Validate at construction: free has zero cost and no unit fields; fixed has non-negative base and no unit fields; per-unit has positive unit size/cost/max and max not below base. Use integer ceiling division for units.
 
-- [ ] **Step 5: Seed catalog through ProductStore**
+- [x] **Step 5: Seed catalog through ProductStore**
 
 Add `seed_endpoint_catalog(conn)` after schema creation. Insert `ENDPOINT_CATALOG_V1` with `INSERT OR IGNORE`, preserving historical versions. Add `list_datahub_endpoints()` only if the catalog service needs a focused store read helper; do not expose generic SQL from route code.
 
-- [ ] **Step 6: Run and commit**
+- [x] **Step 6: Run and commit**
 
 Run:
 
@@ -429,11 +431,11 @@ git commit -m "feat(data-hub): add versioned endpoint pricing catalog"
 - All data-credit routes use `Depends(require_user)` and owner ID from the authenticated user.
 - Catalog route is public and returns only enabled latest-version entries.
 
-- [ ] **Step 1: Write failing route serialization tests**
+- [x] **Step 1: Write failing route serialization tests**
 
 Isolate `_data_ledger` and `_endpoint_catalog` alongside existing route singletons. Grant data credits to `u1` and `u2`, then assert `my_data_credits(user={"id": "u1"})`, `my_data_credit_lots`, and `my_data_credit_ledger` contain only `u1` data. Assert `datahub_catalog()` contains 49 enabled entries with no duplicated endpoint codes.
 
-- [ ] **Step 2: Run and verify missing handlers**
+- [x] **Step 2: Run and verify missing handlers**
 
 Run:
 
@@ -443,7 +445,7 @@ python -m pytest agent/tests/test_product_data_routes.py -q
 
 Expected: failure because the new lazy services, models, and handlers do not exist.
 
-- [ ] **Step 3: Add response models and handlers**
+- [x] **Step 3: Add response models and handlers**
 
 Add separate Pydantic models:
 
@@ -471,7 +473,7 @@ class DataCreditLedgerItem(BaseModel):
 
 The endpoint view includes all pricing fields, group, enabled flag, and catalog version. Do not reuse research-credit response names.
 
-- [ ] **Step 4: Run focused route and product regressions**
+- [x] **Step 4: Run focused route and product regressions**
 
 Run:
 
@@ -481,7 +483,7 @@ python -m pytest agent/tests/test_product_data_routes.py agent/tests/test_produc
 
 Expected: all pass. Old `/api/usage/me` tests may still exist because request middleware is not switched in this batch; do not rewrite that endpoint here.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```powershell
 git add agent/src/api/product_routes.py agent/tests/test_product_data_routes.py
@@ -498,7 +500,7 @@ git commit -m "feat(data-hub): expose data credit and pricing reads"
 **Interfaces:**
 - Verifies schema migration, domain isolation, catalog coverage, route serialization, and repository regression safety.
 
-- [ ] **Step 1: Run all product-domain tests**
+- [x] **Step 1: Run all product-domain tests**
 
 Run:
 
@@ -508,7 +510,7 @@ python -m pytest agent/tests/test_product_store.py agent/tests/test_product_cred
 
 Expected: zero failures.
 
-- [ ] **Step 2: Run the full Python suite**
+- [x] **Step 2: Run the full Python suite**
 
 Run:
 
@@ -518,7 +520,7 @@ python -m pytest agent/tests -q
 
 Expected: zero failures. If an unrelated pre-existing failure appears, record its exact test and prove it also fails at the pre-feature commit before classifying it as baseline.
 
-- [ ] **Step 3: Run frontend regression**
+- [x] **Step 3: Run frontend regression**
 
 Use the bundled Node runtime already required by this workspace:
 
@@ -531,7 +533,7 @@ npm run build
 
 Expected: all frontend tests and the production build pass.
 
-- [ ] **Step 4: Inspect final state**
+- [x] **Step 4: Inspect final state**
 
 Run:
 

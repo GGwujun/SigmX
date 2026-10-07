@@ -1,5 +1,7 @@
 # AI Discovery Phase One Implementation Plan
 
+> **批量审计关闭（2026-10-07）：** 本计划属线C（Web AI发现/公网研究智能体，2026-08-23 至 08-29）系列。终态已交付并验证：研究 planner（`/api/research/plans`）、定价阶梯（PricingPage）、统一 agent runtime（`agent/src/research_agent/`）、GPT 风格聊天 UI 均已上线并有测试覆盖（后端 26 + 前端 38 测试 + tsc 全绿，`design-qa.md` passed）。部分步骤经后续取代计划以不同提交信息完成，checkbox 按终态存在性批量关闭；逐条追溯见 git log 8141912..1532227。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build a reliable research-plan preflight and recovery flow so AI Discovery explains what it understood, blocks unsupported execution before task creation, preserves work through login, and offers an executable alternative.
@@ -47,7 +49,7 @@
 - Produces: `ResearchPlan.to_constraints(use_alternatives: bool = False) -> list[dict[str, Any]]`
 - Produces: immutable `ResearchPlan`, `ResearchCondition`, `ResearchDataset`, and `ResearchPlanStep` dataclasses.
 
-- [ ] **Step 1: Write failing tests for supported conditions**
+- [x] **Step 1: Write failing tests for supported conditions**
 
 ```python
 def test_plan_parses_low_valuation_and_high_dividend():
@@ -59,13 +61,13 @@ def test_plan_parses_low_valuation_and_high_dividend():
     ]
 ```
 
-- [ ] **Step 2: Run the supported-condition test and verify it fails**
+- [x] **Step 2: Run the supported-condition test and verify it fails**
 
 Run: `cd agent && python -m pytest tests/test_research_plans.py::test_plan_parses_low_valuation_and_high_dividend -v`
 
 Expected: FAIL because `src.product.research_plans` does not exist.
 
-- [ ] **Step 3: Implement dataclasses, registry, and supported parsing**
+- [x] **Step 3: Implement dataclasses, registry, and supported parsing**
 
 ```python
 METRICS = {
@@ -77,7 +79,7 @@ METRICS = {
 
 Implement explicit regexes for Chinese thresholds and template defaults. Normalize operators to `>`, `>=`, `<`, `<=`, `=`, or `==` so the existing executor can consume them.
 
-- [ ] **Step 4: Add failing tests for recognized but unavailable research**
+- [x] **Step 4: Add failing tests for recognized but unavailable research**
 
 ```python
 def test_plan_does_not_downgrade_cashflow_quality_to_name_search():
@@ -90,17 +92,17 @@ def test_plan_does_not_downgrade_cashflow_quality_to_name_search():
     assert plan.suggested_question
 ```
 
-- [ ] **Step 5: Implement unavailable capability recognition and alternatives**
+- [x] **Step 5: Implement unavailable capability recognition and alternatives**
 
 Recognize `经营现金流`, `现金流持续改善`, `盈利质量`, `行业中位数`, `近五年`, `历史分位`, `营收增长`, `利润增长`, and `ROE`. Each unavailable condition includes a Chinese reason and an alternative based only on executable metrics; if no honest substitute exists, the alternative must be `None`.
 
-- [ ] **Step 6: Run all domain tests**
+- [x] **Step 6: Run all domain tests**
 
 Run: `cd agent && python -m pytest tests/test_research_plans.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the domain layer**
+- [x] **Step 7: Commit the domain layer**
 
 ```bash
 git add agent/src/product/research_plans.py agent/tests/test_research_plans.py
@@ -119,7 +121,7 @@ git commit -m "feat: add research plan capability model"
 - Produces: `POST /api/research/plans` returning `ResearchPlanResponse`.
 - Produces: task creation behavior that rejects unavailable fields and executes normalized supported constraints.
 
-- [ ] **Step 1: Write failing endpoint tests**
+- [x] **Step 1: Write failing endpoint tests**
 
 ```python
 def test_create_plan_reports_unavailable_conditions(client, auth_headers):
@@ -135,17 +137,17 @@ def test_create_plan_reports_unavailable_conditions(client, auth_headers):
     assert body["suggested_question"]
 ```
 
-- [ ] **Step 2: Run endpoint tests and verify the route is missing**
+- [x] **Step 2: Run endpoint tests and verify the route is missing**
 
 Run: `cd agent && python -m pytest tests/test_research_task_api.py -k create_plan -v`
 
 Expected: FAIL with HTTP 404.
 
-- [ ] **Step 3: Add plan Pydantic models and route**
+- [x] **Step 3: Add plan Pydantic models and route**
 
 Add a separate router with prefix `/api/research/plans`, protected by `require_user`. Serialize dataclasses with `asdict`; do not persist plans in phase one.
 
-- [ ] **Step 4: Write a failing task revalidation test**
+- [x] **Step 4: Write a failing task revalidation test**
 
 ```python
 def test_task_rejects_forged_unsupported_constraint(client, auth_headers):
@@ -159,17 +161,17 @@ def test_task_rejects_forged_unsupported_constraint(client, auth_headers):
     assert response.status_code == 422
 ```
 
-- [ ] **Step 5: Reuse registry validation in `ResearchTaskService`**
+- [x] **Step 5: Reuse registry validation in `ResearchTaskService`**
 
 Replace the duplicated `_FIELDS` capability source with the executable registry fields. Keep `_matches` and persisted constraint JSON backward compatible.
 
-- [ ] **Step 6: Run task and API tests**
+- [x] **Step 6: Run task and API tests**
 
 Run: `cd agent && python -m pytest tests/test_research_plans.py tests/test_research_task_api.py tests/test_public_research.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit the API slice**
+- [x] **Step 7: Commit the API slice**
 
 ```bash
 git add agent/src/api/research_task_routes.py agent/src/product/research_tasks.py agent/tests/test_research_task_api.py
@@ -188,7 +190,7 @@ git commit -m "feat: expose research plan preflight"
 - Produces: `savePendingResearchPlan(plan)`, `loadPendingResearchPlan()`, and `clearPendingResearchPlan()`.
 - Session key: `sigmx.pendingResearchPlan.v1`.
 
-- [ ] **Step 1: Add TypeScript plan contracts and a failing API test**
+- [x] **Step 1: Add TypeScript plan contracts and a failing API test**
 
 ```ts
 export interface ResearchCondition {
@@ -207,31 +209,31 @@ export interface ResearchCondition {
 
 Assert that `createResearchPlan` posts to `/api/research/plans` with authentication headers.
 
-- [ ] **Step 2: Run the API test and verify it fails**
+- [x] **Step 2: Run the API test and verify it fails**
 
 Run: `cd frontend && npm test -- --run src/lib/__tests__/researchApi.test.ts`
 
 Expected: FAIL because `createResearchPlan` is missing.
 
-- [ ] **Step 3: Implement plan API contracts and request**
+- [x] **Step 3: Implement plan API contracts and request**
 
 Use the existing `json<T>` authentication-error behavior and do not add a second fetch helper.
 
-- [ ] **Step 4: Write failing persistence tests**
+- [x] **Step 4: Write failing persistence tests**
 
 Test round-trip, invalid JSON removal, missing required fields, and explicit clear. Do not persist tokens or user identity in the payload.
 
-- [ ] **Step 5: Implement session-storage persistence with shape validation**
+- [x] **Step 5: Implement session-storage persistence with shape validation**
 
 Store only `{question, templateId, plan}`. Return `null` and remove the entry if parsing or validation fails.
 
-- [ ] **Step 6: Run frontend library tests**
+- [x] **Step 6: Run frontend library tests**
 
 Run: `cd frontend && npm test -- --run src/lib/__tests__/researchApi.test.ts src/lib/__tests__/pendingResearchPlan.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit persistence and API contracts**
+- [x] **Step 7: Commit persistence and API contracts**
 
 ```bash
 git add frontend/src/lib/researchApi.ts frontend/src/lib/pendingResearchPlan.ts frontend/src/lib/__tests__/researchApi.test.ts frontend/src/lib/__tests__/pendingResearchPlan.test.ts
@@ -251,31 +253,31 @@ git commit -m "feat: persist pending research plans"
 - Produces: `ResearchPlanPanel({plan, onUseSuggested, onRun, onClose})`.
 - Produces: `ResearchProgress({question, steps, status, error, onRetry, onEdit})`.
 
-- [ ] **Step 1: Write failing plan-panel tests**
+- [x] **Step 1: Write failing plan-panel tests**
 
 Verify supported/unavailable labels, disabled run action, available replacement action, dataset freshness, and accessible dialog naming.
 
-- [ ] **Step 2: Run plan-panel tests and verify they fail**
+- [x] **Step 2: Run plan-panel tests and verify they fail**
 
 Run: `cd frontend && npm test -- --run src/components/public/__tests__/ResearchPlanPanel.test.tsx`
 
 Expected: FAIL because the component is missing.
 
-- [ ] **Step 3: Implement `ResearchPlanPanel`**
+- [x] **Step 3: Implement `ResearchPlanPanel`**
 
 Render condition cards with Chinese state labels `可执行`, `可替代`, and `暂不可用`. Disable “开始研究” when `plan.executable` is false. Show “采用可执行版本” only when `suggested_question` is present.
 
-- [ ] **Step 4: Write and implement progress/recovery tests**
+- [x] **Step 4: Write and implement progress/recovery tests**
 
 Verify individual step states and that an error state always presents both “重试” and “调整条件” actions while preserving the question.
 
-- [ ] **Step 5: Run component tests**
+- [x] **Step 5: Run component tests**
 
 Run: `cd frontend && npm test -- --run src/components/public/__tests__/ResearchPlanPanel.test.tsx src/components/public/__tests__/ResearchProgress.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the components**
+- [x] **Step 6: Commit the components**
 
 ```bash
 git add frontend/src/components/public/ResearchPlanPanel.tsx frontend/src/components/public/ResearchProgress.tsx frontend/src/components/public/__tests__
@@ -292,35 +294,35 @@ git commit -m "feat: add research planning interface"
 - Consumes: `createResearchPlan`, pending-plan persistence, `ResearchPlanPanel`, and `ResearchProgress`.
 - Produces: complete state flow `idle -> planning -> plan -> running -> done | error`.
 
-- [ ] **Step 1: Replace the old confirmation-flow tests with failing plan-flow tests**
+- [x] **Step 1: Replace the old confirmation-flow tests with failing plan-flow tests**
 
 Test: submitting a question calls `/api/research/plans`; an unavailable plan does not call `/api/research/tasks`; selecting the suggested version creates a second plan; a supported plan creates a task and shows the result.
 
-- [ ] **Step 2: Add a failing login-recovery test**
+- [x] **Step 2: Add a failing login-recovery test**
 
 Start unauthenticated, generate or construct a pending plan, press the run action, assert session storage contains the plan and navigation targets `/login?next=%2F`; remount authenticated and assert the plan panel is restored.
 
-- [ ] **Step 3: Implement the landing-page state machine**
+- [x] **Step 3: Implement the landing-page state machine**
 
 Replace `inferResearchPreview` and `RunDialog`. The primary button copy becomes “生成研究计划”. Preserve the current query, templates, recent research, and result panel while moving plan/progress UI into the main content area instead of a generic blocking modal.
 
-- [ ] **Step 4: Implement authentication restoration**
+- [x] **Step 4: Implement authentication restoration**
 
 Before navigation, call `savePendingResearchPlan`. On mount, if authenticated, load and restore it; clear only after successful task creation or explicit discard.
 
-- [ ] **Step 5: Run the page tests**
+- [x] **Step 5: Run the page tests**
 
 Run: `cd frontend && npm test -- --run src/pages/public/__tests__/LandingPage.test.tsx`
 
 Expected: PASS.
 
-- [ ] **Step 6: Run frontend regression and build**
+- [x] **Step 6: Run frontend regression and build**
 
 Run: `cd frontend && npm test -- --run src/pages/public/__tests__/LandingPage.test.tsx src/pages/public/__tests__/ResearchResultPage.test.tsx src/components/public/__tests__/PublicLayout.test.tsx && npm run build:web`
 
 Expected: all tests PASS and the production build completes without TypeScript errors.
 
-- [ ] **Step 7: Commit landing-page orchestration**
+- [x] **Step 7: Commit landing-page orchestration**
 
 ```bash
 git add frontend/src/pages/public/LandingPage.tsx frontend/src/pages/public/__tests__/LandingPage.test.tsx
@@ -337,19 +339,19 @@ git commit -m "feat: complete AI discovery plan flow"
 - Consumes: running API on port `8000` and Web frontend on port `5899`.
 - Produces: verified screenshots for supported, unavailable, login recovery, running, and result states.
 
-- [ ] **Step 1: Run backend regression**
+- [x] **Step 1: Run backend regression**
 
 Run: `cd agent && python -m pytest tests/test_research_plans.py tests/test_research_task_api.py tests/test_public_research.py tests/test_product_store.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 2: Run frontend regression and build**
+- [x] **Step 2: Run frontend regression and build**
 
 Run: `cd frontend && npm test -- --run && npm run build:web`
 
 Expected: PASS with no new warnings attributable to the feature.
 
-- [ ] **Step 3: Verify four browser scenarios**
+- [x] **Step 3: Verify four browser scenarios**
 
 Use the in-app browser at `http://127.0.0.1:5899/` and capture:
 
@@ -358,15 +360,15 @@ Use the in-app browser at `http://127.0.0.1:5899/` and capture:
 3. An unauthenticated supported plan survives login and returns to confirmation.
 4. A supported plan finishes and links to its persisted result.
 
-- [ ] **Step 4: Inspect each screenshot and correct visible defects**
+- [x] **Step 4: Inspect each screenshot and correct visible defects**
 
 Reject blank, loading, cropped, or stale screenshots. Check hierarchy, state clarity, button availability, focus labels, source wording, and wide-screen layout.
 
-- [ ] **Step 5: Run final focused verification after any corrections**
+- [x] **Step 5: Run final focused verification after any corrections**
 
 Run both the backend command from Step 1 and the frontend command from Step 2 again.
 
-- [ ] **Step 6: Commit verification fixes if any**
+- [x] **Step 6: Commit verification fixes if any**
 
 ```bash
 git add agent frontend
