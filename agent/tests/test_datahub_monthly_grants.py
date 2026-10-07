@@ -50,7 +50,11 @@ def test_same_plan_month_is_idempotent_but_next_month_gets_new_lot(product) -> N
 
 def test_free_monthly_grant_is_available_on_first_datahub_contact(product) -> None:
     _, commerce, data_ledger = product
-    commerce.ensure_monthly_data_grant("u1", "free", date(2026, 8, 15))
+    # Period must be current-UTC: balance() drops lots whose expiry (next month
+    # 1st, UTC) is already in the past, so a hardcoded historical date fails.
+    commerce.ensure_monthly_data_grant(
+        "u1", "free", datetime.now(timezone.utc).date()
+    )
     assert data_ledger.balance("u1").available == 1_000
 
 
