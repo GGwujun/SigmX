@@ -6,8 +6,11 @@ set -euo pipefail
 # User: root
 
 REGISTRY="crpi-i6pwsm2rbcu2h5uv.cn-shenzhen.personal.cr.aliyuncs.com"
-REGISTRY_USER="876337269@qq.com"
-REGISTRY_PASSWORD="Gao876337@"
+# Credentials come from the environment (matching the CI secret names).
+# A password was previously committed here in plaintext — rotate it in the
+# ACR console before relying on this script.
+REGISTRY_USER="${ALIYUN_REGISTRY_USERNAME:?export ALIYUN_REGISTRY_USERNAME first}"
+REGISTRY_PASSWORD="${ALIYUN_REGISTRY_PASSWORD:?export ALIYUN_REGISTRY_PASSWORD first}"
 SERVICES=(rsshub vibe-trading market-sync)
 
 echo "========================================="
