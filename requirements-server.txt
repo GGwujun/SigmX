@@ -42,3 +42,6 @@ jinja2>=3.1.0
 
 # Optional but referenced by docker-compose (SSE pub/sub)
 redis>=5.0.0
+
+# AI runtime config (Fernet-encrypted model keys in product.db)
+cryptography>=42.0.0
