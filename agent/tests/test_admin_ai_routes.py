@@ -36,11 +36,20 @@ def test_platform_provider_catalog_includes_every_supported_runtime_provider() -
     codes = {item["code"] for item in routes.PROVIDER_PRESETS}
     assert codes == {
         "openrouter", "openai", "openai-codex", "deepseek", "gemini", "groq",
-        "dashscope", "qwen", "zhipu", "moonshot", "minimax", "mimo", "zai", "ollama",
+        "dashscope", "qwen", "zhipu", "zhipu-coding", "moonshot", "minimax", "mimo", "zai", "ollama",
     }
     codex = next(item for item in routes.PROVIDER_PRESETS if item["code"] == "openai-codex")
     assert codex["auth_type"] == "oauth"
     assert codex["api_key_required"] is False
+
+
+def test_zhipu_coding_preset_targets_subscription_endpoint() -> None:
+    """Coding Plan 订阅 key 打按量端点会报 1113（余额不足），预设必须分开。"""
+    coding = next(item for item in routes.PROVIDER_PRESETS if item["code"] == "zhipu-coding")
+    assert coding["default_base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"
+    assert coding["api_key_required"] is True
+    payg = next(item for item in routes.PROVIDER_PRESETS if item["code"] == "zhipu")
+    assert payg["default_base_url"] == "https://open.bigmodel.cn/api/paas/v4"
 
 
 def test_platform_settings_expose_single_model_and_never_return_secrets(tmp_path: Path) -> None:

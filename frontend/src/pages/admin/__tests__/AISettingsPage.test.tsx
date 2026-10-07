@@ -47,3 +47,27 @@ describe("AISettingsPage", () => {
     expect(screen.getByRole("button", { name: "重新加载" })).toBeInTheDocument();
   });
 });
+
+describe("AISettingsPage 智谱端点防呆", () => {
+  const payg = "https://open.bigmodel.cn/api/paas/v4";
+  const coding = "https://open.bigmodel.cn/api/coding/paas/v4";
+  const providers = [
+    { code: "zhipu", name: "Zhipu（按量付费）", default_model: "glm-5.1", default_base_url: payg, api_key_required: true },
+    { code: "zhipu-coding", name: "智谱 Coding Plan（订阅）", default_model: "glm-5.1", default_base_url: coding, api_key_required: true },
+  ];
+  beforeEach(() => vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.endsWith("/settings")) return ok({ provider: "zhipu", model_name: "glm-5.1", base_url: payg, api_key_configured: true, temperature: .2, timeout_seconds: 90, max_retries: 2, reasoning_effort: "", providers });
+    if (url.endsWith("/source-credentials")) return ok({ tushare_token_configured: false, tpdog_token_configured: false, blackwolf_token_configured: false });
+    return ok({});
+  })));
+
+  it("warns on the pay-as-you-go endpoint and switches cleanly to the Coding Plan preset", async () => {
+    render(<AISettingsPage/>);
+    expect(await screen.findByText(/Coding Plan 订阅 Key/)).toBeInTheDocument();
+    expect(screen.getByText(/1113/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("模型供应商"), { target: { value: "zhipu-coding" } });
+    expect((screen.getByLabelText("服务地址") as HTMLInputElement).value).toBe(coding);
+    expect(screen.queryByText(/1113/)).not.toBeInTheDocument();
+  });
+});

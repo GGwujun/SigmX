@@ -75,11 +75,20 @@
   },
   {
     "name": "zhipu",
-    "label": "Zhipu",
+    "label": "Zhipu（按量付费）",
     "api_key_env": "ZHIPU_API_KEY",
     "base_url_env": "ZHIPU_BASE_URL",
     "default_model": "glm-5.1",
     "default_base_url": "https://open.bigmodel.cn/api/paas/v4",
+    "api_key_required": true
+  },
+  {
+    "name": "zhipu-coding",
+    "label": "智谱 Coding Plan（订阅）",
+    "api_key_env": "ZHIPU_API_KEY",
+    "base_url_env": "ZHIPU_BASE_URL",
+    "default_model": "glm-5.1",
+    "default_base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
     "api_key_required": true
   },
   {

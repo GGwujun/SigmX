@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import cli
+from cli._legacy import _provider_base_env, _provider_key_env
 from cli.onboard import PROVIDERS as ONBOARD_PROVIDERS
 
 
@@ -18,6 +19,7 @@ EXPECTED_PROVIDER_DEFAULTS = {
     "dashscope": "qwen-plus-latest",
     "qwen": "qwen-plus-latest",
     "zhipu": "glm-5.1",
+    "zhipu-coding": "glm-5.1",
     "moonshot": "kimi-k2.6",
     "minimax": "MiniMax-M3",
     "mimo": "MiMo-72B-A27B",
@@ -51,3 +53,11 @@ def test_interactive_onboard_suggests_current_primary_models() -> None:
     assert onboard_defaults["openrouter"] == "deepseek/deepseek-v4-pro"
     assert onboard_defaults["openai"] == "gpt-5.5-instant"
     assert onboard_defaults["deepseek"] == "deepseek-v4-pro"
+
+
+def test_zhipu_coding_wires_zhipu_env_and_subscription_endpoint() -> None:
+    """CLI 向导选「智谱 Coding Plan」时必须写入订阅端点，而不是按量端点。"""
+    assert _provider_key_env("zhipu-coding") == "ZHIPU_API_KEY"
+    assert _provider_base_env("zhipu-coding") == "ZHIPU_BASE_URL"
+    coding = next(item for item in cli._PROVIDER_CHOICES if item["provider"] == "zhipu-coding")
+    assert coding["base_url"] == "https://open.bigmodel.cn/api/coding/paas/v4"

@@ -79,9 +79,14 @@ class TestCliInit:
 
     def test_cmd_init_ollama_skips_api_key(self, tmp_path: Path) -> None:
         env_path = tmp_path / ".env"
+        # 菜单序号随 _PROVIDER_CHOICES 增删而变，动态取 ollama 的位置。
+        ollama_choice = next(
+            index for index, item in enumerate(cli._PROVIDER_CHOICES, start=1)
+            if item["provider"] == "ollama"
+        )
 
         with patch.object(cli, "_INIT_ENV_PATH", env_path), \
-             patch.object(cli.IntPrompt, "ask", return_value=12), \
+             patch.object(cli.IntPrompt, "ask", return_value=ollama_choice), \
              patch.object(
                  cli.Prompt,
                  "ask",

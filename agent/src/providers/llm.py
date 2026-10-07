@@ -315,6 +315,27 @@ def _normalize_ollama_base_url(base_url: str) -> str:
     return f"{url}/v1"
 
 
+# provider_name -> (api_key_env, base_url_env); kept module-level so tests can
+# assert every llm_providers.json preset resolves here — an unmapped provider
+# silently falls back to the OpenAI env spec (zhipu-coding once did exactly that).
+_PROVIDER_ENV_MAP: dict[str, tuple[str | None, str]] = {
+    "openai":     ("OPENAI_API_KEY",     "OPENAI_BASE_URL"),
+    "openrouter": ("OPENROUTER_API_KEY",  "OPENROUTER_BASE_URL"),
+    "deepseek":   ("DEEPSEEK_API_KEY",    "DEEPSEEK_BASE_URL"),
+    "gemini":     ("GEMINI_API_KEY",      "GEMINI_BASE_URL"),
+    "groq":       ("GROQ_API_KEY",        "GROQ_BASE_URL"),
+    "dashscope":  ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
+    "qwen":       ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
+    "zhipu":      ("ZHIPU_API_KEY",       "ZHIPU_BASE_URL"),
+    "zhipu-coding": ("ZHIPU_API_KEY",     "ZHIPU_BASE_URL"),
+    "moonshot":   ("MOONSHOT_API_KEY",    "MOONSHOT_BASE_URL"),
+    "minimax":    ("MINIMAX_API_KEY",     "MINIMAX_BASE_URL"),
+    "mimo":       ("MIMO_API_KEY",        "MIMO_BASE_URL"),
+    "zai":        ("ZAI_API_KEY",         "ZAI_BASE_URL"),
+    "ollama":     (None,                  "OLLAMA_BASE_URL"),
+}
+
+
 def _sync_provider_env() -> None:
     """Map provider-specific env vars to OPENAI_* for ChatOpenAI.
 
@@ -332,24 +353,7 @@ def _sync_provider_env() -> None:
         os.environ.pop("OPENAI_API_KEY", None)
         return
 
-    # (api_key_env, base_url_env)
-    _PROVIDER_MAP: dict[str, tuple[str | None, str]] = {
-        "openai":     ("OPENAI_API_KEY",     "OPENAI_BASE_URL"),
-        "openrouter": ("OPENROUTER_API_KEY",  "OPENROUTER_BASE_URL"),
-        "deepseek":   ("DEEPSEEK_API_KEY",    "DEEPSEEK_BASE_URL"),
-        "gemini":     ("GEMINI_API_KEY",      "GEMINI_BASE_URL"),
-        "groq":       ("GROQ_API_KEY",        "GROQ_BASE_URL"),
-        "dashscope":  ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
-        "qwen":       ("DASHSCOPE_API_KEY",   "DASHSCOPE_BASE_URL"),
-        "zhipu":      ("ZHIPU_API_KEY",       "ZHIPU_BASE_URL"),
-        "moonshot":   ("MOONSHOT_API_KEY",    "MOONSHOT_BASE_URL"),
-        "minimax":    ("MINIMAX_API_KEY",     "MINIMAX_BASE_URL"),
-        "mimo":       ("MIMO_API_KEY",        "MIMO_BASE_URL"),
-        "zai":        ("ZAI_API_KEY",         "ZAI_BASE_URL"),
-        "ollama":     (None,                  "OLLAMA_BASE_URL"),
-    }
-
-    spec = _PROVIDER_MAP.get(provider, _PROVIDER_MAP["openai"])
+    spec = _PROVIDER_ENV_MAP.get(provider, _PROVIDER_ENV_MAP["openai"])
     key_env, base_env = spec
 
     # Resolve API key: provider-specific env → OPENAI_API_KEY fallback

@@ -2,17 +2,27 @@
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
-from src.providers.llm import _sync_provider_env, build_llm
+from src.providers.llm import _PROVIDER_ENV_MAP, _sync_provider_env, build_llm
 
 
 # ---------------------------------------------------------------------------
 # _sync_provider_env
 # ---------------------------------------------------------------------------
+
+
+def test_provider_env_map_covers_every_catalog_provider() -> None:
+    """llm_providers.json 每个预设都要有 env 映射，否则静默 fallback 到 openai。"""
+    providers_path = Path(__file__).resolve().parents[1] / "src" / "providers" / "llm_providers.json"
+    names = {item["name"] for item in json.loads(providers_path.read_text(encoding="utf-8"))}
+    unmapped = names - {"openai-codex"} - set(_PROVIDER_ENV_MAP)  # codex 走 OAuth 分支
+    assert not unmapped, f"catalog providers missing from _PROVIDER_ENV_MAP: {sorted(unmapped)}"
 
 
 class TestSyncProviderEnv:
@@ -99,6 +109,16 @@ class TestSyncProviderEnv:
         })
         assert result["OPENAI_API_KEY"] == "zai-key-test"
         assert result["OPENAI_API_BASE"] == "https://api.z.ai/api/coding/paas/v4"
+
+    def test_zhipu_coding_provider_uses_zhipu_env_not_openai_fallback(self) -> None:
+        """Coding Plan 预设必须走 ZHIPU_* env；漏配 map 会静默回退 openai spec。"""
+        result = self._run_sync({
+            "LANGCHAIN_PROVIDER": "zhipu-coding",
+            "ZHIPU_API_KEY": "zp-coding-key",
+            "ZHIPU_BASE_URL": "https://open.bigmodel.cn/api/coding/paas/v4",
+        })
+        assert result["OPENAI_API_KEY"] == "zp-coding-key"
+        assert result["OPENAI_API_BASE"] == "https://open.bigmodel.cn/api/coding/paas/v4"
 
     def test_unknown_provider_falls_back_to_openai(self) -> None:
         result = self._run_sync({
