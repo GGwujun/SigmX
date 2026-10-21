@@ -81,7 +81,9 @@ export default defineConfig(({ mode }) => {
       // shared source file and the renderer to use one React dispatcher.
       dedupe: ["react", "react-dom"],
       alias: {
-        "@": path.resolve(__dirname, "./src"),
+        // `@` points at the app being built: the two products share packages/*
+        // but never each other's source tree.
+        "@": path.resolve(__dirname, `apps/${product}/src`),
         "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
         "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src"),
         "@sigmx/shared": path.resolve(__dirname, "./packages/shared/src"),

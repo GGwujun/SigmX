@@ -1,49 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shield, RefreshCw, AlertTriangle, Activity } from "lucide-react";
 import { api } from "@sigmx/api-client/api";
+import type { RegimeData, RiskCheckData, RiskEvent } from "@sigmx/api-client/risk";
 import { RegimeCard } from "@/components/risk/RegimeCard";
 import { RiskMatrix } from "@/components/risk/RiskMatrix";
 import { HealthScore } from "@/components/risk/HealthScore";
 
-export interface RegimeData {
-  trade_date: string;
-  regime: string;
-  confidence: number;
-  bull_score: number;
-  bear_score: number;
-  strong_trend: boolean;
-  technical_indicators: Record<string, unknown>;
-  parameters: Record<string, unknown>;
-}
-
-export interface RiskCheck {
-  layer: number;
-  name: string;
-  triggered: boolean;
-  severity: string;
-  message: string;
-  details: Record<string, unknown>;
-  action: string;
-}
-
-export interface RiskCheckData {
-  trade_date: string;
-  regime: string;
-  checks: RiskCheck[];
-  portfolio_health_score: number | null;
-  has_positions: boolean;
-  summary: string;
-}
-
-export interface RiskEvent {
-  event_id: string;
-  trade_date: string;
-  layer: number;
-  severity: string;
-  code: string | null;
-  message: string;
-  created_at: string;
-}
+export type { RegimeData, RiskCheck, RiskCheckData, RiskEvent } from "@sigmx/api-client/risk";
 
 export default function RiskDashboard() {
   const [regime, setRegime] = useState<RegimeData | null>(null);

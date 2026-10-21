@@ -7,7 +7,7 @@
     "dev": "vite --mode web",
     "dev:web": "vite --mode web",
     "dev:desktop": "vite --mode desktop",
-    "typecheck": "tsc -b",
+    "typecheck": "tsc -p tsconfig.json && tsc -p apps/web/tsconfig.json && tsc -p apps/desktop/tsconfig.json",
     "build": "npm run typecheck && npm run build:web && npm run build:desktop",
     "build:web": "vite build --mode web",
     "build:desktop": "vite build --mode desktop",
