@@ -1,0 +1,150 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { MePage } from "../MePage";
+
+const productApi = vi.hoisted(() => ({
+  getMyEntitlements: vi.fn(),
+  getMyCredits: vi.fn(),
+  getDataCreditBalance: vi.fn(),
+  getDataHubUsage: vi.fn(),
+  listDevices: vi.fn(),
+  listNotifications: vi.fn(),
+  markNotificationRead: vi.fn(),
+  getNotificationPreferences: vi.fn(),
+  putNotificationPreferences: vi.fn(),
+  listSavedQuerySubscriptions: vi.fn(),
+  putSavedQuerySubscription: vi.fn(),
+  deleteSavedQuerySubscription: vi.fn(),
+  listCloudTasks: vi.fn(),
+  listQueryExecutions: vi.fn(),
+}));
+const cloudApi = vi.hoisted(() => ({
+  listQueries: vi.fn(), listWatchlist: vi.fn(), listReports: vi.fn(),
+  removeWatchlist: vi.fn(), revokeReport: vi.fn(),
+  createHandoff: vi.fn(),
+}));
+
+vi.mock("@/lib/productApi", () => productApi);
+vi.mock("@/lib/cloudResearchApi", () => ({ cloudResearchApi: cloudApi }));
+
+function renderPage() {
+  return render(
+    <MemoryRouter initialEntries={["/me"]}>
+      <MePage />
+    </MemoryRouter>,
+  );
+}
+
+describe("MePage", () => {
+  beforeEach(() => {
+    productApi.getMyEntitlements.mockReset().mockResolvedValue({
+      plan_code: "pro_bundle",
+      valid_from: "2026-08-01",
+      valid_until: "2026-11-01",
+      entitlements: {
+        "desktop.device_limit": 3,
+        "datahub.monthly_credits": 150000,
+      },
+    });
+    productApi.getMyCredits.mockReset().mockResolvedValue({
+      available: 900,
+      expiring_soon: 200,
+    });
+    productApi.getDataCreditBalance.mockReset().mockResolvedValue({
+      available: 149880,
+      expiring_soon: 0,
+    });
+    productApi.getDataHubUsage.mockReset().mockResolvedValue({
+      total_requests: 120,
+      successful_requests: 118,
+      credits_charged: 120,
+      by_endpoint: [],
+    });
+    productApi.listDevices.mockReset().mockResolvedValue([
+      {
+        id: "d1",
+        name: "Research PC",
+        created_at: "2026-08-01T00:00:00Z",
+        revoked_at: null,
+      },
+    ]);
+    productApi.listNotifications.mockReset().mockResolvedValue([{ id: "budget:k1:2026-08-15:80", kind: "budget", title: "Data Hub 预算达到 80%", body: "研究脚本今日已使用 80/100 Data Credit", read_at: null, created_at: "2026-08-15T00:00:00Z" }]);
+    productApi.markNotificationRead.mockReset().mockResolvedValue(undefined);
+    productApi.getNotificationPreferences.mockReset().mockResolvedValue({ budget_alerts: true, product_updates: true, cloud_tasks: true });
+    productApi.putNotificationPreferences.mockReset().mockImplementation(async (value) => value);
+    productApi.listSavedQuerySubscriptions.mockReset().mockResolvedValue([]);
+    productApi.putSavedQuerySubscription.mockReset().mockResolvedValue({ id: "s1", saved_query_id: "q1", query: "低估值 高股息", frequency: "weekly", next_run_at: "2026-08-22T00:00:00Z", last_run_at: null, created_at: "2026-08-15T00:00:00Z" });
+    productApi.deleteSavedQuerySubscription.mockReset().mockResolvedValue(undefined);
+    productApi.listCloudTasks.mockReset().mockResolvedValue([{ id: "t1", user_id: "u1", task_type: "deep_research", title: "研究贵州茅台", status: "running", payload: { symbol: "600519.SH" }, reserved_credits: 10, reservation_id: "cr1", result_ref: null, error: null, created_at: "2026-08-15T00:00:00Z", started_at: "2026-08-15T00:01:00Z", finished_at: null }]);
+    productApi.listQueryExecutions.mockReset().mockResolvedValue([{ id: "e1", user_id: "u1", query: "低估值 高股息", intent: "screener", conditions: [{ field: "pe_ttm", value: [0, 20] }], condition_version: 2, result_count: 18, executed_at: "2026-08-15T00:00:00Z" }]);
+    cloudApi.listQueries.mockReset().mockResolvedValue([{ id: "q1", query: "低估值 高股息", result_summary: { matches: 2 }, created_at: "2026-08-15T00:00:00Z" }]);
+    cloudApi.listWatchlist.mockReset().mockResolvedValue([{ symbol: "600519.SH", name: "贵州茅台", created_at: "2026-08-15T00:00:00Z" }]);
+    cloudApi.listReports.mockReset().mockResolvedValue([{ id: "r1", slug: "public-report", title: "贵州茅台简析", summary: "摘要", created_at: "2026-08-15T00:00:00Z", revoked_at: null }]);
+    cloudApi.createHandoff.mockReset().mockResolvedValue({ id: "h1", token: "sxrh_abc", deep_link: "sigmx://research/sxrh_abc", expires_at: "2026-08-15T00:10:00Z" });
+  });
+
+  it("creates an opaque one-time Desktop handoff for a saved query", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "在 Desktop 继续：低估值 高股息" }));
+    expect(await screen.findByRole("link", { name: "打开 Desktop" })).toHaveAttribute("href", "sigmx://research/sxrh_abc");
+    expect(screen.getByRole("link", { name: "尚未安装？下载 Desktop" })).toHaveAttribute("href", "/download");
+    expect(cloudApi.createHandoff).toHaveBeenCalledWith("saved_query", { query: "低估值 高股息", saved_query_id: "q1" });
+  });
+
+  it("renders real personal cloud assets instead of planning placeholders", async () => {
+    renderPage();
+    expect(await screen.findByText("贵州茅台")).toBeInTheDocument();
+    expect(screen.getAllByText("低估值 高股息")).toHaveLength(3);
+    expect(screen.getByText("贵州茅台简析")).toBeInTheDocument();
+    expect(screen.queryByText("规划中")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /打开公开快照/ })).toHaveAttribute("href", "/research/public-report");
+  });
+
+  it("keeps plan and device status out of the research overview", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "个人中心" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "概览" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "账户与安全" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "套餐与权益" })).toHaveAttribute("href", "/account/subscription");
+    expect(screen.queryByText("当前套餐")).not.toBeInTheDocument();
+    expect(screen.queryByText("pro_bundle")).not.toBeInTheDocument();
+    expect(screen.queryByText("活跃设备")).not.toBeInTheDocument();
+    expect(screen.queryByText("1 / 3")).not.toBeInTheDocument();
+    expect(screen.queryByText("AI 研究额度")).not.toBeInTheDocument();
+    expect(screen.queryByText("数据调用额度")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /管理账户/ })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: /下载 Desktop/ })).toHaveAttribute("href", "/download");
+    expect(screen.queryByRole("link", { name: "了解 Desktop" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "了解 Data Hub" })).not.toBeInTheDocument();
+  });
+
+  it("shows personal notifications, marks them read, and updates preferences", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Data Hub 预算达到 80%/ }));
+    expect(productApi.markNotificationRead).toHaveBeenCalledWith("budget:k1:2026-08-15:80");
+    fireEvent.click(screen.getByLabelText("套餐与积分到账"));
+    expect(productApi.putNotificationPreferences).toHaveBeenCalledWith({
+      budget_alerts: true, product_updates: false, cloud_tasks: true,
+    });
+  });
+
+  it("subscribes a saved query to a personal weekly review", async () => {
+    renderPage();
+    fireEvent.change(await screen.findByLabelText("复查频率：低估值 高股息"), { target: { value: "weekly" } });
+    expect(productApi.putSavedQuerySubscription).toHaveBeenCalledWith("q1", "weekly");
+    expect(await screen.findByText("下次提醒：2026-08-22")).toBeInTheDocument();
+  });
+
+  it("shows authoritative cloud-task state and versioned query history", async () => {
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "云任务" })).toBeInTheDocument();
+    expect(screen.getByText("研究贵州茅台")).toBeInTheDocument();
+    expect(screen.getByText("运行中 · 预占套餐用量 10")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "查询历史" })).toBeInTheDocument();
+    expect(screen.getByText("条件版本 v2 · 18 个结果")).toBeInTheDocument();
+  });
+});

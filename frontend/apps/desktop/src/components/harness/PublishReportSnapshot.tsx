@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ExternalLink, Share2, X } from "lucide-react";
 
-import { cloudResearchApi, type CloudReport } from "@sigmx/api-client/cloudResearchApi";
+import { cloudResearchApi, type CloudReport } from "@/lib/cloudResearchApi";
 
 export function PublishReportSnapshot({ suggestedTitle }: { suggestedTitle: string }) {
   const [open, setOpen] = useState(false);

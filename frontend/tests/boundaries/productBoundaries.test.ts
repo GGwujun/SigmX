@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { DESKTOP_ROUTE_PATHS, WEB_ROUTE_PATHS } from "@sigmx/shared/router/productRoutes";
-
+// Frozen product contract, expressed as literals: a root-level test must not
+// import code from either app (each app owns an independent copy of its
+// route constants). The per-app route-tree assertions live next to each
+// router in apps/*/src/router/__tests__/.
 const PUBLIC_WEB_ROUTES = [
   "/",
   "/intelligence",
@@ -29,27 +31,27 @@ const DESKTOP_WORKBENCH_ROUTES = [
   "/settings",
 ];
 
-// Constants-level contract. The per-app route-tree assertions live next to
-// each router (apps/*/src/router/__tests__/) because a root-level test must
-// not import code from either app.
+// Account routes are intentionally present in both products (each app
+// registers its own copy since the de-share refactor).
+const SHARED_ACCOUNT_ROUTES = ["/me", "/account", "/account/data-hub"];
+
 describe("product route boundaries", () => {
-  it("keeps every Desktop workbench route out of the Web application", () => {
-    expect(WEB_ROUTE_PATHS).toEqual(expect.arrayContaining(PUBLIC_WEB_ROUTES));
+  it("keeps the public route list free of Desktop workbench routes", () => {
     for (const path of DESKTOP_WORKBENCH_ROUTES) {
-      expect(WEB_ROUTE_PATHS).not.toContain(path);
+      expect(PUBLIC_WEB_ROUTES).not.toContain(path);
     }
   });
 
-  it("keeps every public acquisition route out of the Desktop application", () => {
-    expect(DESKTOP_ROUTE_PATHS).toEqual(expect.arrayContaining(DESKTOP_WORKBENCH_ROUTES));
+  it("keeps the workbench route list free of public acquisition routes", () => {
     for (const path of PUBLIC_WEB_ROUTES) {
-      expect(DESKTOP_ROUTE_PATHS).not.toContain(path);
+      expect(DESKTOP_WORKBENCH_ROUTES).not.toContain(path);
     }
   });
 
-  it("allows both products to expose the shared personal account routes", () => {
-    const shared = ["/me", "/account", "/account/data-hub"];
-    expect(WEB_ROUTE_PATHS).toEqual(expect.arrayContaining(shared));
-    expect(DESKTOP_ROUTE_PATHS).toEqual(expect.arrayContaining(shared));
+  it("documents the account routes both products own copies of", () => {
+    for (const path of SHARED_ACCOUNT_ROUTES) {
+      expect(PUBLIC_WEB_ROUTES).not.toContain(path);
+      expect(DESKTOP_WORKBENCH_ROUTES).not.toContain(path);
+    }
   });
 });

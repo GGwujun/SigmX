@@ -16,9 +16,9 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type DailyRecommendationBacktestResponse, type DailyRecommendationItem } from "@sigmx/api-client/api";
-import { canGenerateRecommendationsLocally } from "@sigmx/api-client/dataMode";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api, type DailyRecommendationBacktestResponse, type DailyRecommendationItem } from "@/lib/api";
+import { canGenerateRecommendationsLocally } from "@/lib/dataMode";
+import { cn } from "@/lib/utils";
 
 type SlotFilter = "all" | "morning" | "afternoon";
 

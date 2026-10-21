@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { EquityPoint } from "@sigmx/api-client/api";
+import type { EquityPoint } from "@/lib/api";
 import { getChartTheme } from "@/lib/chart-theme";
 import { abbreviateNum } from "@/lib/formatters";
 import { echarts, CHART_GROUP, connectCharts } from "@/lib/echarts";

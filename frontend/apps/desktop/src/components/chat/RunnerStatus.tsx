@@ -18,7 +18,7 @@ import {
   type LiveBrokerStatus,
   type LiveMandateLimits,
   type LiveAuthorizeResponse,
-} from "@sigmx/api-client/api";
+} from "@/lib/api";
 
 interface Props {
   /** Shared `GET /live/status` snapshot, polled once by the parent (Agent.tsx).

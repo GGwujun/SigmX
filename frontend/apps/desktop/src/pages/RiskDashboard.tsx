@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shield, RefreshCw, AlertTriangle, Activity } from "lucide-react";
-import { api } from "@sigmx/api-client/api";
-import type { RegimeData, RiskCheckData, RiskEvent } from "@sigmx/api-client/risk";
+import { api } from "@/lib/api";
+import type { RegimeData, RiskCheckData, RiskEvent } from "@/lib/risk";
 import { RegimeCard } from "@/components/risk/RegimeCard";
 import { RiskMatrix } from "@/components/risk/RiskMatrix";
 import { HealthScore } from "@/components/risk/HealthScore";
 
-export type { RegimeData, RiskCheck, RiskCheckData, RiskEvent } from "@sigmx/api-client/risk";
+export type { RegimeData, RiskCheck, RiskCheckData, RiskEvent } from "@/lib/risk";
 
 export default function RiskDashboard() {
   const [regime, setRegime] = useState<RegimeData | null>(null);

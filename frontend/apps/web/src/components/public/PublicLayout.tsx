@@ -7,9 +7,9 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 
-import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
-import { AccountMenu } from "@sigmx/shared/components/navigation/AccountMenu";
-import { getUser, isAuthenticated } from "@sigmx/api-client/apiAuth";
+import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { AccountMenu } from "@/components/navigation/AccountMenu";
+import { getUser, isAuthenticated } from "@/lib/apiAuth";
 
 export interface PublicLayoutProps {
   /** Optional override of the primary call-to-action (defaults to 注册体验). */

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { DISCLAIMER_WATERMARK } from "@sigmx/shared/lib/disclaimer";
+import { DISCLAIMER_WATERMARK } from "@/lib/disclaimer";
 
 /**
  * Full-page tiled watermark overlay.

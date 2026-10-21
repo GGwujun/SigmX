@@ -1,5 +1,5 @@
 import type { ReactElement } from "react";
-import { cn } from "@sigmx/shared/lib/utils";
+import { cn } from "@/lib/utils";
 
 interface ProgressBarProps {
   /** Current progress value; clamped to [0, total] internally. */

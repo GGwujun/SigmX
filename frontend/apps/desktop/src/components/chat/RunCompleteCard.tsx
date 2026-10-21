@@ -1,7 +1,7 @@
 import { memo, useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { BarChart3, Code2, FileText, Loader2 } from "lucide-react";
-import { api } from "@sigmx/api-client/api";
+import { api } from "@/lib/api";
 import { AgentAvatar } from "./AgentAvatar";
 import { MetricsCard } from "./MetricsCard";
 import { MiniEquityChart } from "@/components/charts/MiniEquityChart";

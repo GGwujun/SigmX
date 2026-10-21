@@ -6,9 +6,9 @@
 import { useEffect, useState } from "react";
 import { Download, Loader2, AlertCircle } from "lucide-react";
 
-import { ApiError } from "@sigmx/api-client/api";
-import { getStableRelease, type StableRelease } from "@sigmx/api-client/productApi";
-import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
+import { ApiError } from "@/lib/api";
+import { getStableRelease, type StableRelease } from "@/lib/productApi";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 export function DownloadPage() {
   const [release, setRelease] = useState<StableRelease | null>(null);

@@ -1,6 +1,6 @@
 import { useRef, type JSX } from "react";
 import { Loader2, CheckCircle2, XCircle } from "lucide-react";
-import { cn } from "@sigmx/shared/lib/utils";
+import { cn } from "@/lib/utils";
 import { ProgressBar } from "@/components/chat/ProgressBar";
 import { localizeToolName } from "@/lib/tools";
 import type { ToolCallEntry } from "@/types/agent";

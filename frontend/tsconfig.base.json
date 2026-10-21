@@ -16,12 +16,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["vitest/globals"],
-    "baseUrl": ".",
-    "paths": {
-      "@sigmx/ui": ["./packages/ui/src/index.ts"],
-      "@sigmx/api-client/*": ["./packages/api-client/src/*"],
-      "@sigmx/shared/*": ["./packages/shared/src/*"]
-    }
+    "types": ["vitest/globals"]
   }
 }

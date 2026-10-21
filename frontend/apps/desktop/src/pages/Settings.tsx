@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import { Bell, Database, KeyRound, Loader2, RotateCcw, Save, Send, Server, ShieldCheck, SlidersHorizontal, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { api, isAuthRequiredError, type DataSourceSettings, type DataHealthReport, type SourceHealth, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig, type AlertRule } from "@sigmx/api-client/api";
-import { getApiAuthKey, isAdmin, setApiAuthKey } from "@sigmx/api-client/apiAuth";
-import { getDataMode, setDataMode, getDataHubUrl, setDataHubUrl, getDataHubKey, setDataHubKey } from "@sigmx/api-client/dataMode";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api, isAuthRequiredError, type DataSourceSettings, type DataHealthReport, type SourceHealth, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig, type AlertRule } from "@/lib/api";
+import { getApiAuthKey, isAdmin, setApiAuthKey } from "@/lib/apiAuth";
+import { getDataMode, setDataMode, getDataHubUrl, setDataHubUrl, getDataHubKey, setDataHubKey } from "@/lib/dataMode";
+import { cn } from "@/lib/utils";
 
 interface LLMFormState {
   provider: string;

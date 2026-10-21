@@ -1,10 +1,10 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
 import { Activity, Bot, BookOpenText, Boxes, CircleDollarSign, Database, FileClock, Headphones, LayoutDashboard, Settings, Users } from "lucide-react";
 
-import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
-import { AccountMenu } from "@sigmx/shared/components/navigation/AccountMenu";
-import { getUser } from "@sigmx/api-client/apiAuth";
-import { cn } from "@sigmx/shared/lib/utils";
+import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { AccountMenu } from "@/components/navigation/AccountMenu";
+import { getUser } from "@/lib/apiAuth";
+import { cn } from "@/lib/utils";
 
 const MODULES = [
   { to: "/admin", label: "总览", icon: LayoutDashboard, end: true },

@@ -3,13 +3,13 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PricingPage } from "../PricingPage";
-import * as productApi from "@sigmx/api-client/productApi";
+import * as productApi from "@/lib/productApi";
 
-vi.mock("@sigmx/api-client/productApi", async () => {
-  const actual = await vi.importActual<typeof import("@sigmx/api-client/productApi")>("@sigmx/api-client/productApi");
+vi.mock("@/lib/productApi", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/productApi")>("@/lib/productApi");
   return { ...actual, getPlans: vi.fn() };
 });
-vi.mock("@sigmx/api-client/personalFunnel", () => ({ trackPersonalFunnel: vi.fn() }));
+vi.mock("@/lib/personalFunnel", () => ({ trackPersonalFunnel: vi.fn() }));
 
 const base = { billing_period: "quarter", welcome_credits: 0, description: "套餐", entitlements: { "datahub.enabled": true, "desktop.connected_mode": true, "cloud_ai.enabled": true, "reports.cloud_history": true, "datahub.rate_limit_per_minute": 100, "datahub.concurrent_limit": 2, "datahub.max_rows_per_request": 10000, "datahub.commercial_use": false } };
 

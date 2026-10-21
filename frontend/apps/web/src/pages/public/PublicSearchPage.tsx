@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { Bookmark, Monitor } from "lucide-react";
-import { DataStatus, EmptyState, ErrorState, Panel } from "@sigmx/ui";
+import { DataStatus, EmptyState, ErrorState, Panel } from "@/components/ui";
 
-import { cloudResearchApi, type PublicSearchResult } from "@sigmx/api-client/cloudResearchApi";
-import { isAuthenticated } from "@sigmx/api-client/apiAuth";
-import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
-import { recordQueryExecution } from "@sigmx/api-client/productApi";
+import { cloudResearchApi, type PublicSearchResult } from "@/lib/cloudResearchApi";
+import { isAuthenticated } from "@/lib/apiAuth";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
+import { recordQueryExecution } from "@/lib/productApi";
 
 export function PublicSearchPage() {
   const { id = "" } = useParams();

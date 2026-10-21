@@ -6,11 +6,11 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, Loader2 } from "lucide-react";
 
-import { ApiError } from "@sigmx/api-client/api";
-import { formatPlanPrice, getPlans, type PlanView } from "@sigmx/api-client/productApi";
-import { cn } from "@sigmx/shared/lib/utils";
-import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
-import { isAuthenticated } from "@sigmx/api-client/apiAuth";
+import { ApiError } from "@/lib/api";
+import { formatPlanPrice, getPlans, type PlanView } from "@/lib/productApi";
+import { cn } from "@/lib/utils";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
+import { isAuthenticated } from "@/lib/apiAuth";
 
 // Human labels for the stable entitlement keys (design §6). Keys themselves are
 // stable; only the display label is localized here.

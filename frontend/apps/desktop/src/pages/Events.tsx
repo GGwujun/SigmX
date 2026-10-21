@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ArrowRight, Building2, Coins, Cpu, Globe, Landmark, TrendingDown, TrendingUp } from "lucide-react";
-import { api, type EventItem, type EventsCategory } from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api, type EventItem, type EventsCategory } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import {
   MarketEmptyState,
   MarketErrorState,

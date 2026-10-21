@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { Activity, ArrowLeft, Filter, History, Loader2, RefreshCw, TrendingDown, TrendingUp, Zap } from "lucide-react";
-import { api, type ArbitrageSignal, type SignalStats } from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api, type ArbitrageSignal, type SignalStats } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 type FilterType = "ALL" | "PREMIUM" | "DISCOUNT";
 type TabKey = "active" | "history";

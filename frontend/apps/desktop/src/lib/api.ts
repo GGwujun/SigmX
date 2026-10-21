@@ -1,0 +1,2312 @@
+import type { RegimeData, RiskCheckData, RiskEvent } from "./risk";
+import { authHeaders, withAuthQuery, type AuthUser } from "@/lib/apiAuth";
+import { resolveApiUrl, resolveDataHubApiPath, dataHubHeaders, getDataMode } from "@/lib/dataMode";
+
+const BASE = "";
+
+export class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+export const AUTH_REQUIRED_MESSAGE =
+  "远程 API 访问需要 API Key。请在设置页配置，或在本机 localhost 启动后端进行本地访问。";
+
+export function isAuthRequiredError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
+async function errorFromResponse(res: Response): Promise<ApiError> {
+  let detail = `HTTP ${res.status}`;
+  try {
+    const body = await res.json();
+    detail = body.detail || body.message || detail;
+  } catch { /* ignore */ }
+  if (res.status === 401 || res.status === 403) {
+    detail = AUTH_REQUIRED_MESSAGE;
+  }
+  return new ApiError(detail, res.status);
+}
+
+async function request<T>(path: string, options?: RequestInit): Promise<T> {
+  const { headers, ...rest } = options ?? {};
+  const mergedHeaders: Record<string, string> = { "Content-Type": "application/json", ...authHeaders() };
+
+  // In connected mode, route /api/v1/* calls to the remote Data Hub.
+  // /market-dashboard/* and /daily-recommendations/* are rewritten to /api/v1/*
+  // aliases by resolveDataHubApiPath at the call site, so we only need to
+  // check for /api/v1/ here.
+  if (path.startsWith("/api/v1/") && getDataMode() === "connected") {
+    Object.assign(mergedHeaders, dataHubHeaders());
+  }
+
+  if (headers) {
+    new Headers(headers).forEach((value, key) => {
+      mergedHeaders[key] = value;
+    });
+  }
+
+  // Resolve the URL: local (BASE + path) or remote Data Hub.
+  const url = path.startsWith("/api/v1/")
+    ? resolveApiUrl(path)
+    : `${BASE}${path}`;
+
+  const res = await fetch(url, {
+    ...rest,
+    headers: mergedHeaders,
+  });
+  if (!res.ok) {
+    // 401/403 → token invalid/missing → clear auth and force re-login.
+    // Skip if already on a public page (login/register) to avoid a loop.
+    if (res.status === 401 || res.status === 403) {
+      const pub = window.location.pathname.startsWith("/login") || window.location.pathname.startsWith("/register");
+      if (!pub) {
+        try { window.localStorage.removeItem("sigmx_auth_token"); } catch { /* ignore */ }
+        try { window.localStorage.removeItem("sigmx_user"); } catch { /* ignore */ }
+        window.location.assign("/login");
+      }
+    }
+    throw await errorFromResponse(res);
+  }
+  const text = await res.text();
+  return text ? JSON.parse(text) : ({} as T);
+}
+
+function filenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1].replace(/"/g, ""));
+    } catch {
+      return utf8Match[1].replace(/"/g, "");
+    }
+  }
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  return match?.[1] || fallback;
+}
+
+async function requestBlob(path: string, fallbackFilename: string): Promise<{ blob: Blob; filename: string }> {
+  const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+  if (!res.ok) {
+    if (res.status === 401 || res.status === 403) {
+      const pub = window.location.pathname.startsWith("/login") || window.location.pathname.startsWith("/register");
+      if (!pub) {
+        try { window.localStorage.removeItem("sigmx_auth_token"); } catch { /* ignore */ }
+        try { window.localStorage.removeItem("sigmx_user"); } catch { /* ignore */ }
+        window.location.assign("/login");
+      }
+    }
+    throw await errorFromResponse(res);
+  }
+  return {
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res.headers.get("Content-Disposition"), fallbackFilename),
+  };
+}
+
+export interface UploadResult {
+  status: string;
+  file_path: string;
+  filename: string;
+}
+
+async function uploadFile(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await fetch(`${BASE}/upload`, { method: "POST", headers: authHeaders(), body: form });
+  if (!res.ok) {
+    throw await errorFromResponse(res);
+  }
+  return res.json();
+}
+
+function appendQueryParam(url: string, key: string, value: string): string {
+  const sep = url.includes("?") ? "&" : "?";
+  return `${url}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+}
+
+export const api = {
+  uploadFile,
+
+  // Auth
+  register: (email: string, password: string, agree: boolean) =>
+    request<AuthResponse>("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ email, password, agree }),
+    }),
+  login: (email: string, password: string) =>
+    request<AuthResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }),
+  getMe: () => request<AuthUser>("/auth/me"),
+  desktopSession: () =>
+    request<AuthResponse>("/auth/desktop-session", { method: "POST" }),
+  acceptDisclaimer: () => request<AuthUser>("/auth/disclaimer/accept", { method: "POST" }),
+
+  // Credits + account
+  getBalance: () => request<{ balance: number }>("/credits/balance"),
+  getTransactions: (limit = 50) => request<{ items: CreditTransaction[]; count: number }>(`/credits/transactions?limit=${limit}`),
+  redeemCode: (code: string) => request<{ ok: boolean; credits: number; balance: number; message: string }>("/credits/redeem", { method: "POST", body: JSON.stringify({ code }) }),
+  getAccount: () => request<AccountInfo>("/account/me"),
+  changePassword: (old_password: string, new_password: string) =>
+    request<{ status: string }>("/account/password", { method: "POST", body: JSON.stringify({ old_password, new_password }) }),
+
+  // Admin redeem codes
+  listRedeemCodes: (status = "all", limit = 100) =>
+    request<RedeemCodesListResponse>(`/admin/redeem-codes?status=${status}&limit=${limit}`),
+  generateRedeemCodes: (body: GenerateCodesRequest) =>
+    request<GenerateCodesResponse>("/admin/redeem-codes/generate", { method: "POST", body: JSON.stringify(body) }),
+  getRedeemCodesStats: () => request<RedeemCodesStats>("/admin/redeem-codes/stats"),
+
+  // Notify (Feishu/DingTalk/WeChat)
+  getNotifyConfig: () => request<NotifyConfig>("/notify/config"),
+  saveNotifyConfig: (cfg: NotifyConfig) => request<NotifyConfig>("/notify/config", { method: "PUT", body: JSON.stringify(cfg) }),
+  testNotify: (platform: string) =>
+    request<{ ok: boolean; message: string }>("/notify/test", { method: "POST", body: JSON.stringify({ platform }) }),
+
+  // Risk (regime + risk engine)
+  getRegime: () => request<RegimeData>("/risk/regime"),
+  getRegimeHistory: (days = 30) => request<{ items: RegimeData[] }>(`/risk/regime/history?days=${days}`),
+  runRiskCheck: () => request<RiskCheckData>("/risk/check"),
+  getRiskEvents: (days = 7, limit = 20) => request<{ events: RiskEvent[] }>(`/risk/check/history?days=${days}&limit=${limit}`),
+  getRiskHealth: () => request<{ health_score: number }>("/risk/health"),
+  getRiskParams: () => request<{ current_regime: string; current_params: Record<string, unknown>; all_params: Record<string, Record<string, unknown>> }>("/risk/params"),
+  runRegimeClassification: (tradeDate?: string) => request<RegimeData>(`/risk/regime/run${tradeDate ? `?trade_date=${tradeDate}` : ""}`),
+
+  // Notify noise control
+  getNoiseConfig: () => request<{ dedup_ttl_seconds: number; cooldown_seconds: number; quiet_hours: string; timezone: string; min_severity: string }>("/notify/noise"),
+  saveNoiseConfig: (cfg: { dedup_ttl_seconds: number; cooldown_seconds: number; quiet_hours: string; timezone: string; min_severity: string }) => request<{ dedup_ttl_seconds: number; cooldown_seconds: number; quiet_hours: string; timezone: string; min_severity: string }>("/notify/noise", { method: "PUT", body: JSON.stringify(cfg) }),
+  getNoiseStats: () => request<Record<string, unknown>>("/notify/noise/stats"),
+
+
+
+  listRuns: () => request<RunListItem[]>("/runs"),
+  getRun: (id: string) => request<RunData>(`/runs/${id}`),
+  getRunCode: (id: string) => request<Record<string, string>>(`/runs/${id}/code`),
+  getRunPine: (id: string) => request<PineScriptResult>(`/runs/${id}/pine`),
+  listSessions: () => request<SessionItem[]>("/sessions"),
+  createSession: (title?: string) => request<SessionItem>("/sessions", { method: "POST", body: JSON.stringify({ title: title || "" }) }),
+  deleteSession: (sid: string) => request<{ status: string }>(`/sessions/${sid}`, { method: "DELETE" }),
+  renameSession: (sid: string, title: string) => request<{ status: string }>(`/sessions/${sid}`, { method: "PATCH", body: JSON.stringify({ title }) }),
+  sendMessage: (sid: string, content: string) => request<{ message_id: string; attempt_id: string }>(`/sessions/${sid}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
+  cancelSession: (sid: string) => request<{ status: string }>(`/sessions/${sid}/cancel`, { method: "POST" }),
+  getSessionMessages: (sid: string) => request<MessageItem[]>(`/sessions/${sid}/messages`),
+  createGoal: (sid: string, body: CreateGoalRequest) =>
+    request<GoalSnapshot>(`/sessions/${sid}/goal`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getGoal: (sid: string) => request<GoalSnapshot>(`/sessions/${sid}/goal`),
+  updateGoal: (sid: string, body: UpdateGoalRequest) =>
+    request<UpdateGoalResponse>(`/sessions/${sid}/goal`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  addGoalEvidence: (sid: string, body: AddGoalEvidenceRequest) =>
+    request<AddGoalEvidenceResponse>(`/sessions/${sid}/goal/evidence`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateGoalStatus: (sid: string, body: UpdateGoalStatusRequest) =>
+    request<UpdateGoalStatusResponse>(`/sessions/${sid}/goal/status`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  sseUrl: (sid: string, options?: { replay?: "active" }) => {
+    let url = withAuthQuery(`${BASE}/sessions/${sid}/events`);
+    if (options?.replay) url = appendQueryParam(url, "replay", options.replay);
+    return url;
+  },
+
+  // Swarm API
+  listSwarmPresets: () => request<SwarmPreset[]>("/swarm/presets"),
+  createSwarmRun: (preset_name: string, user_vars: Record<string, string>) =>
+    request<{ id: string; status: string }>("/swarm/runs", {
+      method: "POST",
+      body: JSON.stringify({ preset_name, user_vars }),
+    }),
+  listSwarmRuns: () => request<SwarmRunSummary[]>("/swarm/runs"),
+  getSwarmRun: (id: string) => request<Record<string, unknown>>(`/swarm/runs/${id}`),
+  swarmSseUrl: (id: string) => withAuthQuery(`${BASE}/swarm/runs/${id}/events`),
+  cancelSwarmRun: (id: string) =>
+    request<{ status: string }>(`/swarm/runs/${id}/cancel`, { method: "POST" }),
+  retrySwarmRun: (id: string) =>
+    request<{ id: string; status: string; preset_name: string }>(`/swarm/runs/${id}/retry`, { method: "POST" }),
+  getLLMSettings: () => request<LLMSettings>("/settings/llm"),
+  updateLLMSettings: (settings: UpdateLLMSettingsRequest) =>
+    request<LLMSettings>("/settings/llm", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+  getDataSourceSettings: () => request<DataSourceSettings>("/settings/data-sources"),
+  updateDataSourceSettings: (settings: UpdateDataSourceSettingsRequest) =>
+    request<DataSourceSettings>("/settings/data-sources", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+
+  // Data Hub / connected-mode / RSSHub config (persisted to ~/.vibe-trading/.env)
+  getDataHubSettings: () => request<DataHubSettings>("/settings/data-hub"),
+  updateDataHubSettings: (settings: DataHubSettings) =>
+    request<DataHubSettings>("/settings/data-hub", {
+      method: "PUT",
+      body: JSON.stringify(settings),
+    }),
+
+  // Data-source health (admin) — probe mootdx / akshare / RSSHub / overseas proxy
+  getDataHealth: () => request<DataHealthReport>("/data-health"),
+
+  // TPDog (托普量化) — HTTPS 行情/资金流/龙虎榜源
+  getTpdogStatus: () => request<TpdogStatus>("/tpdog/status"),
+  getTpdogTradingDays: (year: string) =>
+    request<TpdogEnvelope>(`/tpdog/trading-days?year=${encodeURIComponent(year)}`),
+  getTpdogDaily: (code: string, start: string, end: string) =>
+    request<TpdogEnvelope>(`/tpdog/daily?code=${encodeURIComponent(code)}&start=${start}&end=${end}`),
+  getTpdogCallAuction: (code: string, test = false) =>
+    request<TpdogEnvelope>(`/tpdog/call-auction?code=${encodeURIComponent(code)}&test=${test}`),
+  getTpdogDragonTiger: (date: string) =>
+    request<TpdogEnvelope>(`/tpdog/dragon-tiger?date=${date}`),
+
+  // Alpha Zoo API
+  listAlphas: (params: AlphaListParams = {}) => {
+    const q = new URLSearchParams();
+    if (params.zoo) q.set("zoo", params.zoo);
+    if (params.theme) q.set("theme", params.theme);
+    if (params.universe) q.set("universe", params.universe);
+    if (params.limit !== undefined) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return request<AlphaListResponse>(`/alpha/list${qs ? `?${qs}` : ""}`);
+  },
+  getAlpha: (alphaId: string) =>
+    request<AlphaDetailResponse>(`/alpha/${encodeURIComponent(alphaId)}`),
+  createAlphaBench: (body: AlphaBenchRequest) =>
+    request<{ status: string; job_id: string }>("/alpha/bench", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  alphaBenchStreamUrl: (jobId: string) =>
+    withAuthQuery(`${BASE}/alpha/bench/${encodeURIComponent(jobId)}/stream`),
+  createAlphaCompare: (body: AlphaCompareRequest) =>
+    request<{ status: string; job_id: string }>("/alpha/compare", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  alphaCompareStreamUrl: (jobId: string) =>
+    withAuthQuery(`${BASE}/alpha/compare/${encodeURIComponent(jobId)}/stream`),
+
+  // Connector runtime channel — privileged surface actions (NOT agent tools).
+  // commit is the ONLY action that writes a mandate; halt trips the kill switch.
+  commitMandate: (body: CommitMandateRequest) =>
+    request<CommitMandateResponse>("/mandate/commit", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  haltLive: (session_id?: string, broker?: string, reason?: string) =>
+    request<HaltLiveResponse>("/live/halt", {
+      method: "POST",
+      body: JSON.stringify({ session_id, broker, reason }),
+    }),
+  // Read the persistent runtime status across all authorized brokers (SPEC §7.5).
+  // Polled by the RunnerStatus panel; a plain authenticated GET, never a chat message.
+  getLiveStatus: () => request<LiveStatus>("/live/status"),
+  authorizeLive: (broker: string) =>
+    request<LiveAuthorizeResponse>("/live/authorize", {
+      method: "POST",
+      body: JSON.stringify({ broker }),
+    }),
+  // Start/stop the persistent runner (SPEC §7.5). Privileged surface actions, not agent tools.
+  startLiveRunner: (broker: string) =>
+    request<LiveRunnerResponse>("/live/runner/start", {
+      method: "POST",
+      body: JSON.stringify({ broker }),
+    }),
+  stopLiveRunner: (broker: string) =>
+    request<LiveRunnerResponse>("/live/runner/stop", {
+      method: "POST",
+      body: JSON.stringify({ broker }),
+    }),
+
+  // Event probability dashboard
+  listEvents: () => request<EventsListResponse>("/events"),
+  getEventHistory: (source: string, eventId: string, days?: number) => {
+    const qs = days ? `?days=${days}` : "";
+    return request<EventHistoryResponse>(`/events/${encodeURIComponent(source)}/${encodeURIComponent(eventId)}/history${qs}`);
+  },
+
+  // Position decision
+  analyzePositions: (body: { symbols: string[]; _cache_bust?: number }) =>
+    request<AnalyzeResponse>("/position/analyze", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  getPositionAnalysisSnapshot: (symbols: string[]) => {
+    const q = new URLSearchParams();
+    symbols.forEach((symbol) => q.append("symbols", symbol));
+    return request<PositionAnalysisSnapshotResponse>(`/position/analysis-snapshot?${q.toString()}`);
+  },
+  refreshPositionAnalysis: (symbols: string[]) =>
+    request<PositionAnalysisSnapshotResponse & { refresh_started?: boolean }>("/position/analysis-refresh", {
+      method: "POST",
+      body: JSON.stringify({ symbols, _cache_bust: Date.now() }),
+    }),
+  // AI-driven position analysis via AgentLoop (SSE stream)
+  aiAnalyzePosition: (code: string, signal: PositionSignal, position?: { cost: number; shares: number }) =>
+    fetch(`${BASE}/position/ai-analysis`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ code, signal, position }),
+    }),
+
+  getPositionSnapshot: (code: string) =>
+    request<SnapshotResponse>(`/position/snapshot/${encodeURIComponent(code)}`),
+
+  // Watchlist persistence (server-side)
+  getWatchlist: () =>
+    request<{ items: { symbol: string; cost: number; shares: number; date: string }[]; count: number }>("/position/watchlist"),
+  saveWatchlist: (items: { symbol: string; cost: number; shares: number; date: string }[]) =>
+    request<{ ok: boolean; count: number }>("/position/watchlist", {
+      method: "PUT",
+      body: JSON.stringify({ items }),
+    }),
+  removeWatchlistItem: (symbol: string) =>
+    request<{ ok: boolean }>(`/position/watchlist/${encodeURIComponent(symbol)}`, {
+      method: "DELETE",
+    }),
+
+  // 自选 & 定时分析 — independent watchlist (separate from position watchlist)
+  getTrackingWatchlist: () =>
+    request<{ items: TrackingWatchlistItem[]; count: number }>("/tracking/watchlist"),
+  addTrackingWatchlistItem: (symbol: string) =>
+    request<{ ok: boolean; item: TrackingWatchlistItem }>(
+      `/tracking/watchlist/${encodeURIComponent(symbol)}`,
+      { method: "POST" },
+    ),
+  deleteTrackingWatchlistItem: (symbol: string) =>
+    request<{ ok: boolean }>(`/tracking/watchlist/${encodeURIComponent(symbol)}`, {
+      method: "DELETE",
+    }),
+
+  // 自选 & 定时分析 — scheduled tasks
+  listTrackingTasks: () =>
+    request<{ items: ScheduledTask[]; count: number }>("/tracking/tasks"),
+  createTrackingTask: (body: {
+    symbol: string;
+    horizon: Horizon;
+    time: string;
+    enabled: boolean;
+  }) =>
+    request<{ ok: boolean; task: ScheduledTask }>("/tracking/tasks", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateTrackingTask: (
+    taskId: string,
+    patch: Partial<Pick<ScheduledTask, "horizon" | "time" | "enabled">>,
+  ) =>
+    request<{ ok: boolean; task: ScheduledTask }>(
+      `/tracking/tasks/${encodeURIComponent(taskId)}`,
+      { method: "PUT", body: JSON.stringify(patch) },
+    ),
+  deleteTrackingTask: (taskId: string) =>
+    request<{ ok: boolean }>(`/tracking/tasks/${encodeURIComponent(taskId)}`, {
+      method: "DELETE",
+    }),
+  deleteTrackingTaskBySymbol: (symbol: string) =>
+    request<{ ok: boolean }>(`/tracking/tasks/by-symbol/${encodeURIComponent(symbol)}`, {
+      method: "DELETE",
+    }),
+  runTrackingTaskNow: (taskId: string) =>
+    request<{ ok: boolean; run: AnalysisRun }>(
+      `/tracking/tasks/${encodeURIComponent(taskId)}/run`,
+      { method: "POST" },
+    ),
+
+  // 自选 & 定时分析 — history
+  getTrackingHistory: (symbol: string) =>
+    request<{ symbol: string; items: AnalysisRun[]; count: number }>(
+      `/tracking/history/${encodeURIComponent(symbol)}`,
+    ),
+  clearTrackingHistory: (symbol: string) =>
+    request<{ ok: boolean }>(`/tracking/history/${encodeURIComponent(symbol)}`, {
+      method: "DELETE",
+    }),
+
+  // News
+  listNews: (q?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return request<NewsListResponse>(`/news${qs ? `?${qs}` : ""}`);
+  },
+  getStockNews: (code: string) =>
+    request<StockNewsResponse>(`/news/stock/${encodeURIComponent(code)}`),
+
+  // RSSHub feeds (Folo-style dashboard)
+  listRsshubSources: () => request<RssSourcesResponse>("/rsshub/sources"),
+  listRsshubFeeds: (source?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (source) params.set("source", source);
+    if (limit) params.set("limit", String(limit));
+    const qs = params.toString();
+    return request<RssFeedResponse>(`/rsshub/feeds${qs ? `?${qs}` : ""}`);
+  },
+
+  // Opportunities
+  listOpportunities: () => request<OpportunityResponse>("/opportunity"),
+
+  // AI market dashboard aggregate
+  getMarketDashboard: () => request<MarketDashboardResponse>(resolveDataHubApiPath("/market-dashboard")),
+  getMarketDashboardStage: (stage: MarketDashboardStage) =>
+    request<MarketDashboardStageResponse>(
+      resolveDataHubApiPath(`/market-dashboard/stages/${stage}?_=${Date.now()}`),
+      { cache: "no-store" },
+    ),
+  getMarketBars: (code: string, days = 60) =>
+    request<MarketBarsResponse>(
+      resolveDataHubApiPath(`/market-dashboard/bars/${encodeURIComponent(code)}?days=${days}`),
+    ),
+
+  // Daily recommendations
+  listDailyRecommendations: (params: { date?: string; slot?: string; target_date?: string; phase?: string; status?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.date) q.set("date", params.date);
+    if (params.slot) q.set("slot", params.slot);
+    if (params.target_date) q.set("target_date", params.target_date);
+    if (params.phase) q.set("phase", params.phase);
+    if (params.status) q.set("status", params.status);
+    if (params.limit) q.set("limit", String(params.limit));
+    const qs = q.toString();
+    return request<DailyRecommendationListResponse>(
+      resolveDataHubApiPath(`/daily-recommendations${qs ? `?${qs}` : ""}`),
+    );
+  },
+  generateDailyRecommendations: (
+    slot: "morning" | "afternoon" | "manual" | "post_close_base" | "evening_review" | "premarket_review" | "morning_final" | "afternoon_final",
+    limit = 5,
+  ) =>
+    request<DailyRecommendationGenerateResponse>("/daily-recommendations/generate", {
+      method: "POST",
+      body: JSON.stringify({ slot, limit }),
+    }),
+  getDailyRecommendationBacktest: (days = 30) =>
+    request<DailyRecommendationBacktestResponse>(
+      resolveDataHubApiPath(`/daily-recommendations/backtest?days=${days}`),
+    ),
+  getDailyRecommendationAttribution: (days = 30, horizon: "t0" | "t1" | "t3" | "t5" = "t1") =>
+    request<DailyRecommendationAttributionResponse>(
+      resolveDataHubApiPath(`/daily-recommendations/attribution?days=${days}&horizon=${horizon}`),
+    ),
+
+  // Logic Chain
+  getLogicChain: (code: string) => request<LogicChainResponse>(`/logic-chain/${encodeURIComponent(code)}`),
+
+  // AlphaForge
+  listAlphaForgeReports: () => request<AlphaForgeReportItem[]>("/alpha-forge/reports"),
+  getAlphaForgeReport: (reportId: string) => request<AlphaForgeReportDetail>(`/alpha-forge/reports/${encodeURIComponent(reportId)}`),
+  getAlphaForgeReportDownloadUrl: (reportId: string, format: "md" | "pdf") =>
+    withAuthQuery(`${BASE}/alpha-forge/reports/${encodeURIComponent(reportId)}/download?format=${format}`),
+  downloadAlphaForgeReport: (reportId: string, format: "md" | "pdf") =>
+    requestBlob(
+      `/alpha-forge/reports/${encodeURIComponent(reportId)}/download?format=${format}`,
+      `AlphaForge_${reportId}.${format}`,
+    ),
+  createAlphaForgeRun: (target: string, market?: string) =>
+    request<AlphaForgeRunInfo>("/alpha-forge/runs", {
+      method: "POST",
+      body: JSON.stringify({ target, market: market || "A-shares" }),
+    }),
+  listAlphaForgeRuns: () => request<AlphaForgeRunListItem[]>("/alpha-forge/runs"),
+  getAlphaForgeRun: (runId: string) => request<AlphaForgeRunDetail>(`/alpha-forge/runs/${encodeURIComponent(runId)}`),
+  cancelAlphaForgeRun: (runId: string) =>
+    request<{ status: string; run_id: string }>(`/alpha-forge/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+  alphaForgeEventsUrl: (runId: string) => withAuthQuery(`${BASE}/alpha-forge/runs/${encodeURIComponent(runId)}/events`),
+
+  // Fund arbitrage
+  scanFunds: (type = "ETF", minPremium = 0.5, page = 1, pageSize = 20, sort = "premium_abs", keyword = "") =>
+    request<FundScanResponse>(`/fund/scan?type=${encodeURIComponent(type)}&min_premium=${minPremium}&page=${page}&page_size=${pageSize}&sort=${sort}&keyword=${encodeURIComponent(keyword)}`),
+  getFundDetail: (code: string) => request<FundDetail>(`/fund/${encodeURIComponent(code)}`),
+  getFundSourceStatus: () => request<FundSourceStatus>("/fund/source-status"),
+  analyzeFund: (fund_code: string, fund_type = "ETF") =>
+    request<FundAnalyzeInfo>("/fund/analyze", { method: "POST", body: JSON.stringify({ fund_code, fund_type }) }),
+  listFundReports: () => request<FundReportItem[]>("/fund/reports"),
+  getFundReport: (reportId: string) => request<FundReportDetail>(`/fund/reports/${encodeURIComponent(reportId)}`),
+  getFundReportDownloadUrl: (reportId: string, format: "md" | "pdf") =>
+    withAuthQuery(`${BASE}/fund/reports/${encodeURIComponent(reportId)}/download?format=${format}`),
+  listFundRuns: () => request<FundRunListItem[]>("/fund/runs"),
+  getFundRun: (runId: string) => request<FundRunDetail>(`/fund/runs/${encodeURIComponent(runId)}`),
+  cancelFundRun: (runId: string) =>
+    request<{ status: string; run_id: string }>(`/fund/runs/${encodeURIComponent(runId)}/cancel`, { method: "POST" }),
+
+  // Alert rules
+  listAlertRules: () => request<{ rules: AlertRule[]; total: number }>("/alert/rules"),
+  createAlertRule: (data: {
+    fund_code: string; fund_name?: string; premium_above?: number;
+    premium_below?: number; amount_above?: number; webhook_type?: string; throttle_minutes?: number;
+  }) => request<{ rule: AlertRule; message: string }>("/alert/rules", { method: "POST", body: JSON.stringify(data) }),
+  updateAlertRule: (ruleId: string, data: { condition?: Record<string, unknown>; notification?: Record<string, unknown> }) =>
+    request<{ rule: AlertRule; message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}`, { method: "PUT", body: JSON.stringify(data) }),
+  deleteAlertRule: (ruleId: string) =>
+    request<{ message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}`, { method: "DELETE" }),
+  toggleAlertRule: (ruleId: string) =>
+    request<{ rule: AlertRule; message: string }>(`/alert/rules/${encodeURIComponent(ruleId)}/toggle`, { method: "POST" }),
+  getAlertHistory: () => request<{ history: AlertHistoryItem[]; total: number }>("/alert/history"),
+
+  // Signals (Z-score)
+  getActiveSignals: () => request<{ signals: ArbitrageSignal[]; stats: SignalStats }>("/signal/active"),
+  getSignalHistory: (days = 7) => request<{ signals: ArbitrageSignal[] }>(`/signal/history?days=${days}`),
+  getSignalStats: () => request<SignalStats>("/signal/stats"),
+
+  // Premium history (charts)
+  getPremiumHistory: (code: string, days = 30) =>
+    request<{ code: string; history: PremiumHistoryItem[] }>(`/fund/${encodeURIComponent(code)}/premium-history?days=${days}`),
+};
+
+// --- Signal types ---
+
+export interface ArbitrageSignal {
+  code: string;
+  name: string;
+  type: string;
+  trade_date: string;
+  signal_type: "PREMIUM" | "DISCOUNT";
+  premium_rate: number;
+  z_score: number;
+  historical_mean: number;
+  historical_std: number;
+  n_history: number;
+  cost_estimate: number;
+  net_spread: number;
+  status: string;
+}
+
+export interface SignalStats {
+  active: number;
+  latest_count: number;
+}
+
+export interface PremiumHistoryItem {
+  trade_date: string;
+  premium_rate: number;
+  amount: number;
+}
+
+// --- Swarm types ---
+
+export interface SwarmPreset {
+  name: string;
+  title: string;
+  description: string;
+  agent_count: number;
+  variables: { name: string; description: string; required: boolean }[];
+}
+
+export interface SwarmRunSummary {
+  id: string;
+  preset_name: string;
+  status: string;
+  created_at: string;
+  task_count: number;
+  completed_count: number;
+}
+
+export interface LLMProviderOption {
+  name: string;
+  label: string;
+  api_key_env?: string | null;
+  base_url_env: string;
+  default_model: string;
+  default_base_url: string;
+  api_key_required: boolean;
+  auth_type?: string;
+  login_command?: string | null;
+}
+
+export interface LLMSettings {
+  provider: string;
+  model_name: string;
+  base_url: string;
+  api_key_env?: string | null;
+  api_key_configured: boolean;
+  api_key_hint?: string | null;
+  api_key_required: boolean;
+  temperature: number;
+  timeout_seconds: number;
+  max_retries: number;
+  reasoning_effort: string;
+  sse_timeout_seconds: number;
+  env_path: string;
+  providers: LLMProviderOption[];
+}
+
+export interface UpdateLLMSettingsRequest {
+  provider: string;
+  model_name: string;
+  base_url: string;
+  api_key?: string;
+  clear_api_key?: boolean;
+  temperature: number;
+  timeout_seconds: number;
+  max_retries: number;
+  reasoning_effort?: string;
+}
+
+export interface DataSourceSettings {
+  tushare_token_configured: boolean;
+  tushare_token_hint?: string | null;
+  tpdog_token_configured: boolean;
+  tpdog_token_hint?: string | null;
+  baostock_supported: boolean;
+  baostock_installed: boolean;
+  baostock_message: string;
+  env_path: string;
+}
+
+export interface SourceHealth {
+  name: string;
+  ok: boolean;
+  latency_ms: number;
+  detail: string;
+}
+
+export interface DataHealthReport {
+  sources: SourceHealth[];
+  summary_ok: number;
+  summary_total: number;
+}
+
+export interface TpdogStatus {
+  configured: boolean;
+  ok: boolean;
+  detail: string;
+}
+
+export interface TpdogEnvelope {
+  ok: boolean;
+  detail: string;
+  content: Record<string, unknown>[];
+}
+
+export interface UpdateDataSourceSettingsRequest {
+  tushare_token?: string;
+  clear_tushare_token?: boolean;
+  tpdog_token?: string;
+  clear_tpdog_token?: boolean;
+}
+
+export interface DataHubSettings {
+  data_hub_url: string;
+  data_hub_key: string;
+  data_mode: "standalone" | "connected" | string;
+  rsshub_url: string;
+}
+
+// --- Types matching backend API contracts ---
+
+export interface RunListItem {
+  run_id: string;
+  status: string;
+  created_at: string;
+  prompt?: string;
+  total_return?: number;
+  sharpe?: number;
+  codes?: string[];
+  start_date?: string;
+  end_date?: string;
+}
+
+export interface PriceBar {
+  time: string;
+  timestamp?: string;
+  code?: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
+export interface TradeMarker {
+  time: string;
+  timestamp?: string;
+  code?: string;
+  side: "BUY" | "SELL";
+  price: number;
+  qty?: number;
+  reason?: string;
+  text?: string;
+}
+
+export interface EquityPoint {
+  time: string;
+  equity: string | number;
+  drawdown: string | number;
+}
+
+export interface ValidationData {
+  monte_carlo?: {
+    actual_sharpe: number;
+    actual_max_dd: number;
+    p_value_sharpe: number;
+    p_value_max_dd: number;
+    simulated_sharpe_mean: number;
+    simulated_sharpe_std: number;
+    simulated_sharpe_p5: number;
+    simulated_sharpe_p95: number;
+    n_simulations: number;
+    n_trades: number;
+    error?: string;
+  };
+  bootstrap?: {
+    observed_sharpe: number;
+    ci_lower: number;
+    ci_upper: number;
+    median_sharpe: number;
+    prob_positive: number;
+    confidence: number;
+    n_bootstrap: number;
+    error?: string;
+  };
+  walk_forward?: {
+    n_windows: number;
+    windows: Array<{
+      window: number;
+      start: string;
+      end: string;
+      return: number;
+      sharpe: number;
+      max_dd: number;
+      trades: number;
+      win_rate: number;
+    }>;
+    profitable_windows: number;
+    consistency_rate: number;
+    return_mean: number;
+    return_std: number;
+    sharpe_mean: number;
+    sharpe_std: number;
+    error?: string;
+  };
+}
+
+export interface RunData {
+  status: string;
+  run_id: string;
+  prompt?: string;
+  elapsed_seconds?: number;
+  run_directory?: string;
+  run_stage?: string;
+  run_context?: Record<string, unknown>;
+
+  metrics?: BacktestMetrics;
+  artifacts?: ArtifactInfo[];
+  run_card?: RunCard;
+  validation?: ValidationData;
+
+  price_series?: Record<string, PriceBar[]>;
+  indicator_series?: Record<string, Record<string, IndicatorPoint[]>>;
+  trade_markers?: TradeMarker[];
+  equity_curve?: EquityPoint[];
+  trade_log?: Array<Record<string, string>>;
+  run_logs?: Array<{ source?: string; line_number?: number; message?: string }>;
+}
+
+export interface RunCard {
+  schema_version?: string;
+  generated_at?: string;
+  run_dir?: string;
+  backtest?: Record<string, unknown>;
+  reproducibility?: Record<string, unknown>;
+  data_sources?: string[];
+  metrics?: Record<string, unknown>;
+  validation?: unknown;
+  warnings?: string[];
+  artifacts?: RunCardArtifact[];
+  [key: string]: unknown;
+}
+
+export interface RunCardArtifact {
+  path: string;
+  size_bytes: number;
+  sha256: string;
+}
+
+export interface BacktestMetrics {
+  final_value: number;
+  total_return: number;
+  annual_return: number;
+  max_drawdown: number;
+  sharpe: number;
+  win_rate: number;
+  trade_count: number;
+  [key: string]: number;
+}
+
+
+export interface IndicatorPoint {
+  time: string;
+  value: number;
+}
+
+export interface ArtifactInfo {
+  name: string;
+  path: string;
+  type: string;
+  size: number;
+  exists: boolean;
+}
+
+export interface PineScriptResult {
+  exists: boolean;
+  content: string | null;
+}
+
+export interface SessionItem {
+  session_id: string;
+  title?: string;
+  status?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_attempt_id?: string;
+}
+
+// --- Goal types ---
+
+export type GoalStatus =
+  | "active"
+  | "paused"
+  | "waiting_user"
+  | "needs_refresh"
+  | "insufficient_evidence"
+  | "compliance_blocked"
+  | "blocked"
+  | "budget_limited"
+  | "usage_limited"
+  | "complete"
+  | "cancelled"
+  | "superseded";
+
+export type GoalRiskTier =
+  | "research_general"
+  | "market_specific_short_term"
+  | "personalized_advice_or_position_sizing";
+
+export interface GoalRecord {
+  goal_id: string;
+  session_id: string;
+  status: GoalStatus;
+  objective: string;
+  ui_summary: string;
+  source: string;
+  protocol: string;
+  risk_tier: GoalRiskTier;
+  token_budget?: number | null;
+  tokens_used: number;
+  turn_budget?: number | null;
+  turns_used: number;
+  time_budget_seconds?: number | null;
+  time_used_seconds: number;
+  budget_wrapup_sent: boolean;
+  created_at: string;
+  updated_at: string;
+  completed_at?: string | null;
+  recap?: string | null;
+}
+
+export interface GoalClaim {
+  claim_id: string;
+  goal_id: string;
+  session_id: string;
+  claim_type: string;
+  text: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoalCriterion {
+  criterion_id: string;
+  goal_id: string;
+  session_id: string;
+  text: string;
+  required: boolean;
+  status: string;
+  freshness_requirement?: string | null;
+  protocol_step?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoalEvidence {
+  evidence_id: string;
+  goal_id: string;
+  session_id: string;
+  text: string;
+  criterion_id?: string | null;
+  claim_id?: string | null;
+  evidence_type: string;
+  tool_call_id?: string | null;
+  run_id?: string | null;
+  source_provider?: string | null;
+  source_type?: string | null;
+  source_uri?: string | null;
+  symbol_universe: string[];
+  benchmark: string[];
+  timeframe?: string | null;
+  method?: string | null;
+  assumptions: Record<string, unknown>;
+  artifact_path?: string | null;
+  artifact_hash?: string | null;
+  retrieved_at: string;
+  data_as_of?: string | null;
+  freshness_status: string;
+  verification_status: string;
+  confidence?: string | null;
+  caveat?: string | null;
+  contradicts_claim_ids: string[];
+  created_at: string;
+}
+
+export interface GoalSnapshot {
+  goal: GoalRecord;
+  claims: GoalClaim[];
+  criteria: GoalCriterion[];
+  evidence: GoalEvidence[];
+  evidence_count: number;
+}
+
+export interface CreateGoalRequest {
+  objective: string;
+  criteria?: string[];
+  ui_summary?: string;
+  protocol?: string;
+  risk_tier?: GoalRiskTier;
+  token_budget?: number;
+  turn_budget?: number;
+  time_budget_seconds?: number;
+}
+
+export interface AddGoalEvidenceRequest {
+  goal_id: string;
+  expected_goal_id: string;
+  text: string;
+  criterion_id?: string | null;
+  claim_id?: string | null;
+  evidence_type?: string;
+  tool_call_id?: string | null;
+  run_id?: string | null;
+  source_provider?: string | null;
+  source_type?: string | null;
+  source_uri?: string | null;
+  symbol_universe?: string[];
+  benchmark?: string[];
+  timeframe?: string | null;
+  method?: string | null;
+  assumptions?: Record<string, unknown>;
+  artifact_path?: string | null;
+  artifact_hash?: string | null;
+  data_as_of?: string | null;
+  confidence?: string | null;
+  caveat?: string | null;
+  contradicts_claim_ids?: string[];
+}
+
+export interface UpdateGoalRequest {
+  goal_id: string;
+  expected_goal_id: string;
+  objective?: string;
+  ui_summary?: string;
+}
+
+export interface UpdateGoalResponse {
+  goal: GoalRecord;
+  snapshot: GoalSnapshot;
+}
+
+export interface AddGoalEvidenceResponse {
+  evidence: GoalEvidence;
+  snapshot: GoalSnapshot;
+}
+
+export interface GoalAuditRowRequest {
+  criterion_id: string;
+  result: string;
+  evidence_ids?: string[];
+  notes?: string;
+}
+
+export interface UpdateGoalStatusRequest {
+  goal_id: string;
+  expected_goal_id: string;
+  status: GoalStatus;
+  audit?: GoalAuditRowRequest[];
+  recap?: string | null;
+}
+
+export interface UpdateGoalStatusResponse {
+  goal: GoalRecord;
+  snapshot: GoalSnapshot;
+}
+
+// --- Alpha Zoo types ---
+
+export interface AlphaListParams {
+  zoo?: string;
+  theme?: string;
+  universe?: string;
+  limit?: number;
+}
+
+export interface AlphaSummary {
+  id: string;
+  zoo: string;
+  theme: string[];
+  universe: string[];
+  nickname?: string;
+  decay_horizon?: number | null;
+  min_warmup_bars?: number | null;
+  requires_sector?: boolean;
+}
+
+export interface AlphaListResponse {
+  status: string;
+  alphas: AlphaSummary[];
+  total: number;
+  returned: number;
+  truncated: boolean;
+}
+
+export interface AlphaDetail {
+  id: string;
+  zoo: string;
+  module_path?: string;
+  meta: Record<string, unknown>;
+}
+
+export interface AlphaDetailResponse {
+  status: string;
+  alpha: AlphaDetail;
+  source_code: string;
+}
+
+export interface AlphaBenchRequest {
+  zoo: string;
+  universe: string;
+  period: string;
+  top?: number;
+}
+
+export interface AlphaBenchTopRow {
+  id: string;
+  ic_mean: number;
+  ir: number;
+  theme: string[];
+  formula_latex: string;
+  category: "alive" | "reversed" | "dead";
+}
+
+export interface AlphaBenchResult {
+  alive: number;
+  reversed: number;
+  dead: number;
+  skipped?: number;
+  top5_by_ir: AlphaBenchTopRow[];
+  dead_examples: AlphaBenchTopRow[];
+  by_theme: Record<string, { alive: number; reversed: number; dead: number }>;
+}
+
+export interface AlphaCompareRequest {
+  alpha_ids: string[];
+  universe: string;
+  period: string;
+  /** One of: ir | ic_mean | ic_positive_ratio | ic_count (default ir). */
+  sort?: string;
+}
+
+export interface AlphaCompareRow {
+  rank: number;
+  id: string;
+  zoo: string;
+  ic_mean: number;
+  ic_std: number;
+  ir: number;
+  ic_positive_ratio: number;
+  ic_count: number;
+  /** `delta_<sort>_vs_best` — gap to the top-ranked alpha on the active metric. */
+  [deltaKey: string]: number | string;
+}
+
+export interface AlphaCompareSkip {
+  id: string;
+  reason: string;
+}
+
+export interface AlphaCompareResult {
+  universe: string;
+  period: string;
+  sort: string;
+  n_compared: number;
+  n_skipped: number;
+  winner: string;
+  ranking: AlphaCompareRow[];
+  skipped: AlphaCompareSkip[];
+}
+
+// --- Connector runtime channel types ---
+
+/** One mandate profile inside a `mandate.proposal` event (SPEC Consent §1). */
+export interface MandateProfile {
+  ordinal: number;
+  label: string;
+  /** Concrete ticker list, or a structural universe descriptor (e.g. "tech_sector"). */
+  universe: string[] | string;
+  max_order_usd: number;
+  daily_trade_cap: number;
+  /** "none" for cash-only, otherwise a leverage descriptor/multiple. */
+  leverage: string | number;
+  instruments: string[];
+  notes?: string;
+}
+
+/** Account block of a `mandate.proposal` event. */
+export interface MandateProposalAccount {
+  broker: string;
+  type: string;
+  funded_by: string;
+}
+
+/** Payload of the `mandate.proposal` SSE event (SPEC Consent §1). */
+export interface MandateProposal {
+  type?: string;
+  proposal_id: string;
+  session_id?: string;
+  intent_normalized?: string;
+  account?: MandateProposalAccount;
+  ceilings_ref?: string;
+  profiles: MandateProfile[];
+  funding_note?: string;
+  halt_note?: string;
+  /** Present only when this proposal was triggered by a mandate breach (SPEC Consent §3). */
+  reauth_for?: { breach_id?: string } | null;
+}
+
+/** Payload of the `mandate.committed` SSE event (SPEC Consent §1 COMMIT). */
+export interface MandateCommitted {
+  proposal_id?: string;
+  mandate_id?: string;
+  consent_record_id?: string;
+  selected_ordinal?: number;
+  broker?: string;
+  /** Resolved limits, surfaced for the compact active-mandate badge. */
+  max_order_usd?: number;
+  daily_trade_cap?: number;
+  expires_at?: string;
+}
+
+/** Payload of the `live.halted` SSE event (SPEC Consent §4). */
+export interface LiveHalted {
+  broker?: string | null;
+  tripped_at?: string;
+  by?: string;
+  reason?: string;
+}
+
+/** Payload of the `live.action` SSE event (SPEC Consent §5 audit notify). */
+export interface LiveAction {
+  audit_id?: string;
+  ts?: string;
+  kind: string;
+  intent_normalized?: string;
+  outcome?: string;
+  broker?: string;
+  remote_tool?: string;
+  error?: string | null;
+}
+
+export interface CommitMandateRequest {
+  broker: string;
+  proposal_id: string;
+  selected_ordinal: number;
+  /** Present only on the adjust path (SPEC Consent §3); null otherwise. */
+  adjustments?: Record<string, unknown> | null;
+  /** Explicit affirmative consent; the surface sets it on the user's click. */
+  consent_ack: boolean;
+  session_id?: string;
+  account_ref?: string;
+  lifetime_days?: number;
+}
+
+export interface CommitMandateResponse {
+  mandate_id: string;
+  consent_record_id: string;
+  selected_ordinal?: number;
+  broker?: string;
+  max_order_usd?: number;
+  daily_trade_cap?: number;
+  expires_at?: string;
+}
+
+export interface HaltLiveResponse {
+  halted: boolean;
+  broker?: string | null;
+  reason: string;
+  sentinel: string;
+}
+
+export interface LiveAuthorizeRequest {
+  broker: string;
+}
+
+export interface LiveAuthorizeResponse {
+  broker: string;
+  connector_profile: string;
+  oauth_token_present: boolean;
+  instruction: string;
+  note?: string;
+}
+
+/** Mandate limits surfaced inside a `GET /live/status` broker entry (SPEC §7.5). */
+export interface LiveMandateLimits {
+  max_order_notional_usd?: number;
+  max_total_exposure_usd?: number;
+  max_leverage?: number;
+  max_trades_per_day?: number;
+  allowed_instruments?: string[];
+  account_funding_usd?: number;
+  [key: string]: unknown;
+}
+
+/** Active mandate block of a `GET /live/status` broker entry. */
+export interface LiveMandateStatus {
+  broker?: string;
+  mandate_id?: string;
+  account_ref?: string;
+  created_at?: string;
+  limits?: LiveMandateLimits;
+  /** ISO timestamp the mandate auto-expires (SPEC §7.5 #7 proactive expiry). */
+  expires_at?: string;
+  expires_in_seconds?: number | null;
+  expired?: boolean;
+}
+
+/** Runner liveness block of a `GET /live/status` broker entry (SPEC §7.5 #3). */
+export interface LiveRunnerLiveness {
+  broker?: string;
+  alive: boolean;
+  /** Unix epoch seconds of the last heartbeat tick; null if the runner never started. */
+  last_tick?: number | string | null;
+  last_tick_age_seconds?: number | null;
+}
+
+export interface LiveBrokerAuthStatus {
+  broker: string;
+  oauth_token_present: boolean;
+  is_live_broker: boolean;
+}
+
+/** One broker entry in the `GET /live/status` response. */
+export interface LiveBrokerStatus {
+  auth: LiveBrokerAuthStatus;
+  mandate?: LiveMandateStatus | null;
+  runner: LiveRunnerLiveness;
+  halted: boolean;
+}
+
+/** Response of `GET /live/status` (SPEC §7.5 runner status panel + C2). */
+export interface LiveStatus {
+  brokers: LiveBrokerStatus[];
+  global_halted: boolean;
+}
+
+/** Response of `POST /live/runner/start|stop`. */
+export interface LiveRunnerResponse {
+  broker: string;
+  started?: boolean;
+  already_running?: boolean;
+  stopped?: boolean;
+  was_running?: boolean;
+}
+
+export interface MessageItem {
+  message_id: string;
+  session_id: string;
+  role: string;
+  content: string;
+  created_at: string;
+  linked_attempt_id?: string;
+  metadata?: Record<string, unknown>;
+}
+
+// --- Events types ---
+
+export interface EventItem {
+  id: string;
+  title: string;
+  threshold: string;
+  probability: number;
+  prob_change_24h: number;
+  volume: string;
+  resolve_time: string;
+  source: string;
+}
+
+export interface EventsCategory {
+  id: string;
+  label: string;
+  source: string;
+  events: EventItem[];
+}
+
+export interface EventsListResponse {
+  categories: EventsCategory[];
+  updated_at: string;
+}
+
+export interface HistoryPoint {
+  time: string;
+  probability: number;
+}
+
+export interface EventHistoryResponse {
+  event_id: string;
+  source: string;
+  history: HistoryPoint[];
+}
+
+// --- Position Decision types ---
+
+export interface DimensionItem {
+  label: string;
+  value: string;
+  signal: string; // emoji: ✅/⚠️/🔴
+  detail?: string | null;
+}
+
+export interface AnalysisDimension {
+  id: string;
+  label: string;
+  icon: string;
+  score: number;
+  signal: string;
+  summary: string;
+  items: DimensionItem[];
+}
+
+export interface TrendInfo {
+  direction: string;
+  ma_pattern: string;
+  score: number;
+}
+
+export interface TechnicalInfo {
+  patterns: string[];
+  score: number;
+}
+
+export interface MomentumInfo {
+  rsi: number;
+  macd_signal: string;
+  vol_ratio: number;
+  score: number;
+}
+
+export interface PositionEventsInfo {
+  relevant_count: number;
+  sentiment: string;
+  score: number;
+}
+
+export interface PositionSignal {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  market_basics?: {
+    open: number;       // 今开
+    prev_close: number; // 昨收
+    high: number;       // 日高
+    low: number;        // 日低
+    volume: number;     // 成交量（手）
+  };
+  error?: string;
+  // Legacy flat fields (backward compat)
+  trend: TrendInfo;
+  technical: TechnicalInfo;
+  momentum: MomentumInfo;
+  events: PositionEventsInfo;
+  overall_score: number;
+  decision: string;
+  decision_label: string;
+  confidence: string;
+  // V2 fields
+  dimensions?: AnalysisDimension[];
+  stop_loss?: number | null;
+  take_profit?: number | null;
+  risk_reward?: number | null;
+  api_version?: number;
+}
+
+// --- 自选 & 定时分析 (scheduled analysis) types ---
+
+export interface TrackingWatchlistItem {
+  symbol: string;
+  name: string;
+  added_at: string;
+}
+
+export interface PositionHoldingItem {
+  symbol: string;
+  name?: string;
+  cost?: number;
+  shares?: number;
+  date?: string;
+}
+
+export type Horizon = "短线" | "中线" | "长线";
+
+export interface ScheduledTask {
+  task_id: string;
+  symbol: string;
+  name: string;
+  horizon: Horizon;
+  time: string; // "HH:MM" Beijing
+  enabled: boolean;
+  created_at: string;
+  last_run_at: string | null;
+  last_status: "ok" | "error" | null;
+}
+
+export interface TrimmedAnalysis {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  overall_score: number;
+  decision: string;
+  decision_label: string;
+  confidence: string;
+  stop_loss: number | null;
+  take_profit: number | null;
+  risk_reward: number | null;
+  dimensions: AnalysisDimension[];
+}
+
+export interface AnalysisRun {
+  run_id: string;
+  task_id: string;
+  symbol: string;
+  name: string;
+  horizon: Horizon;
+  run_at: string;
+  status: "ok" | "error";
+  error: string | null;
+  result: TrimmedAnalysis | null;
+}
+
+export interface IndexInfo {
+  name: string;
+  price: number;
+  change_pct: number;
+}
+
+export interface AnalyzeResponse {
+  signals: PositionSignal[];
+  index?: IndexInfo | null;
+  updated_at: string;
+}
+
+export interface PositionAnalysisSnapshotResponse {
+  status: "ready" | "missing" | "error" | string;
+  key: string;
+  symbols: string[];
+  refreshing: boolean;
+  snapshot_updated_at?: string | null;
+  refresh_started_at?: string | null;
+  refresh_finished_at?: string | null;
+  error?: string | null;
+  data: AnalyzeResponse;
+}
+
+export interface SnapshotResponse {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  updated_at: string;
+}
+
+// --- News types ---
+
+export interface NewsArticle {
+  title: string;
+  url: string;
+  source: string;
+  published: string;
+  snippet: string;
+}
+
+export interface NewsListResponse {
+  articles: NewsArticle[];
+  query: string;
+  updated_at: string;
+}
+
+export interface StockNewsResponse {
+  code: string;
+  name: string;
+  articles: NewsArticle[];
+  updated_at: string;
+}
+
+// --- RSSHub feed types (Folo-style dashboard) ---
+
+export interface RssSource {
+  name: string;
+  route: string;
+  count: number;
+  healthy: boolean;
+  color: string;
+  priority: number;
+  desc: string;
+}
+
+export interface RssArticle {
+  id: string;
+  title: string;
+  url: string;
+  source: string;
+  source_color: string;
+  published: string;
+  published_ago: string;
+  snippet: string;    // 纯文本摘要，用于列表预览
+  content: string;    // 原始 HTML，用于详情页富文本渲染
+}
+
+export interface RssFeedResponse {
+  sources: RssSource[];
+  articles: RssArticle[];
+  selected_source: string | null;
+  updated_at: string;
+}
+
+export interface RssSourcesResponse {
+  sources: RssSource[];
+  updated_at: string;
+}
+
+// --- Opportunity types ---
+
+export interface Opportunity {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  reason: string;
+  confidence: number;
+  category: string;
+}
+
+export interface OpportunityCategory {
+  id: string;
+  label: string;
+  icon: string;
+  color: string;
+  opportunities: Opportunity[];
+}
+
+export interface OpportunityResponse {
+  categories: OpportunityCategory[];
+  updated_at: string;
+  error?: string | null;
+}
+
+// --- AI Market Dashboard ---
+
+export interface MarketDashboardSourceError {
+  source: string;
+  message: string;
+}
+
+export interface MarketDashboardMood {
+  label: string;
+  tone: "good" | "warn" | "bad" | "neutral";
+  detail: string;
+}
+
+export interface MarketDashboardCounts {
+  recommendations: number;
+  opportunities: number;
+  news: number;
+  events: number;
+  holdings?: number;
+  watchlist: number;
+  tasks: number;
+  tail_decisions?: number;
+  indices?: number;
+  hot_sectors?: number;
+}
+
+export interface TailDecisionItem {
+  symbol: string;
+  name: string;
+  action: string;
+  score: number;
+  price?: number | null;
+  change_pct?: number | null;
+  reason: string;
+  risk_note: string;
+  source: string;
+  source_label: string;
+}
+
+export type MarketDashboardStage =
+  | "morning-brief"
+  | "intraday-monitor"
+  | "tail-strategy"
+  | "close-review";
+
+export interface MarketDashboardStageResponse {
+  status: "ok" | "error";
+  stage: string;
+  date?: string;
+  updated_at?: string;
+  data: Record<string, unknown>;
+  errors: MarketDashboardSourceError[];
+  error?: string;
+  allowed?: string[];
+}
+
+export interface MarketIndexRow {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  trade_date?: string;
+  source?: string;
+  is_realtime?: boolean;
+}
+
+export interface MarketBreadth {
+  total: number;
+  advancers: number;
+  decliners: number;
+  flat: number;
+  limit_up: number;
+  limit_down: number;
+  turnover_billion: number;
+  limit_up_real?: boolean;
+}
+
+export interface MarketOverview {
+  as_of?: string;
+  trade_date?: string;
+  breadth_updated_at?: string;
+  breadth_source?: string;
+  index_source?: string;
+  indices: MarketIndexRow[];
+  breadth: MarketBreadth;
+  hot_sectors: MarketSectorRow[];
+  top_gainers: MarketStockRow[];
+  top_losers: MarketStockRow[];
+}
+
+export interface MarketSectorRow {
+  name: string;
+  change_pct: number;
+  turnover?: number;
+  advancers?: number;
+  decliners?: number;
+  leader?: string;
+}
+
+export interface MarketStockRow {
+  symbol: string;
+  name: string;
+  price: number;
+  change_pct: number;
+}
+
+export interface CapitalSectorItem { sector: string; main_net: number; change_pct: number; }
+export interface CapitalStockItem { symbol: string; name: string; main_net: number; change_pct: number; }
+export interface NorthCapitalItem { date: string; net: number; }
+
+export interface MarketCapital {
+  as_of?: string;
+  sector_top5: CapitalSectorItem[];
+  stock_inflow_top: CapitalStockItem[];
+  stock_outflow_top: CapitalStockItem[];
+  north_recent: NorthCapitalItem[];
+}
+
+export interface LadderRung { days: number; count: number; stocks: { symbol: string; name: string; days: number }[]; }
+
+export interface MarketPools {
+  as_of?: string;
+  trade_date: string;
+  limit_up_count: number;
+  limit_down_count: number;
+  touched_limit_up_count?: number | null;
+  failed_limit_up_count?: number | null;
+  non_st_limit_up_count?: number | null;
+  st_limit_up_count?: number | null;
+  fail_rate?: number | null;
+  promotion_rate?: number | null;
+  sealed_amount_billion?: number | null;
+  max_limit_up_height: number;
+  limit_up_list: { symbol: string; name: string; days: number }[];
+  limit_down_list: { symbol: string; name: string; days: number }[];
+  failed_limit_up_list?: { symbol: string; name: string; days: number }[];
+  limitup_ladder: LadderRung[];
+}
+
+export interface MarketSentiment {
+  as_of?: string;
+  temperature: number;
+  label: string;
+  breadth_strength: number;
+  adv_dec_diff: number;
+  stage: string;
+  stage_reason: string;
+  summary: string;
+  formulas: Record<string, string>;
+}
+
+export interface MarketEnvironment {
+  regime: string;
+  turnover_billion: number;
+  adv_ratio: number;
+}
+
+export interface MarketThemes {
+  as_of?: string;
+  trade_date?: string;
+  concept_sectors: MarketSectorRow[];
+  industry_sectors?: MarketSectorRow[];
+  main_lines: { name: string; change_pct: number; leader: string }[];
+  observe: { name: string; change_pct: number; leader: string }[];
+}
+
+export interface MultiPeriodRow {
+  symbol: string;
+  name: string;
+  d1: number;
+  d5: number | null;
+  d20: number | null;
+  d60: number | null;
+  approx: boolean;
+}
+
+export interface MarketBarsResponse {
+  status: "ok" | "error";
+  code?: string;
+  error?: string;
+  bars: { date: string; open: number; close: number; high: number; low: number; volume: number; provisional?: boolean; is_realtime?: boolean; snapshot_at?: string; source?: string }[];
+}
+
+export interface MarketDashboardResponse {
+  date: string;
+  updated_at: string;
+  mood: MarketDashboardMood;
+  market_overview: MarketOverview;
+  capital?: MarketCapital | null;
+  pools?: MarketPools | null;
+  sentiment?: MarketSentiment | null;
+  environment?: MarketEnvironment | null;
+  themes?: MarketThemes | null;
+  multi_period?: MultiPeriodRow[];
+  morning_brief: Record<string, unknown>;
+  intraday_monitor: Record<string, unknown>;
+  tail_strategy: Record<string, unknown>;
+  close_review: Record<string, unknown>;
+  tail_decisions: TailDecisionItem[];
+  recommendations: DailyRecommendationItem[];
+  opportunities: OpportunityCategory[];
+  news: NewsArticle[];
+  events: EventsCategory[];
+  holdings?: PositionHoldingItem[];
+  watchlist: TrackingWatchlistItem[];
+  tasks: ScheduledTask[];
+  errors: MarketDashboardSourceError[];
+  counts: MarketDashboardCounts;
+}
+
+// --- Daily recommendations ---
+
+export interface RecommendationHorizon {
+  date: string;
+  close: number;
+  return_pct: number;
+}
+
+export interface RecommendationPerformance {
+  status: string;
+  latest_date?: string;
+  latest_return_pct?: number;
+  max_gain_pct?: number;
+  max_drawdown_pct?: number;
+  t0?: RecommendationHorizon | null;
+  t1?: RecommendationHorizon | null;
+  t3?: RecommendationHorizon | null;
+  t5?: RecommendationHorizon | null;
+}
+
+export interface DailyRecommendationItem {
+  id: string;
+  date: string;
+  target_date?: string;
+  slot: "morning" | "afternoon" | "manual";
+  slot_label: string;
+  generation_phase?: string;
+  phase_label?: string;
+  status?: "draft" | "shadow" | "final" | "superseded";
+  version?: number;
+  supersedes_id?: string | null;
+  superseded_by?: string | null;
+  final_for?: string | null;
+  rank: number;
+  symbol: string;
+  name: string;
+  price_at_pick: number;
+  change_pct_at_pick: number;
+  score: number;
+  strategy: string;
+  category: string;
+  reason: string;
+  risk_note: string;
+  created_at: string;
+  source: string;
+  recommendation_method?: string;
+  attribution_adjustments?: string[];
+  market_regime?: {
+    regime?: string;
+    score?: number;
+    reason?: string;
+    index_code?: string;
+  };
+  ai_review?: {
+    score?: number;
+    decision?: string;
+    summary?: string;
+    risk?: string;
+    factor_note?: string;
+    status?: string;
+  };
+  factor_review?: {
+    score?: number;
+    status?: string;
+    summary?: string;
+    peer_count?: number;
+    top_bullish?: Array<{ label?: string; theme?: string; rank_pct?: number; direction?: string }>;
+    top_bearish?: Array<{ label?: string; theme?: string; rank_pct?: number; direction?: string }>;
+  };
+  evidence_snapshot?: {
+    as_of?: string;
+    slot?: string;
+    source?: string;
+    market?: string;
+    scanner?: string;
+    ai?: string;
+    factor?: string;
+    bullish_factors?: string[];
+    bearish_factors?: string[];
+    recommendation?: string;
+    risk?: string;
+  };
+  performance: RecommendationPerformance;
+}
+
+export interface DailyRecommendationSummary {
+  count: number;
+  t1_count: number;
+  t1_win_rate: number | null;
+  t1_avg_return: number | null;
+}
+
+export interface DailyRecommendationListResponse {
+  items: DailyRecommendationItem[];
+  summary: DailyRecommendationSummary;
+  updated_at: string;
+}
+
+export interface DailyRecommendationGenerateResponse {
+  date: string;
+  target_date?: string;
+  slot: "morning" | "afternoon" | "manual";
+  slot_label: string;
+  generation_phase?: string;
+  phase_label?: string;
+  status?: string;
+  items: DailyRecommendationItem[];
+  updated_at: string;
+}
+
+export interface DailyRecommendationBacktestResponse {
+  days: number;
+  summary: DailyRecommendationSummary;
+  by_slot: Array<DailyRecommendationSummary & { slot: string; slot_label: string }>;
+  by_phase?: Array<DailyRecommendationSummary & { generation_phase: string; phase_label: string }>;
+  items: DailyRecommendationItem[];
+  updated_at: string;
+}
+
+export interface DailyRecommendationAttributionSummary {
+  count: number;
+  completed_count: number;
+  win_rate: number | null;
+  avg_return: number | null;
+  median_return: number | null;
+  avg_win: number | null;
+  avg_loss: number | null;
+  payoff_ratio: number | null;
+  best_return: number | null;
+  worst_return: number | null;
+}
+
+export interface DailyRecommendationAttributionRow extends DailyRecommendationAttributionSummary {
+  dimension: string;
+  key: string;
+}
+
+export interface DailyRecommendationAttributionResponse {
+  days: number;
+  horizon: "t0" | "t1" | "t3" | "t5";
+  summary: DailyRecommendationAttributionSummary;
+  by_dimension: Record<string, DailyRecommendationAttributionRow[]>;
+  weak_spots: DailyRecommendationAttributionRow[];
+  strong_spots: DailyRecommendationAttributionRow[];
+  min_completed_for_spots: number;
+  updated_at: string;
+}
+
+// --- Logic Chain types ---
+
+export interface LayerItem {
+  label: string;
+  value: string;
+  signal: string;
+}
+
+export interface Layer {
+  id: string;
+  label: string;
+  icon: string;
+  score: number;
+  signal: string;
+  items: LayerItem[];
+}
+
+export interface Decision {
+  score: number;
+  signal: string;
+  action: string;
+  position_pct: number;
+  stop_loss: number;
+  take_profit: number;
+  risk_reward: number;
+}
+
+export interface LogicChainResponse {
+  code: string;
+  name: string;
+  price: number;
+  change_pct: number;
+  layers: Layer[];
+  decision: Decision;
+  updated_at: string;
+}
+
+// --- AlphaForge types ---
+
+export interface AlphaForgeReportItem {
+  report_id: string;
+  target: string;
+  stock_name: string;
+  market: string;
+  analysis_date: string;
+  created_at: string;
+  signal: string;
+  rating: string;
+  report_quality?: "ok" | "degraded" | "unreliable" | "unknown" | string;
+  quality_warnings?: string[];
+  decision_warnings?: string[];
+}
+
+export interface AlphaForgeReportDetail extends AlphaForgeReportItem {
+  content_md: string;
+}
+
+export interface AlphaForgeRunInfo {
+  run_id: string;
+  status: string;
+  target: string;
+  market: string;
+  created_at: string;
+}
+
+export interface AlphaForgeRunListItem {
+  run_id: string;
+  status: string;
+  target: string;
+  market: string;
+  preset_name: string;
+  created_at: string;
+  completed_at: string | null;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  task_count: number;
+  completed_count: number;
+}
+
+// Re-export the auth user type so callers can `import { AuthUser } from "@/lib/api"`.
+export type { AuthUser } from "@/lib/apiAuth";
+
+export interface AuthResponse {
+  token: string;
+  user: AuthUser;
+}
+
+// --- Credits + account ---
+
+export interface AccountInfo {
+  id: string;
+  email: string;
+  created_at: string;
+  disclaimer_accepted_at: string | null;
+  balance: number;
+}
+
+export interface CreditTransaction {
+  id: string;
+  delta: number;
+  type: string;
+  ref: string;
+  balance_after: number;
+  note: string;
+  created_at: string;
+}
+
+// --- Notify ---
+
+export interface PlatformConfig {
+  enabled: boolean;
+  webhook_url: string;
+  secret: string;
+  pre_market_enabled: boolean;
+  pre_market_time: string;
+  after_close_enabled: boolean;
+  after_close_time: string;
+  custom_enabled: boolean;
+  custom_time: string;
+}
+
+export interface NotifyConfig {
+  feishu: PlatformConfig;
+  dingtalk: PlatformConfig;
+  wechat: PlatformConfig;
+}
+
+export interface AlphaForgeRunDetail {
+  run_id: string;
+  status: string;
+  preset_name: string;
+  created_at: string;
+  completed_at: string | null;
+  final_report: string | null;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  tasks: {
+    id: string;
+    agent_id: string;
+    status: string;
+    display_status?: string;
+    display_status_label?: string;
+    blocked_by?: string[];
+    error?: string | null;
+  }[];
+}
+
+// --- Fund arbitrage types ---
+
+export interface FundScanItem {
+  code: string;
+  name: string;
+  type: string;
+  price: number;
+  nav: number;
+  premium_rate: number;
+  amount: number;
+  change_pct: number;
+  redeem_status: string;
+  subscribe_status: string;
+  trade_date: string;
+  signal: string;
+  updated_at?: string;
+  // Derived enrichment (computed by /fund/scan)
+  iopv?: number | null;
+  nav_date?: string;
+  direction?: string;          // 申购套利 / 赎回套利
+  net_return?: number;         // |premium| - cost, clamped ≥ 0
+  settle_days?: number;        // T+N by fund type
+  is_stale_nav?: boolean;      // NAV date != snapshot date
+  can_trade?: boolean;         // false if 申赎 suspended
+  premium_percentile?: number | null;  // only when ≥20 days history
+  amount_percentile?: number | null;
+  // Purchase status (from fund_purchase_em)
+  purchase_status?: string;    // e.g. "开放", "限大额", "暂停申购"
+  purchase_limit?: number;
+  daily_limit?: number;
+  fee_rate?: number;
+  status_class?: string;       // "open" | "limited" | "suspended" | "unknown"
+  is_limited?: boolean;
+  signal_type?: string | null; // "PREMIUM" | "DISCOUNT" | null (from Z-score detection)
+}
+
+export interface FundScanResponse {
+  status: string;
+  source: "snapshot" | "live";
+  trade_date: string | null;
+  updated_at: string | null;
+  count: number;        // total filtered rows (across all pages)
+  page: number;
+  page_size: number;
+  total_pages: number;
+  items: FundScanItem[];
+}
+
+// ── Alert Rules ────────────────────────────────────────────────────
+
+export interface AlertRule {
+  rule_id: string;
+  enabled: boolean;
+  created_at: string;
+  last_triggered: string | null;
+  trigger_count: number;
+  fund_code: string;
+  fund_name: string;
+  condition: {
+    premium_above?: number | null;
+    premium_below?: number | null;
+    amount_above?: number | null;
+  };
+  notification: {
+    webhook_type: string;
+    throttle_minutes: number;
+  };
+}
+
+export interface AlertHistoryItem {
+  rule_id: string;
+  fund_code: string;
+  fund_name: string;
+  premium_rate: number;
+  amount: number;
+  price: number;
+  nav: number;
+  webhook_type: string;
+  triggered_at: string;
+}
+
+export interface FundDetail extends FundScanItem {
+  pre_close: number;
+  note?: string;
+}
+
+export interface FundSourceStatus {
+  em: boolean;
+  ths: boolean;
+  mootdx: boolean;
+}
+
+export interface FundAnalyzeInfo {
+  run_id: string;
+  status: string;
+  fund_code: string;
+  fund_type: string;
+  created_at: string;
+}
+
+export interface FundReportItem {
+  report_id: string;
+  fund_code: string;
+  fund_name: string;
+  fund_type: string;
+  analysis_date: string;
+  created_at: string;
+  premium_rate: string;
+  rating: string;
+}
+
+export interface FundReportDetail extends FundReportItem {
+  content_md: string;
+}
+
+export interface FundRunListItem {
+  run_id: string;
+  status: string;
+  fund_code: string;
+  fund_type: string;
+  created_at: string;
+  completed_at: string | null;
+  task_count: number;
+  completed_count: number;
+}
+
+export interface FundRunDetail {
+  run_id: string;
+  status: string;
+  preset_name: string;
+  created_at: string;
+  completed_at: string | null;
+  final_report: string | null;
+  tasks: { id: string; agent_id: string; status: string }[];
+}
+
+// --- Admin redeem codes types ---
+
+export interface RedeemCodeItem {
+  code: string;
+  credits: number;
+  status: "unused" | "used" | "expired";
+  redeemed_by: string | null;
+  redeemed_at: string | null;
+  created_at: string;
+  expires_at: string | null;
+}
+
+export interface RedeemCodesListResponse {
+  items: RedeemCodeItem[];
+  total: number;
+  unused: number;
+  used: number;
+  expired: number;
+}
+
+export interface GenerateCodesRequest {
+  credits: number;
+  count: number;
+  prefix: string;
+  days: number;
+}
+
+export interface GenerateCodesResponse {
+  codes: RedeemCodeItem[];
+  count: number;
+  credits: number;
+  expires_at: string | null;
+}
+
+export interface RedeemCodesStats {
+  total: number;
+  unused: number;
+  used: number;
+  expired: number;
+  total_credits_unused: number;
+  total_credits_used: number;
+}

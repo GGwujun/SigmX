@@ -14,7 +14,7 @@ import {
   Search,
   ShieldCheck,
 } from "lucide-react";
-import { getDataHubCatalog, type DataHubEndpoint } from "@sigmx/api-client/productApi";
+import { getDataHubCatalog, type DataHubEndpoint } from "@/lib/productApi";
 
 const categories = [
   {

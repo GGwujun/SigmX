@@ -1,4 +1,4 @@
-import { authHeaders, clearAuth } from "@sigmx/api-client/apiAuth";
+import { authHeaders, clearAuth } from "@/lib/apiAuth";
 
 export interface DiscoveryMetric { key: string; label: string; value: number | null; change: number | null; unit: string | null; quality: string; secondary_value: number | null }
 export interface ResearchTemplate { id: string; label: string; description: string; prompt: string; data_domains: string[] }

@@ -3,11 +3,8 @@
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@sigmx/ui": ["../../packages/ui/src/index.ts"],
-      "@sigmx/api-client/*": ["../../packages/api-client/src/*"],
-      "@sigmx/shared/*": ["../../packages/shared/src/*"]
+      "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "../../packages/shared/src/testing/setup.ts"]
+  "include": ["src", "../../tests/setup.ts"]
 }

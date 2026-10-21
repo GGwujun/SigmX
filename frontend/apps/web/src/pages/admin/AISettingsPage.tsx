@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Bot, Database, KeyRound, RefreshCw, Save, ShieldCheck } from "lucide-react";
-import { authHeaders } from "@sigmx/api-client/apiAuth";
+import { authHeaders } from "@/lib/apiAuth";
 
 type Provider = { code: string; name: string; default_model: string; default_base_url: string; api_key_required?: boolean; auth_type?: string; login_command?: string | null };
 type Settings = { provider: string; model_name: string; base_url: string; api_key_configured: boolean; temperature: number; timeout_seconds: number; max_retries: number; reasoning_effort: string; providers: Provider[] };

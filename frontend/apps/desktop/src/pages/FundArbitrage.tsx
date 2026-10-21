@@ -10,8 +10,8 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import {
   api, type FundReportDetail, type FundReportItem, type FundRunDetail, type PremiumHistoryItem,
-} from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { PremiumHistoryChart } from "@/components/fund/PremiumHistoryChart";
 
 const FUND_TYPES = [

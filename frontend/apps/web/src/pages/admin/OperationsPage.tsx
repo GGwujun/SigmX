@@ -11,13 +11,13 @@ import { Copy, KeyRound, Loader2, Plus, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import { OperationsGovernance } from "@/components/admin/OperationsGovernance";
 
-import { ApiError } from "@sigmx/api-client/api";
+import { ApiError } from "@/lib/api";
 import {
   createActivationCodes, createDataCreditCodes, formatPlanPrice, getAdminProductMetrics,
   compensatePersonalCredits, revokePersonalSecurityTarget,
   getDataCreditPacks, getPlans, type AdminProductMetrics, type CreatedCodeItem,
   type DataCreditPack, type PlanView,
-} from "@sigmx/api-client/productApi";
+} from "@/lib/productApi";
 
 export function OperationsPage({ view = "commerce" }: { view?: "dashboard" | "commerce" | "governance" | "support" }) {
   const [planCode, setPlanCode] = useState("");

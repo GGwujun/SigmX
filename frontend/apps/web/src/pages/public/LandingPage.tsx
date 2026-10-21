@@ -5,8 +5,8 @@ import { AIAnalysisShell } from "@/components/public/AIAnalysisShell";
 import { AIAnalysisTimeline } from "@/components/public/AIAnalysisTimeline";
 import { createResearchPlan, createResearchTask, followUpResearchTask, getDiscovery, getResearchResult, getResearchThread, listResearchEvents, listResearchTasks, streamResearchEvents, waitForResearchTask, type PublicDiscovery, type ResearchConversationTurn, type ResearchEvent, type ResearchPlan, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
 import { clearPendingResearchPlan, loadPendingResearchPlan, savePendingResearchPlan } from "@/lib/pendingResearchPlan";
-import { isAuthenticated } from "@sigmx/api-client/apiAuth";
-import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
+import { isAuthenticated } from "@/lib/apiAuth";
+import { trackPersonalFunnel } from "@/lib/personalFunnel";
 
 export function LandingPage() {
   const [params, setParams] = useSearchParams();

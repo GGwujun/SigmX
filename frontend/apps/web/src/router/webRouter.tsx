@@ -1,8 +1,8 @@
 import { lazy } from "react";
 import { Navigate, createBrowserRouter, type RouteObject } from "react-router-dom";
 
-import { AccountShell } from "@sigmx/shared/components/portal/AccountShell";
-import { RequireAdmin, RequireAuth, wrap } from "@sigmx/shared/router/sharedGuards";
+import { AccountShell } from "@/components/portal/AccountShell";
+import { RequireAdmin, RequireAuth, wrap } from "@/router/sharedGuards";
 
 const PublicLayout = lazy(() => import("@/components/public/PublicLayout").then(m => ({ default: m.PublicLayout })));
 const LandingPage = lazy(() => import("@/pages/public/LandingPage").then(m => ({ default: m.LandingPage })));
@@ -19,15 +19,15 @@ const ResearchResultPage = lazy(() => import("@/pages/public/ResearchResultPage"
 const PublicInstrumentPage = lazy(() => import("@/pages/public/PublicInstrumentPage").then(m => ({ default: m.PublicInstrumentPage })));
 const PublicReportPage = lazy(() => import("@/pages/public/PublicReportPage").then(m => ({ default: m.PublicReportPage })));
 const DataHubDocsPage = lazy(() => import("@/pages/public/DataHubDocsPage").then(m => ({ default: m.DataHubDocsPage })));
-const LoginPage = lazy(() => import("@sigmx/shared/pages/auth/LoginPage").then(m => ({ default: m.LoginPage })));
+const LoginPage = lazy(() => import("@/pages/auth/LoginPage").then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import("@/pages/auth/RegisterPage").then(m => ({ default: m.RegisterPage })));
-const MePage = lazy(() => import("@sigmx/shared/pages/portal/MePage").then(m => ({ default: m.MePage })));
-const Account = lazy(() => import("@sigmx/shared/pages/Account").then(m => ({ default: m.Account })));
-const SubscriptionPage = lazy(() => import("@sigmx/shared/pages/account/SubscriptionPage").then(m => ({ default: m.SubscriptionPage })));
-const DevicesPage = lazy(() => import("@sigmx/shared/pages/account/DevicesPage").then(m => ({ default: m.DevicesPage })));
-const OrdersPage = lazy(() => import("@sigmx/shared/pages/account/OrdersPage").then(m => ({ default: m.OrdersPage })));
-const DataHubConsolePage = lazy(() => import("@sigmx/shared/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
-const CloudAccountPage = lazy(() => import("@sigmx/shared/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
+const MePage = lazy(() => import("@/pages/portal/MePage").then(m => ({ default: m.MePage })));
+const Account = lazy(() => import("@/pages/Account").then(m => ({ default: m.Account })));
+const SubscriptionPage = lazy(() => import("@/pages/account/SubscriptionPage").then(m => ({ default: m.SubscriptionPage })));
+const DevicesPage = lazy(() => import("@/pages/account/DevicesPage").then(m => ({ default: m.DevicesPage })));
+const OrdersPage = lazy(() => import("@/pages/account/OrdersPage").then(m => ({ default: m.OrdersPage })));
+const DataHubConsolePage = lazy(() => import("@/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
+const CloudAccountPage = lazy(() => import("@/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
 const OperationsPage = lazy(() => import("@/pages/admin/OperationsPage").then(m => ({ default: m.OperationsPage })));
 const AdminLayout = lazy(() => import("@/components/admin/AdminLayout").then(m => ({ default: m.AdminLayout })));
 const AdminModulePage = lazy(() => import("@/pages/admin/AdminModulePage").then(m => ({ default: m.AdminModulePage })));

@@ -1,4 +1,4 @@
-import { cn } from "@sigmx/shared/lib/utils";
+import { cn } from "@/lib/utils";
 
 export function HealthScore({ score }: { score: number | null }) {
   // 无持仓/未监控：不画分数，显示灰色占位，避免误读为"满分健康"

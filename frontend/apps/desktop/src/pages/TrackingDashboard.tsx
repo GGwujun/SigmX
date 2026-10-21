@@ -21,8 +21,8 @@ import {
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { api, type AnalysisDimension, type PositionSignal } from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api, type AnalysisDimension, type PositionSignal } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { echarts } from "@/lib/echarts";
 import { getChartTheme } from "@/lib/chart-theme";
 import { useDarkMode } from "@/hooks/useDarkMode";

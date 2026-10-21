@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api } from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 interface IndexData {
   code: string;

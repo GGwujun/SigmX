@@ -1,15 +1,15 @@
 /**
- * Physical product boundaries: the web and desktop apps live in separate
- * source trees (apps/web, apps/desktop) over shared packages. This suite
- * walks the real import graph from each app entry and fails when code
- * crosses a product boundary:
+ * Physical product boundaries: the web and desktop apps live in fully
+ * separate source trees (apps/web, apps/desktop) with no shared packages —
+ * each product owns its own copy of every module and evolves it freely.
+ * This suite walks the real import graph from each app entry and fails
+ * when code crosses a product boundary:
  *
  *   1. A web entry import never reaches apps/desktop/** (and vice versa).
- *   2. Nothing under packages/** resolves into apps/**.
- *   3. Package sources never use the `@/` alias (apps-only).
- *   4. The legacy shared tree frontend/src/ stays deleted.
+ *   2. The legacy shared trees frontend/src/ and frontend/packages/ stay
+ *      deleted.
  */
-import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 // Vitest always runs with cwd = frontend/ (npm scripts live there); jsdom
@@ -31,13 +31,6 @@ function resolveFile(base: string): string | null {
 }
 
 function resolveSpecifier(specifier: string, importer: string): string | null {
-  if (specifier === "@sigmx/ui") {
-    return resolveFile(`${FRONTEND}packages/ui/src/index`);
-  }
-  if (specifier.startsWith("@sigmx/")) {
-    const [, pkg, ...rest] = specifier.split("/");
-    return resolveFile(`${FRONTEND}packages/${pkg}/src/${rest.join("/")}`);
-  }
   if (specifier.startsWith("@/")) {
     const importerDir = importer.slice(0, importer.lastIndexOf("/") + 1);
     const base = importerDir + specifier.slice(2);
@@ -78,20 +71,6 @@ function collectReachable(entry: string): Set<string> {
   return reachable;
 }
 
-function walkSourceFiles(dir: string): string[] {
-  const files: string[] = [];
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = `${dir}/${entry.name}`;
-    if (entry.isDirectory()) {
-      if (entry.name === "__tests__") continue;
-      files.push(...walkSourceFiles(full));
-    } else if (/\.(ts|tsx)$/.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
 describe("physical product boundaries", () => {
   const webEntry = `${FRONTEND}apps/web/src/main.tsx`;
   const desktopEntry = `${FRONTEND}apps/desktop/src/main.tsx`;
@@ -115,30 +94,8 @@ describe("physical product boundaries", () => {
     expect(leaks).toEqual([]);
   });
 
-  it("never resolves a packages/** import into apps/**", () => {
-    const offenders: string[] = [];
-    for (const pkg of ["ui", "api-client", "shared"]) {
-      for (const file of walkSourceFiles(`${FRONTEND}packages/${pkg}/src`)) {
-        for (const specifier of extractSpecifiers(readFileSync(file, "utf-8"))) {
-          const resolved = resolveSpecifier(specifier, file);
-          if (resolved?.startsWith(`${FRONTEND}apps/`)) offenders.push(`${file} → ${specifier}`);
-        }
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
-
-  it("keeps the `@/` alias out of packages/**", () => {
-    const offenders: string[] = [];
-    for (const pkg of ["ui", "api-client", "shared"]) {
-      for (const file of walkSourceFiles(`${FRONTEND}packages/${pkg}/src`)) {
-        if (/["']@\//.test(readFileSync(file, "utf-8"))) offenders.push(file);
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
-
-  it("keeps the legacy shared tree frontend/src/ deleted", () => {
+  it("keeps the legacy shared trees frontend/src/ and frontend/packages/ deleted", () => {
     expect(existsSync(`${FRONTEND}src`)).toBe(false);
+    expect(existsSync(`${FRONTEND}packages`)).toBe(false);
   });
 });

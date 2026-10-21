@@ -3,8 +3,8 @@ import { useSearchParams } from "react-router-dom";
 import { Send, Loader2, ArrowDown, Square, Download, Plus, Paperclip, X, Users, Target, ChevronDown, Pencil, Check, Play, OctagonX, Activity, Ban, CheckCircle2, Landmark } from "lucide-react";
 import { toast } from "sonner";
 import { useAgentStore } from "@/stores/agent";
-import { useSSE } from "@sigmx/shared/hooks/useSSE";
-import { ApiError, api, type GoalSnapshot, type MandateProposal, type MandateCommitted, type LiveAction, type LiveHalted, type LiveStatus } from "@sigmx/api-client/api";
+import { useSSE } from "@/hooks/useSSE";
+import { ApiError, api, type GoalSnapshot, type MandateProposal, type MandateCommitted, type LiveAction, type LiveHalted, type LiveStatus } from "@/lib/api";
 import { isReportWorthyRun } from "@/lib/runReports";
 import type { AgentMessage, ToolCallEntry } from "@/types/agent";
 import { AgentAvatar } from "@/components/chat/AgentAvatar";
@@ -15,7 +15,7 @@ import { ConversationTimeline } from "@/components/chat/ConversationTimeline";
 import { ToolProgressIndicator } from "@/components/chat/ToolProgressIndicator";
 import { MandateProposalCard } from "@/components/chat/MandateProposalCard";
 import { RunnerStatus } from "@/components/chat/RunnerStatus";
-import { takeConsumedResearchHandoff } from "@sigmx/api-client/researchHandoff";
+import { takeConsumedResearchHandoff } from "@/lib/researchHandoff";
 
 /* ---------- Message grouping ---------- */
 type MsgGroup =

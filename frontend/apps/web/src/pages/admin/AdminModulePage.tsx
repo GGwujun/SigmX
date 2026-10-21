@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { LoaderCircle, RefreshCw } from "lucide-react";
-import { authHeaders } from "@sigmx/api-client/apiAuth";
+import { authHeaders } from "@/lib/apiAuth";
 
 interface ModuleData { module: string; title: string; description: string; columns: string[]; stats: { key: string; label: string; value: number | string | null }[]; rows: { id: string; cells: string[] }[]; as_of: string }
 

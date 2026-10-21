@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { cn } from "@sigmx/shared/lib/utils";
+import { cn } from "@/lib/utils";
 import { getMetricLabel, DISPLAY_ORDER, formatMetricVal, metricSentiment } from "@/lib/formatters";
 
 const SENTIMENT = {

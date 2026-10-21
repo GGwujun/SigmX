@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { AlertTriangle, Building2, Coins, Cpu, Globe, Landmark, Loader2, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
-import { api, type EventItem, type EventsCategory } from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+import { api, type EventItem, type EventsCategory } from "@/lib/api";
+import { cn } from "@/lib/utils";
 
 const REFRESH_INTERVAL_MS = 120_000;
 const BIG_MOVE_THRESHOLD = 0.1;

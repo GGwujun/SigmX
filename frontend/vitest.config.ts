@@ -4,9 +4,9 @@ import fs from "node:fs";
 import path from "path";
 
 // `@` resolves per-importer: files under apps/web map to the web src tree,
-// apps/desktop to the desktop src tree. Anything else using `@/` is a
-// boundary violation (packages must import via @sigmx/* aliases only).
-// Plugin-returned ids are final, so extension candidates are probed here.
+// apps/desktop to the desktop src tree. Test files outside either app must
+// not use the alias. Plugin-returned ids are final, so extension candidates
+// are probed here.
 function appAlias() {
   const extensions = [".ts", ".tsx", ".css", ".json"];
   return {
@@ -24,8 +24,13 @@ function appAlias() {
         throw new Error(`"@/" import outside an app: ${importer} imports ${source}`);
       }
       const base = path.join(appSrc, source.slice(2));
-      for (const ext of extensions) {
-        if (fs.existsSync(base + ext)) return base + ext;
+      const candidates = [
+        ...extensions.map((ext) => base + ext),
+        path.join(base, "index.ts"),
+        path.join(base, "index.tsx"),
+      ];
+      for (const candidate of candidates) {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) return candidate;
       }
       return base;
     },
@@ -34,32 +39,19 @@ function appAlias() {
 
 export default defineConfig({
   plugins: [appAlias(), react()],
-  resolve: {
-    alias: {
-      "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
-      "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src"),
-      "@sigmx/shared": path.resolve(__dirname, "./packages/shared/src"),
-    },
-  },
   test: {
     globals: true,
     environment: "jsdom",
-    setupFiles: ["./packages/shared/src/testing/setup.ts"],
+    setupFiles: ["./tests/setup.ts"],
     include: [
       "apps/*/src/**/__tests__/**/*.test.{ts,tsx}",
-      "packages/*/src/**/__tests__/**/*.test.{ts,tsx}",
       "tests/**/*.test.{ts,tsx}",
     ],
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "lcov"],
-      include: [
-        "apps/*/src/lib/**",
-        "apps/*/src/stores/**",
-        "packages/api-client/src/**",
-        "packages/shared/src/lib/**",
-      ],
-      exclude: ["apps/*/src/**/__tests__/**", "packages/*/src/**/__tests__/**"],
+      include: ["apps/*/src/lib/**", "apps/*/src/stores/**"],
+      exclude: ["apps/*/src/**/__tests__/**"],
     },
     restoreMocks: true,
   },

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { cn } from "@sigmx/shared/lib/utils";
+import { cn } from "@/lib/utils";
 
 export function Panel({
   title,

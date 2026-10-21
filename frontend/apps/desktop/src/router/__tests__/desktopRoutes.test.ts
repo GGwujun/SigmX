@@ -5,7 +5,7 @@ import {
   DESKTOP_ROUTE_PATHS,
   SHARED_ACCOUNT_ROUTE_PATHS,
   WEB_ROUTE_PATHS,
-} from "@sigmx/shared/router/productRoutes";
+} from "@/router/productRoutes";
 import { desktopRoutes } from "@/router/desktopRouter";
 
 // Routes that are intentionally allowed in both products: the shared account

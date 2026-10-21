@@ -25,8 +25,8 @@ import {
   type MarketSentiment,
   type MarketThemes,
   type MultiPeriodRow,
-} from "@sigmx/api-client/api";
-import { cn } from "@sigmx/shared/lib/utils";
+} from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { Chart } from "@/components/dashboard/Chart";
 import { EmptyHint, Pct, fmtYi, pctBg } from "@/components/dashboard/primitives";
 
