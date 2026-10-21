@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Navigate, createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, type RouteObject } from "react-router-dom";
 
 import { Layout } from "@/components/layout/Layout";
 import { AccountShell } from "@sigmx/shared/components/portal/AccountShell";
@@ -40,7 +40,7 @@ const OrdersPage = lazy(() => import("@sigmx/shared/pages/account/OrdersPage").t
 const DataHubConsolePage = lazy(() => import("@sigmx/shared/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
 const CloudAccountPage = lazy(() => import("@sigmx/shared/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
 
-export const desktopRouter = createBrowserRouter([
+export const desktopRoutes: RouteObject[] = [
   { path: "/login", element: wrap(LoginPage) },
   { element: <RequireAuth />, children: [
     { element: <Layout />, children: [
@@ -89,4 +89,6 @@ export const desktopRouter = createBrowserRouter([
     ] },
   ] },
   { path: "*", element: <Navigate to="/app" replace /> },
-]);
+];
+
+export const desktopRouter = createBrowserRouter(desktopRoutes);

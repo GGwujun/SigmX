@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { Navigate, createBrowserRouter } from "react-router-dom";
+import { Navigate, createBrowserRouter, type RouteObject } from "react-router-dom";
 
 import { AccountShell } from "@sigmx/shared/components/portal/AccountShell";
 import { RequireAdmin, RequireAuth, wrap } from "@sigmx/shared/router/sharedGuards";
@@ -33,7 +33,7 @@ const AdminLayout = lazy(() => import("@/components/admin/AdminLayout").then(m =
 const AdminModulePage = lazy(() => import("@/pages/admin/AdminModulePage").then(m => ({ default: m.AdminModulePage })));
 const AISettingsPage = lazy(() => import("@/pages/admin/AISettingsPage").then(m => ({ default: m.AISettingsPage })));
 
-export const webRouter = createBrowserRouter([
+export const webRoutes: RouteObject[] = [
   { element: wrap(PublicLayout), children: [
     { path: "/", element: wrap(LandingPage) },
     { path: "/intelligence", element: wrap(IntelligencePage) },
@@ -82,4 +82,6 @@ export const webRouter = createBrowserRouter([
     ] },
   ] },
   { path: "*", element: <Navigate to="/" replace /> },
-]);
+];
+
+export const webRouter = createBrowserRouter(webRoutes);

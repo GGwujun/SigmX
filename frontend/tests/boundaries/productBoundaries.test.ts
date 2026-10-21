@@ -29,6 +29,9 @@ const DESKTOP_WORKBENCH_ROUTES = [
   "/settings",
 ];
 
+// Constants-level contract. The per-app route-tree assertions live next to
+// each router (apps/*/src/router/__tests__/) because a root-level test must
+// not import code from either app.
 describe("product route boundaries", () => {
   it("keeps every Desktop workbench route out of the Web application", () => {
     expect(WEB_ROUTE_PATHS).toEqual(expect.arrayContaining(PUBLIC_WEB_ROUTES));
