@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { ChevronDown } from "lucide-react";
-import type { PriceBar, TradeMarker, IndicatorPoint } from "@/lib/api";
+import type { PriceBar, TradeMarker, IndicatorPoint } from "@sigmx/api-client/api";
 import { calcMA, calcBOLL, calcMACD, calcRSI, calcKDJ, calcEMA } from "@/lib/indicators";
 import { getChartTheme } from "@/lib/chart-theme";
 import { abbreviateNum } from "@/lib/formatters";

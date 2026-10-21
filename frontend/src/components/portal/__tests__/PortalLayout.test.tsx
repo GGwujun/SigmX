@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { PortalLayout } from "../PortalLayout";
-import { getToken } from "@/lib/apiAuth";
+import { getToken } from "@sigmx/api-client/apiAuth";
 
 function setStoredUser(isAdmin: boolean) {
   window.localStorage.setItem(

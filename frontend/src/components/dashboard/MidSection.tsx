@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Panel, EmptyHint, Pct } from "./primitives";
 import { Chart } from "./Chart";
-import { api, type MarketBarsResponse, type MarketPools, type TrackingWatchlistItem } from "@/lib/api";
+import { api, type MarketBarsResponse, type MarketPools, type TrackingWatchlistItem } from "@sigmx/api-client/api";
 import type { EChartsOption } from "echarts";
 
 export function MyHoldings({

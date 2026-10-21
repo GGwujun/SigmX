@@ -2,15 +2,15 @@ import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ChevronDown, Loader2, UserPlus } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { setToken, setUser } from "@/lib/apiAuth";
-import { postLoginTarget } from "@/lib/desktop";
+import { api } from "@sigmx/api-client/api";
+import { setToken, setUser } from "@sigmx/api-client/apiAuth";
+import { postLoginTarget } from "@sigmx/api-client/desktop";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import {
   DISCLAIMER_AGREE_LABEL, DISCLAIMER_BODY, DISCLAIMER_NOTE,
   DISCLAIMER_NOTE_TITLE, DISCLAIMER_TITLE,
 } from "@/lib/disclaimer";
-import { trackPersonalFunnel } from "@/lib/personalFunnel";
+import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
 
 export function RegisterPage() {
   useEffect(() => trackPersonalFunnel("register_started"), []);

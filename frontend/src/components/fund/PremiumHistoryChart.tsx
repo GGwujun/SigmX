@@ -4,7 +4,7 @@ import { LineChart } from "echarts/charts";
 import { GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 import { graphic } from "echarts/core";
-import type { PremiumHistoryItem } from "@/lib/api";
+import type { PremiumHistoryItem } from "@sigmx/api-client/api";
 
 echarts.use([LineChart, GridComponent, TooltipComponent, DataZoomComponent, MarkLineComponent, CanvasRenderer]);
 

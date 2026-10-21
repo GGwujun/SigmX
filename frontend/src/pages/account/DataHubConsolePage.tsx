@@ -21,7 +21,7 @@ import {
   type DataHubRequestLog,
   type DataHubBudgetAlert,
   type DataHubBudget,
-} from "@/lib/productApi";
+} from "@sigmx/api-client/productApi";
 
 export function DataHubConsolePage() {
   const [balance, setBalance] = useState<DataCreditBalance | null>(null);

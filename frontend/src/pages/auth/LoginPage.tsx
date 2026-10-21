@@ -2,12 +2,12 @@ import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, LogIn, Monitor } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { setToken, setUser } from "@/lib/apiAuth";
-import { isDesktopMode, postLoginTarget } from "@/lib/desktop";
+import { api } from "@sigmx/api-client/api";
+import { setToken, setUser } from "@sigmx/api-client/apiAuth";
+import { isDesktopMode, postLoginTarget } from "@sigmx/api-client/desktop";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
-import { cloudResearchApi } from "@/lib/cloudResearchApi";
-import { trackPersonalFunnel } from "@/lib/personalFunnel";
+import { cloudResearchApi } from "@sigmx/api-client/cloudResearchApi";
+import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
 
 export function LoginPage() {
   const navigate = useNavigate();

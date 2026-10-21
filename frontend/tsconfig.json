@@ -21,8 +21,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@sigmx/ui": ["./packages/ui/src/index.ts"],
-      "@sigmx/domain": ["./packages/domain/src/index.ts"],
-      "@sigmx/api-client": ["./packages/api-client/src/index.ts"]
+      "@sigmx/api-client/*": ["./packages/api-client/src/*"]
     }
   },
   "include": ["src", "apps", "packages"]

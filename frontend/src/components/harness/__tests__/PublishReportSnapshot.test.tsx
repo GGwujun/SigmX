@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { PublishReportSnapshot } from "../PublishReportSnapshot";
 
 const cloudApi = vi.hoisted(() => ({ publishReport: vi.fn() }));
-vi.mock("@/lib/cloudResearchApi", () => ({ cloudResearchApi: cloudApi }));
+vi.mock("@sigmx/api-client/cloudResearchApi", () => ({ cloudResearchApi: cloudApi }));
 
 describe("PublishReportSnapshot", () => {
   it("publishes only the explicitly reviewed title and redacted summary", async () => {

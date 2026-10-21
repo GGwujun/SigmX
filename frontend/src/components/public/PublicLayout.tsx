@@ -9,7 +9,7 @@ import { Menu, X } from "lucide-react";
 
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import { AccountMenu } from "@/components/navigation/AccountMenu";
-import { getUser, isAuthenticated } from "@/lib/apiAuth";
+import { getUser, isAuthenticated } from "@sigmx/api-client/apiAuth";
 
 export interface PublicLayoutProps {
   /** Optional override of the primary call-to-action (defaults to 注册体验). */

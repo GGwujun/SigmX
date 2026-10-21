@@ -15,7 +15,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type DailyRecommendationBacktestResponse, type DailyRecommendationItem } from "@/lib/api";
+import { api, type DailyRecommendationBacktestResponse, type DailyRecommendationItem } from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 
 const HISTORY_DAYS = 30;

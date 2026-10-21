@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft, ChevronRight, Coins, Loader2, RefreshCw, Search, ArrowDown, ArrowUp, ArrowUpDown, Wifi, Bell, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { api, type FundScanItem } from "@/lib/api";
+import { api, type FundScanItem } from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 import { fmtYi } from "@/components/dashboard/primitives";
 import { useSSE } from "@/lib/sseProvider";

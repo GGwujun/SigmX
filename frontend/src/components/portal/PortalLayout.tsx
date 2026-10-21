@@ -7,7 +7,7 @@ import { Link, Outlet } from "react-router-dom";
 
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import { AccountMenu } from "@/components/navigation/AccountMenu";
-import { getUser } from "@/lib/apiAuth";
+import { getUser } from "@sigmx/api-client/apiAuth";
 
 export function PortalLayout() {
   const user = getUser();

@@ -5,8 +5,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { AccountPage } from "@/components/layout/AccountPage";
-import { api, type AccountInfo } from "@/lib/api";
-import { clearAuth, updateStoredUserProfile } from "@/lib/apiAuth";
+import { api, type AccountInfo } from "@sigmx/api-client/api";
+import { clearAuth, updateStoredUserProfile } from "@sigmx/api-client/apiAuth";
 
 function shortDate(value?: string | null): string {
   if (!value) return "—";

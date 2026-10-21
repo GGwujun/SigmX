@@ -26,8 +26,8 @@ const cloudApi = vi.hoisted(() => ({
   createHandoff: vi.fn(),
 }));
 
-vi.mock("@/lib/productApi", () => productApi);
-vi.mock("@/lib/cloudResearchApi", () => ({ cloudResearchApi: cloudApi }));
+vi.mock("@sigmx/api-client/productApi", () => productApi);
+vi.mock("@sigmx/api-client/cloudResearchApi", () => ({ cloudResearchApi: cloudApi }));
 
 function renderPage() {
   return render(

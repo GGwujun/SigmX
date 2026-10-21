@@ -5,7 +5,7 @@ import type {
   MarketBreadth,
   MarketSentiment,
   MarketEnvironment,
-} from "@/lib/api";
+} from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 
 export function IndexTicker({ indices }: { indices: MarketIndexRow[] }) {

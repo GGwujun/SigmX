@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { LoginPage } from "../LoginPage";
-import { getToken } from "@/lib/apiAuth";
+import { getToken } from "@sigmx/api-client/apiAuth";
 
 const AUTH_OK = {
   token: "jwt-abc",

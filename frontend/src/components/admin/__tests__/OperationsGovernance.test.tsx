@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import { OperationsGovernance } from "../OperationsGovernance";
 
-vi.mock("@/lib/productApi", () => ({
+vi.mock("@sigmx/api-client/productApi", () => ({
   getOperationsState: vi.fn().mockResolvedValue({
     products: [{ code: "desktop_pro", enabled: true, price_cny_fen: 26800, updated_at: "now" }],
     endpoints: [{ code: "market.daily", enabled: true, credit_cost: 3, unit_cost_cny_fen: 1.2, quality_score: 0.998, updated_at: "now" }],

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { AlertTriangle, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
-import { setUser } from "@/lib/apiAuth";
+import { api } from "@sigmx/api-client/api";
+import { setUser } from "@sigmx/api-client/apiAuth";
 import {
   DISCLAIMER_AGREE_LABEL, DISCLAIMER_BODY, DISCLAIMER_NOTE,
   DISCLAIMER_NOTE_TITLE, DISCLAIMER_TITLE,

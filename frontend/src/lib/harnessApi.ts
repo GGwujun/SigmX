@@ -1,5 +1,5 @@
-import { ApiError } from "@/lib/api";
-import { authHeaders } from "@/lib/apiAuth";
+import { ApiError } from "@sigmx/api-client/api";
+import { authHeaders } from "@sigmx/api-client/apiAuth";
 
 export interface HarnessStatus {
   runtime_available: boolean;

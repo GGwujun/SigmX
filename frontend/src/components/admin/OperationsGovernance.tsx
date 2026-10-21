@@ -2,7 +2,7 @@ import { useEffect, useState, type ChangeEvent, type FormEvent, type ReactNode }
 import { Activity, BadgeDollarSign, Database, FilePenLine, RotateCcw, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 
-import { getOperationsState, refundActivationOrder, updateOperationalContent, updateOperationalEndpoint, updateOperationalProduct, type OperationsState } from "@/lib/productApi";
+import { getOperationsState, refundActivationOrder, updateOperationalContent, updateOperationalEndpoint, updateOperationalProduct, type OperationsState } from "@sigmx/api-client/productApi";
 
 export function OperationsGovernance() {
   const [state, setState] = useState<OperationsState | null>(null);

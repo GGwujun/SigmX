@@ -6,8 +6,8 @@
 import { useEffect, useState } from "react";
 import { BrainCircuit, Crown, Database, Laptop, Loader2 } from "lucide-react";
 
-import { ApiError } from "@/lib/api";
-import { getMyCredits, getMyEntitlements, getPlans, type PlanEntitlements } from "@/lib/productApi";
+import { ApiError } from "@sigmx/api-client/api";
+import { getMyCredits, getMyEntitlements, getPlans, type PlanEntitlements } from "@sigmx/api-client/productApi";
 import { cn } from "@/lib/utils";
 
 function shortDate(value?: string | null): string {

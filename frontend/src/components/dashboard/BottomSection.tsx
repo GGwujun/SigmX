@@ -6,7 +6,7 @@ import type {
   MarketThemes,
   MultiPeriodRow,
   CapitalStockItem,
-} from "@/lib/api";
+} from "@sigmx/api-client/api";
 import type { EChartsOption } from "echarts";
 import { cn } from "@/lib/utils";
 

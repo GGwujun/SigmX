@@ -1,4 +1,4 @@
-import type { RunData } from "@/lib/api";
+import type { RunData } from "@sigmx/api-client/api";
 
 function hasItems(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;

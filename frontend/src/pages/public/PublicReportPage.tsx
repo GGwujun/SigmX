@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
-import { cloudResearchApi, PublicResearchError, type CloudReport } from "@/lib/cloudResearchApi";
+import { cloudResearchApi, PublicResearchError, type CloudReport } from "@sigmx/api-client/cloudResearchApi";
 
 export function PublicReportPage() {
   const { slug = "" } = useParams();

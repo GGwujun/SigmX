@@ -16,11 +16,11 @@ import { toast } from "sonner";
 
 import { AccountPage } from "@/components/layout/AccountPage";
 import { useDesktopDeviceFlow } from "@/hooks/useDesktopDeviceFlow";
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@sigmx/api-client/api";
 import {
   approveDeviceAuthorize,
   getMyEntitlements,
-} from "@/lib/productApi";
+} from "@sigmx/api-client/productApi";
 
 export function CloudAccountPage() {
   const [userCode, setUserCode] = useState("");

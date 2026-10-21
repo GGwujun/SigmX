@@ -1,5 +1,5 @@
-import { setDataMode, setDesktopDataHubSessionKey } from "@/lib/dataMode";
-import { createDesktopDataHubSession, refreshDeviceToken } from "@/lib/productApi";
+import { setDataMode, setDesktopDataHubSessionKey } from "@sigmx/api-client/dataMode";
+import { createDesktopDataHubSession, refreshDeviceToken } from "@sigmx/api-client/productApi";
 
 let cloudAccessToken = "";
 

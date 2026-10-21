@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { canGenerateRecommendationsLocally, resolveDataHubApiPath, setDataMode } from "@/lib/dataMode";
+import { canGenerateRecommendationsLocally, resolveDataHubApiPath, setDataMode } from "@sigmx/api-client/dataMode";
 
 
 describe("resolveDataHubApiPath", () => {

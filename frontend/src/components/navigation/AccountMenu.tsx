@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronDown, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
-import { clearAuth, type AuthUser } from "@/lib/apiAuth";
+import { clearAuth, type AuthUser } from "@sigmx/api-client/apiAuth";
 
 const ACCOUNT_LINKS = [
   { to: "/me", label: "个人中心" },

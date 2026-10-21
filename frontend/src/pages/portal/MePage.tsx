@@ -28,8 +28,8 @@ import {
   type SavedQuerySubscription,
   type CloudTaskItem,
   type QueryExecutionItem,
-} from "@/lib/productApi";
-import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@/lib/cloudResearchApi";
+} from "@sigmx/api-client/productApi";
+import { cloudResearchApi, type CloudReport, type CloudSavedQuery, type CloudWatchlistItem } from "@sigmx/api-client/cloudResearchApi";
 
 interface ProductState {
   queries: CloudSavedQuery[] | null;

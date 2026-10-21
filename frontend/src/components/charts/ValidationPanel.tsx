@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import type { ValidationData } from "@/lib/api";
+import type { ValidationData } from "@sigmx/api-client/api";
 
 interface Props {
   data: ValidationData;

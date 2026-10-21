@@ -5,7 +5,7 @@
  * light `PortalLayout`.
  */
 import { Layout } from "@/components/layout/Layout";
-import { isDesktopMode } from "@/lib/desktop";
+import { isDesktopMode } from "@sigmx/api-client/desktop";
 import { PortalLayout } from "./PortalLayout";
 
 export function AccountShell() {

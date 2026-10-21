@@ -1,7 +1,7 @@
 import { memo, useCallback, useState } from "react";
 import { ShieldCheck, ShieldAlert, Wallet, OctagonX, SlidersHorizontal, Check, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type MandateProfile, type MandateProposal } from "@/lib/api";
+import { api, type MandateProfile, type MandateProposal } from "@sigmx/api-client/api";
 import { AgentAvatar } from "./AgentAvatar";
 
 interface Props {

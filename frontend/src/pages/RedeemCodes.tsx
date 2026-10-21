@@ -11,7 +11,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api, type GenerateCodesRequest, type RedeemCodeItem, type RedeemCodesStats } from "@/lib/api";
+import { api, type GenerateCodesRequest, type RedeemCodeItem, type RedeemCodesStats } from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 
 type StatusFilter = "all" | "unused" | "used" | "expired";

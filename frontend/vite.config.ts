@@ -83,8 +83,7 @@ export default defineConfig(({ mode }) => {
       alias: {
         "@": path.resolve(__dirname, "./src"),
         "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
-        "@sigmx/domain": path.resolve(__dirname, "./packages/domain/src/index.ts"),
-        "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src/index.ts"),
+        "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src"),
       },
     },
     server: {

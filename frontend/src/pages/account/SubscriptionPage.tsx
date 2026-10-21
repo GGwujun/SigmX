@@ -9,8 +9,8 @@ import { toast } from "sonner";
 
 import { ProductStatus } from "@/components/layout/ProductStatus";
 import { AccountPage } from "@/components/layout/AccountPage";
-import { ApiError } from "@/lib/api";
-import { activateCode, getPlans } from "@/lib/productApi";
+import { ApiError } from "@sigmx/api-client/api";
+import { activateCode, getPlans } from "@sigmx/api-client/productApi";
 
 export function SubscriptionPage() {
   const [code, setCode] = useState("");

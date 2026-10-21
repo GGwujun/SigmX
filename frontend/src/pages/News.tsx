@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ExternalLink, Newspaper, PlusCircle, Search, ShieldAlert, TrendingDown, TrendingUp } from "lucide-react";
-import { api, type NewsArticle } from "@/lib/api";
+import { api, type NewsArticle } from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 import {
   buildIntelPath,

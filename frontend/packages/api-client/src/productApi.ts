@@ -6,8 +6,8 @@
  * Mirrors the request style of api.ts: shares authHeaders() + ApiError, never
  * hard-codes plan prices (the catalog is server-driven, design §4.1).
  */
-import { ApiError } from "@/lib/api";
-import { authHeaders } from "@/lib/apiAuth";
+import { ApiError } from "@sigmx/api-client/api";
+import { authHeaders } from "@sigmx/api-client/apiAuth";
 
 const BASE = "";
 

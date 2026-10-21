@@ -3,7 +3,7 @@ import { Navigate, Outlet } from "react-router-dom";
 
 import { DisclaimerModal } from "@/components/DisclaimerModal";
 import { useAuthState } from "@/hooks/useAuthState";
-import { isAdmin } from "@/lib/apiAuth";
+import { isAdmin } from "@sigmx/api-client/apiAuth";
 
 export function PageLoader() {
   return <div className="flex h-[60vh] items-center justify-center text-muted-foreground">加载中…</div>;

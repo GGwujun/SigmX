@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api } from "@sigmx/api-client/api";
 import {
   clearAuth, disclaimerAccepted as disclaimerAcceptedFn,
   isAuthenticated, setToken, setUser, type AuthUser,
-} from "@/lib/apiAuth";
-import { restoreDesktopConnectedSession } from "@/lib/desktopConnectedSession";
-import { activatePendingResearchHandoff } from "@/lib/researchHandoff";
+} from "@sigmx/api-client/apiAuth";
+import { restoreDesktopConnectedSession } from "@sigmx/api-client/desktopConnectedSession";
+import { activatePendingResearchHandoff } from "@sigmx/api-client/researchHandoff";
 
 declare global {
   interface Window {

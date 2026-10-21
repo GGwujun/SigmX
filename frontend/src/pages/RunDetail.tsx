@@ -16,7 +16,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { api, type BacktestMetrics, type RunCard, type RunData } from "@/lib/api";
+import { api, type BacktestMetrics, type RunCard, type RunData } from "@sigmx/api-client/api";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { CandlestickChart } from "@/components/charts/CandlestickChart";

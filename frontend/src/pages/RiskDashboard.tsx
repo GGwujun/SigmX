@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Shield, RefreshCw, AlertTriangle, Activity } from "lucide-react";
-import { api } from "@/lib/api";
+import { api } from "@sigmx/api-client/api";
 import { RegimeCard } from "@/components/risk/RegimeCard";
 import { RiskMatrix } from "@/components/risk/RiskMatrix";
 import { HealthScore } from "@/components/risk/HealthScore";

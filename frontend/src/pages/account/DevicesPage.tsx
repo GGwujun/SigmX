@@ -9,9 +9,9 @@ import { Link } from "react-router-dom";
 import { Laptop, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@sigmx/api-client/api";
 import { AccountPage } from "@/components/layout/AccountPage";
-import { getMyEntitlements, listDevices, revokeDevice, type DeviceItem } from "@/lib/productApi";
+import { getMyEntitlements, listDevices, revokeDevice, type DeviceItem } from "@sigmx/api-client/productApi";
 import { cn } from "@/lib/utils";
 
 function shortDateTime(value?: string | null): string {

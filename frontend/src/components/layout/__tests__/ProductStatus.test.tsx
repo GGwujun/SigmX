@@ -1,9 +1,9 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ProductStatus } from "../ProductStatus";
-import * as productApi from "@/lib/productApi";
+import * as productApi from "@sigmx/api-client/productApi";
 
-vi.mock("@/lib/productApi", () => ({ getMyEntitlements: vi.fn(), getMyCredits: vi.fn(), getPlans: vi.fn() }));
+vi.mock("@sigmx/api-client/productApi", () => ({ getMyEntitlements: vi.fn(), getMyCredits: vi.fn(), getPlans: vi.fn() }));
 
 describe("ProductStatus", () => {
   it("shows the current plan in the progressive ladder without leaking its internal code", async () => {

@@ -10,7 +10,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import {
   api, type FundReportDetail, type FundReportItem, type FundRunDetail, type PremiumHistoryItem,
-} from "@/lib/api";
+} from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 import { PremiumHistoryChart } from "@/components/fund/PremiumHistoryChart";
 

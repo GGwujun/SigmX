@@ -8,10 +8,10 @@ import { Loader2, RefreshCw, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
 import { AccountPage } from "@/components/layout/AccountPage";
-import { ApiError } from "@/lib/api";
+import { ApiError } from "@sigmx/api-client/api";
 import {
   getBillingSummary, getDataCreditPacks, getPlans, listOrders, type BillingSummary, type OrderItem,
-} from "@/lib/productApi";
+} from "@sigmx/api-client/productApi";
 
 const STATUS_LABEL: Record<string, string> = {
   paid: "已支付",

@@ -23,7 +23,7 @@ import {
   type Horizon,
   type ScheduledTask,
   type TrackingWatchlistItem,
-} from "@/lib/api";
+} from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 
 const fieldClass =

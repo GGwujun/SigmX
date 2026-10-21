@@ -1,4 +1,4 @@
-import { authHeaders } from "@/lib/apiAuth";
+import { authHeaders } from "@sigmx/api-client/apiAuth";
 
 export class PublicResearchError extends Error {
   constructor(message: string, public status: number) { super(message); }

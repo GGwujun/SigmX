@@ -1,6 +1,6 @@
 import { AlertTriangle, Cloud, Coins, Database, ShieldCheck } from "lucide-react";
 
-import type { DataMode } from "@/lib/dataMode";
+import type { DataMode } from "@sigmx/api-client/dataMode";
 import type { HarnessRun, HarnessStatus } from "@/lib/harnessApi";
 
 const GOVERNANCE_LABELS: Record<string, string> = {

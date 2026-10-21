@@ -1,5 +1,5 @@
-import { cloudResearchApi } from "@/lib/cloudResearchApi";
-import { getDesktopCloudAccessToken } from "@/lib/desktopConnectedSession";
+import { cloudResearchApi } from "@sigmx/api-client/cloudResearchApi";
+import { getDesktopCloudAccessToken } from "@sigmx/api-client/desktopConnectedSession";
 
 export interface ConsumedResearchTask {
   kind: string;

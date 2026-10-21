@@ -3,7 +3,7 @@ import { Activity, Bot, BookOpenText, Boxes, CircleDollarSign, Database, FileClo
 
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
 import { AccountMenu } from "@/components/navigation/AccountMenu";
-import { getUser } from "@/lib/apiAuth";
+import { getUser } from "@sigmx/api-client/apiAuth";
 import { cn } from "@/lib/utils";
 
 const MODULES = [

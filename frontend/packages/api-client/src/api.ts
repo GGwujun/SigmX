@@ -1,5 +1,5 @@
-import { authHeaders, withAuthQuery, type AuthUser } from "@/lib/apiAuth";
-import { resolveApiUrl, resolveDataHubApiPath, dataHubHeaders, getDataMode } from "@/lib/dataMode";
+import { authHeaders, withAuthQuery, type AuthUser } from "@sigmx/api-client/apiAuth";
+import { resolveApiUrl, resolveDataHubApiPath, dataHubHeaders, getDataMode } from "@sigmx/api-client/dataMode";
 
 const BASE = "";
 
@@ -2063,8 +2063,8 @@ export interface AlphaForgeRunListItem {
   completed_count: number;
 }
 
-// Re-export the auth user type so callers can `import { AuthUser } from "@/lib/api"`.
-export type { AuthUser } from "@/lib/apiAuth";
+// Re-export the auth user type so callers can `import { AuthUser } from "@sigmx/api-client/api"`.
+export type { AuthUser } from "@sigmx/api-client/apiAuth";
 
 export interface AuthResponse {
   token: string;

@@ -17,9 +17,9 @@ import {
   createDesktopDataHubSession,
   startDeviceAuthorize,
   type DeviceAuthorizeStart,
-} from "@/lib/productApi";
-import { setDataMode, setDesktopDataHubSessionKey } from "@/lib/dataMode";
-import { setDesktopCloudAccessToken } from "@/lib/desktopConnectedSession";
+} from "@sigmx/api-client/productApi";
+import { setDataMode, setDesktopDataHubSessionKey } from "@sigmx/api-client/dataMode";
+import { setDesktopCloudAccessToken } from "@sigmx/api-client/desktopConnectedSession";
 
 export type FlowPhase = "idle" | "pending" | "approved" | "expired" | "error";
 

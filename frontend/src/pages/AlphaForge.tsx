@@ -30,7 +30,7 @@ import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
-import { api, type AlphaForgeReportDetail, type AlphaForgeReportItem, type AlphaForgeRunDetail } from "@/lib/api";
+import { api, type AlphaForgeReportDetail, type AlphaForgeReportItem, type AlphaForgeRunDetail } from "@sigmx/api-client/api";
 import { cn } from "@/lib/utils";
 import { PublishReportSnapshot } from "@/components/harness/PublishReportSnapshot";
 

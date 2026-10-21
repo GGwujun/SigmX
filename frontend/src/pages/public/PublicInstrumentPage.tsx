@@ -3,8 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { BookmarkPlus, Monitor } from "lucide-react";
 import { DataStatus, ErrorState, MetricStrip, Panel } from "@sigmx/ui";
 
-import { cloudResearchApi, type PublicFundSummary, type PublicStockSummary } from "@/lib/cloudResearchApi";
-import { isAuthenticated } from "@/lib/apiAuth";
+import { cloudResearchApi, type PublicFundSummary, type PublicStockSummary } from "@sigmx/api-client/cloudResearchApi";
+import { isAuthenticated } from "@sigmx/api-client/apiAuth";
 
 function number(value: unknown, suffix = ""): string {
   return typeof value === "number" ? `${value.toLocaleString()}${suffix}` : "—";
