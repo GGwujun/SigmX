@@ -2660,7 +2660,7 @@ def _eastmoney_clist_rows(
     source: str,
     store: MarketStore,
 ) -> list[dict[str, Any]]:
-    from src.data.astock_client import em_get
+    from src.data.astock_client import em_get_with_fallback
 
     headers = {
         "User-Agent": (
@@ -2671,7 +2671,7 @@ def _eastmoney_clist_rows(
         "Referer": "https://quote.eastmoney.com/center/boardlist.html",
     }
     try:
-        resp = em_get(url, params=params, headers=headers, timeout=15)
+        resp = em_get_with_fallback(url, params=params, headers=headers, timeout=15)
         resp.raise_for_status()
         data = resp.json()
         diff = ((data or {}).get("data") or {}).get("diff") or []

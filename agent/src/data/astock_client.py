@@ -10,12 +10,16 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import logging
+import os
 import random
 import re
 import ssl
+import tempfile
 import time
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -42,10 +46,14 @@ def _strip_html(value: Any) -> str:
     return re.sub(r"<[^>]+>", "", str(value or "")).strip()
 
 
-# ── 东财统一请求入口（限流 + 重试 + Keep-Alive）─────────────────────
+# ── 东财统一请求入口（跨进程串行限流 + 重试 + Keep-Alive + 主机回退）──
+# 移植自 Vibe-Research common.py 的 em_get 防限流实现：临时目录锁文件
+# 跨进程串行（任一时刻全机最多一个东财请求在途），锁内"读上次完成
+# 时间 → 补足 ≥1s + 抖动 → 请求 → 写回完成时间"。HTTP 状态码不触发
+# 换主机重试（403 原样返回，防反复触发风控）；仅连接类错误才重试。
 
 EM_SESSION = requests.Session()
-EM_SESSION.headers.update({"User-Agent": UA})
+EM_SESSION.headers.update({"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"})
 try:
     from requests.adapters import HTTPAdapter
     from urllib3.util.retry import Retry
@@ -57,20 +65,131 @@ try:
 except Exception:
     pass
 
-EM_MIN_INTERVAL = 1.0
-_em_last_call = [0.0]
+# 代理断连时的直连兜底 session（trust_env=False，不吃系统/环境代理）
+EM_DIRECT_SESSION = requests.Session()
+EM_DIRECT_SESSION.headers.update({"User-Agent": UA, "Referer": "https://quote.eastmoney.com/"})
+EM_DIRECT_SESSION.trust_env = False
+
+EM_MIN_INTERVAL = 1.0  # 东财两次请求最小间隔秒，跨进程生效
+EM_LOCK_PATH = os.path.join(tempfile.gettempdir(), "sigmx-eastmoney.lock")
+
+if os.name == "nt":
+    import msvcrt as _msvcrt
+else:
+    import fcntl as _fcntl
+
+
+def _lock_em_file(lf) -> None:
+    """跨进程排他锁：POSIX flock；Windows msvcrt 字节锁（LK_LOCK ~10s
+    超时，循环重试保持 POSIX 阻塞语义）。拿锁前不写文件——别的进程
+    锁着第 0 字节时写入会直接 PermissionError。"""
+    if os.name == "nt":
+        deadlk = getattr(errno, "EDEADLOCK", errno.EDEADLK)
+        while True:
+            try:
+                lf.seek(0)
+                _msvcrt.locking(lf.fileno(), _msvcrt.LK_LOCK, 1)
+                return
+            except OSError as exc:
+                if exc.errno in (errno.EACCES, errno.EDEADLK, deadlk):
+                    time.sleep(0.05)
+                else:
+                    raise
+    else:
+        _fcntl.flock(lf.fileno(), _fcntl.LOCK_EX)
+
+
+def _unlock_em_file(lf) -> None:
+    if os.name == "nt":
+        # 解锁的区域从当前文件位置起算——写完时间戳后位置已后移，
+        # 必须 seek 回锁定的字节再解锁。
+        lf.seek(0)
+        _msvcrt.locking(lf.fileno(), _msvcrt.LK_UNLCK, 1)
+    else:
+        _fcntl.flock(lf.fileno(), _fcntl.LOCK_UN)
+
+
+def _em_serial(fn):
+    """在跨进程锁内串行执行一次东财请求，并在锁文件里维护上次完成
+    时间戳（空/坏值按 0 处理）。"""
+    with open(EM_LOCK_PATH, "a+") as lf:
+        _lock_em_file(lf)
+        try:
+            lf.seek(0)
+            raw = lf.read().strip()
+            try:
+                last = float(raw) if raw else 0.0
+            except ValueError:
+                last = 0.0
+            wait = EM_MIN_INTERVAL - (time.time() - last)
+            if wait > 0:
+                time.sleep(wait + random.uniform(0.1, 0.5))
+            try:
+                return fn()
+            finally:
+                lf.seek(0)
+                lf.truncate()
+                lf.write(str(time.time()))
+                lf.flush()
+        finally:
+            _unlock_em_file(lf)
 
 
 def em_get(url: str, params: dict | None = None, headers: dict | None = None,
            timeout: int = 15, **kwargs) -> requests.Response:
-    """东财统一请求入口：自动节流 + 复用 session + 默认 UA。"""
-    wait = EM_MIN_INTERVAL - (time.time() - _em_last_call[0])
-    if wait > 0:
-        time.sleep(wait + random.uniform(0.1, 0.5))
+    """东财统一请求入口：跨进程串行节流 + 复用 session + 默认 UA。"""
     try:
-        return EM_SESSION.get(url, params=params, headers=headers, timeout=timeout, **kwargs)
-    finally:
-        _em_last_call[0] = time.time()
+        return _em_serial(
+            lambda: EM_SESSION.get(url, params=params, headers=headers, timeout=timeout, **kwargs))
+    except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError):
+        return _em_serial(
+            lambda: EM_DIRECT_SESSION.get(url, params=params, headers=headers, timeout=timeout, **kwargs))
+
+
+def em_post(url: str, json_body: dict | None = None, headers: dict | None = None,
+            timeout: int = 15) -> requests.Response:
+    """东财 POST 入口（人气榜等），与 em_get 共用同一把跨进程锁。"""
+    try:
+        return _em_serial(
+            lambda: EM_SESSION.post(url, json=json_body, headers=headers, timeout=timeout))
+    except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError):
+        return _em_serial(
+            lambda: EM_DIRECT_SESSION.post(url, json=json_body, headers=headers, timeout=timeout))
+
+
+def _em_fallback_host(netloc: str) -> str | None:
+    """push2/push2his（含编号 CDN 子域）断连时的回退主机。
+
+    实时优先、延迟兜底：SigmX 盘中同步要新鲜度，push2delay 只做降级
+    （与 Vibe-Research 的延迟优先相反，是产品取舍差异）。"""
+    if netloc == "push2.eastmoney.com" or netloc.endswith(".push2.eastmoney.com"):
+        return "push2delay.eastmoney.com"
+    if netloc == "push2his.eastmoney.com" or netloc.endswith(".push2his.eastmoney.com"):
+        return "push2delay.eastmoney.com"
+    return None
+
+
+def em_get_with_fallback(url: str, params: dict | None = None, headers: dict | None = None,
+                         timeout: int = 15, **kwargs) -> requests.Response:
+    """带主机回退的东财 GET：push2/push2his 连接类失败时改打 push2delay。
+
+    连接错误 → 试下一台主机；HTTP 状态码（含 403/429）原样返回，不换
+    主机——状态码问题换主机也没用，只会放大风控。"""
+    parsed = urllib.parse.urlsplit(url)
+    hosts = [parsed.netloc]
+    fallback = _em_fallback_host(parsed.netloc)
+    if fallback and fallback != parsed.netloc:
+        hosts.append(fallback)
+    last_exc: Exception | None = None
+    for host in hosts:
+        target = urllib.parse.urlunsplit(
+            (parsed.scheme, host, parsed.path, parsed.query, parsed.fragment))
+        try:
+            return em_get(target, params=params, headers=headers, timeout=timeout, **kwargs)
+        except (requests.exceptions.ProxyError, requests.exceptions.ConnectionError) as exc:
+            last_exc = exc
+            continue
+    raise last_exc  # type: ignore[misc]
 
 
 # ── mootdx 客户端（规避 0.11.x BESTIP bug）─────────────────────────
@@ -897,7 +1016,7 @@ def stock_fund_flow_120d(code: str) -> list[dict]:
         "lmt": "120",
     }
     try:
-        r = em_get(url, params=params, headers={
+        r = em_get_with_fallback(url, params=params, headers={
             "User-Agent": UA, "Referer": "https://quote.eastmoney.com/",
             "Origin": "https://quote.eastmoney.com"}, timeout=15)
         klines = (r.json().get("data") or {}).get("klines") or []
@@ -1298,15 +1417,12 @@ def ths_hot_list(limit: int = 30) -> list[dict]:
 def eastmoney_popularity(page_size: int = 30) -> list[dict]:
     """东财人气榜。"""
     url = "https://emappdata.eastmoney.com/stockrank/getAllCurrentList"
-    body = json.dumps({
-        "appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38",
-        "pageNo": 1, "pageSize": page_size,
-    }).encode()
     try:
-        req = urllib.request.Request(url, data=body, method="POST", headers={
-            "User-Agent": UA, "Content-Type": "application/json"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            d = json.loads(r.read())
+        r = em_post(url, json_body={
+            "appId": "appId01", "globalId": "786e4c21-70dc-435a-93bb-38",
+            "pageNo": 1, "pageSize": page_size,
+        }, headers={"Content-Type": "application/json"}, timeout=10)
+        d = r.json()
     except Exception as e:
         logger.warning("东财人气榜请求失败: %s", e)
         return []
@@ -1415,11 +1531,10 @@ def eastmoney_eps_forecast(code: str, max_pages: int = 2) -> list[dict]:
             "code": code, "rcode": "",
         }
         qs = "&".join(f"{k}={v}" for k, v in params.items())
-        req = urllib.request.Request(url + "?" + qs, headers={
-            "User-Agent": UA, "Referer": "https://data.eastmoney.com/"})
         try:
-            with urllib.request.urlopen(req, timeout=20) as r:
-                d = json.loads(r.read().decode("utf-8", "replace"))
+            r = em_get(url + "?" + qs, headers={
+                "User-Agent": UA, "Referer": "https://data.eastmoney.com/"}, timeout=20)
+            d = r.json()
         except Exception as e:
             logger.debug("东财研报请求失败 code=%s page=%d: %s", code, page, e)
             break

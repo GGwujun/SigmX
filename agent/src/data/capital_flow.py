@@ -29,23 +29,11 @@ _CACHE_TTL = 300
 _cache_lock = threading.Lock()
 _cache: dict[str, tuple[float, Any]] = {}
 
-# Min spacing between east-money-backed calls (akshare/efinance both hit EM).
-# East-money rate-limits by IP; firing requests back-to-back trips the ban and
-# the source then returns an empty/anti-crawl payload that we cannot tell apart
-# from "no data". A small gap is the single most effective defense.
-_EM_CALL_GAP = 0.4
-_em_last_call_lock = threading.Lock()
-_em_last_call = 0.0
-
-
-def _pace_em_call() -> None:
-    """Throttle consecutive east-money calls to avoid tripping the IP ban."""
-    global _em_last_call
-    with _em_last_call_lock:
-        elapsed = time.time() - _em_last_call
-        if elapsed < _EM_CALL_GAP:
-            time.sleep(_EM_CALL_GAP - elapsed)
-        _em_last_call = time.time()
+# akshare/efinance 自带东财 HTTP（拿不到传输层），无法逐请求走
+# astock_client.em_get。这里把整个库调用包进 em_get 同一把跨进程锁：
+# 全机所有东财流量（直连 + 库封装）共享 ≥1s 间隔，两套节流器互不
+# 知晓的交错问题随之消失。
+from src.data.astock_client import _em_serial as _paced_em_unit
 
 
 def _cache_get(key: str) -> Any | None:
@@ -113,8 +101,7 @@ def get_stock_capital(code: str, days: int = 10) -> list[dict[str, Any]]:
 def _stock_capital_efinance(code: str, days: int) -> list[dict[str, Any]]:
     try:
         import efinance as ef
-        _pace_em_call()
-        df = ef.stock.get_history_bill(code)
+        df = _paced_em_unit(lambda: ef.stock.get_history_bill(code))
     except Exception as exc:
         logger.warning("capital_flow: efinance degraded for %s: %s", code, exc)
         return []
@@ -146,8 +133,8 @@ def _stock_capital_efinance(code: str, days: int) -> list[dict[str, Any]]:
 def _stock_capital_akshare(code: str, days: int) -> list[dict[str, Any]]:
     try:
         import akshare as ak
-        _pace_em_call()
-        df = ak.stock_individual_fund_flow(stock=code, market="sh" if code.startswith("6") else "sz")
+        df = _paced_em_unit(lambda: ak.stock_individual_fund_flow(
+            stock=code, market="sh" if code.startswith("6") else "sz"))
     except Exception as exc:
         logger.warning("capital_flow: akshare degraded for %s: %s", code, exc)
         return []
@@ -187,8 +174,8 @@ def get_sector_capital() -> list[dict[str, Any]]:
 def _sector_capital_akshare() -> list[dict[str, Any]]:
     try:
         import akshare as ak
-        _pace_em_call()
-        df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
+        df = _paced_em_unit(lambda: ak.stock_sector_fund_flow_rank(
+            indicator="今日", sector_type="行业资金流"))
     except Exception as exc:
         logger.warning("capital_flow: sector akshare degraded: %s", exc)
         return []
@@ -223,8 +210,7 @@ def get_north_capital(days: int = 30) -> list[dict[str, Any]]:
 def _north_capital_akshare(days: int) -> list[dict[str, Any]]:
     try:
         import akshare as ak
-        _pace_em_call()
-        df = ak.stock_hsgt_hist_em(symbol="北向资金")
+        df = _paced_em_unit(lambda: ak.stock_hsgt_hist_em(symbol="北向资金"))
     except Exception as exc:
         logger.warning("capital_flow: north akshare degraded: %s", exc)
         return []
