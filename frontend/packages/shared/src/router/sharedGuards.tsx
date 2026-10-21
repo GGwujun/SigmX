@@ -1,8 +1,8 @@
 import { type ComponentType, type ReactNode, Suspense } from "react";
 import { Navigate, Outlet } from "react-router-dom";
 
-import { DisclaimerModal } from "@/components/DisclaimerModal";
-import { useAuthState } from "@/hooks/useAuthState";
+import { DisclaimerModal } from "@sigmx/shared/components/DisclaimerModal";
+import { useAuthState } from "@sigmx/shared/hooks/useAuthState";
 import { isAdmin } from "@sigmx/api-client/apiAuth";
 
 export function PageLoader() {

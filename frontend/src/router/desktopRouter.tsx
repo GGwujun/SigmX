@@ -2,8 +2,8 @@ import { lazy } from "react";
 import { Navigate, createBrowserRouter } from "react-router-dom";
 
 import { Layout } from "@/components/layout/Layout";
-import { AccountShell } from "@/components/portal/AccountShell";
-import { RequireAuth, wrap } from "@/router/sharedGuards";
+import { AccountShell } from "@sigmx/shared/components/portal/AccountShell";
+import { RequireAuth, wrap } from "@sigmx/shared/router/sharedGuards";
 
 const Home = lazy(() => import("@/pages/Home").then(m => ({ default: m.Home })));
 const Agent = lazy(() => import("@/pages/Agent").then(m => ({ default: m.Agent })));
@@ -31,14 +31,14 @@ const FundArbitrage = lazy(() => import("@/pages/FundArbitrage").then(m => ({ de
 const FundOpportunity = lazy(() => import("@/pages/FundOpportunity").then(m => ({ default: m.FundOpportunity })));
 const Signals = lazy(() => import("@/pages/Signals").then(m => ({ default: m.Signals })));
 const RiskDashboard = lazy(() => import("@/pages/RiskDashboard"));
-const LoginPage = lazy(() => import("@/pages/auth/LoginPage").then(m => ({ default: m.LoginPage })));
-const MePage = lazy(() => import("@/pages/portal/MePage").then(m => ({ default: m.MePage })));
-const Account = lazy(() => import("@/pages/Account").then(m => ({ default: m.Account })));
-const SubscriptionPage = lazy(() => import("@/pages/account/SubscriptionPage").then(m => ({ default: m.SubscriptionPage })));
-const DevicesPage = lazy(() => import("@/pages/account/DevicesPage").then(m => ({ default: m.DevicesPage })));
-const OrdersPage = lazy(() => import("@/pages/account/OrdersPage").then(m => ({ default: m.OrdersPage })));
-const DataHubConsolePage = lazy(() => import("@/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
-const CloudAccountPage = lazy(() => import("@/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
+const LoginPage = lazy(() => import("@sigmx/shared/pages/auth/LoginPage").then(m => ({ default: m.LoginPage })));
+const MePage = lazy(() => import("@sigmx/shared/pages/portal/MePage").then(m => ({ default: m.MePage })));
+const Account = lazy(() => import("@sigmx/shared/pages/Account").then(m => ({ default: m.Account })));
+const SubscriptionPage = lazy(() => import("@sigmx/shared/pages/account/SubscriptionPage").then(m => ({ default: m.SubscriptionPage })));
+const DevicesPage = lazy(() => import("@sigmx/shared/pages/account/DevicesPage").then(m => ({ default: m.DevicesPage })));
+const OrdersPage = lazy(() => import("@sigmx/shared/pages/account/OrdersPage").then(m => ({ default: m.OrdersPage })));
+const DataHubConsolePage = lazy(() => import("@sigmx/shared/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
+const CloudAccountPage = lazy(() => import("@sigmx/shared/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
 
 export const desktopRouter = createBrowserRouter([
   { path: "/login", element: wrap(LoginPage) },
@@ -77,7 +77,7 @@ export const desktopRouter = createBrowserRouter([
       { path: "/signals", element: wrap(Signals) },
       { path: "/risk-dashboard", element: wrap(RiskDashboard) },
     ] },
-    { element: <AccountShell />, children: [
+    { element: <AccountShell desktopLayout={Layout} />, children: [
       { path: "/me", element: wrap(MePage) },
       { path: "/account", element: wrap(Account) },
       { path: "/account/subscription", element: wrap(SubscriptionPage) },

@@ -8,7 +8,7 @@ import { BrainCircuit, Crown, Database, Laptop, Loader2 } from "lucide-react";
 
 import { ApiError } from "@sigmx/api-client/api";
 import { getMyCredits, getMyEntitlements, getPlans, type PlanEntitlements } from "@sigmx/api-client/productApi";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 function shortDate(value?: string | null): string {
   if (!value) return "—";

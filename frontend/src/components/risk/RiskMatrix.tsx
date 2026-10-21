@@ -1,4 +1,4 @@
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { CheckCircle, AlertTriangle, XCircle, MinusCircle } from "lucide-react";
 
 interface CheckItem {

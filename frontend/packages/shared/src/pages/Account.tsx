@@ -4,7 +4,7 @@ import {
   KeyRound, Loader2, LogOut, RefreshCw, User,
 } from "lucide-react";
 import { toast } from "sonner";
-import { AccountPage } from "@/components/layout/AccountPage";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
 import { api, type AccountInfo } from "@sigmx/api-client/api";
 import { clearAuth, updateStoredUserProfile } from "@sigmx/api-client/apiAuth";
 

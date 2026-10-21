@@ -7,11 +7,11 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
-import { AccountPage } from "@/components/layout/AccountPage";
-import { ProductStatus } from "@/components/layout/ProductStatus";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
+import { ProductStatus } from "@sigmx/shared/components/account/ProductStatus";
 import { ApiError } from "@sigmx/api-client/api";
 import { getMyLedger, getMyLots, type CreditLot, type LedgerEntry } from "@sigmx/api-client/productApi";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 const SOURCE_LABEL: Record<string, string> = {
   monthly: "月度套餐积分",

@@ -5,8 +5,8 @@
  */
 import { Link, Outlet } from "react-router-dom";
 
-import { SigmXLogo } from "@/components/brand/SigmXLogo";
-import { AccountMenu } from "@/components/navigation/AccountMenu";
+import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
+import { AccountMenu } from "@sigmx/shared/components/navigation/AccountMenu";
 import { getUser } from "@sigmx/api-client/apiAuth";
 
 export function PortalLayout() {

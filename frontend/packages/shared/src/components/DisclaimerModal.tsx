@@ -6,7 +6,7 @@ import { setUser } from "@sigmx/api-client/apiAuth";
 import {
   DISCLAIMER_AGREE_LABEL, DISCLAIMER_BODY, DISCLAIMER_NOTE,
   DISCLAIMER_NOTE_TITLE, DISCLAIMER_TITLE,
-} from "@/lib/disclaimer";
+} from "@sigmx/shared/lib/disclaimer";
 
 /**
  * Post-login disclaimer gate. Shown when the logged-in user has not yet

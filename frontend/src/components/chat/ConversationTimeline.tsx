@@ -1,5 +1,5 @@
 import { memo, useEffect, useState, useCallback } from "react";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import type { AgentMessage } from "@/types/agent";
 
 interface Props {

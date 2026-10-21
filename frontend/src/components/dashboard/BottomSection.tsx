@@ -8,7 +8,7 @@ import type {
   CapitalStockItem,
 } from "@sigmx/api-client/api";
 import type { EChartsOption } from "echarts";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 export function CapitalEvidence({ capital }: { capital: MarketCapital | null | undefined }) {
   if (!capital) return <EmptyHint>资金流数据暂不可用</EmptyHint>;

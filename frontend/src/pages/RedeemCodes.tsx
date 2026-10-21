@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type GenerateCodesRequest, type RedeemCodeItem, type RedeemCodesStats } from "@sigmx/api-client/api";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 type StatusFilter = "all" | "unused" | "used" | "expired";
 

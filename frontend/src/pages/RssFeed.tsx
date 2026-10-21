@@ -14,7 +14,7 @@ import {
   WifiOff,
 } from "lucide-react";
 import { api, type RssArticle, type RssSource } from "@sigmx/api-client/api";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import {
   MarketEmptyState,
   MarketErrorState,

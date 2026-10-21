@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { echarts } from "@/lib/echarts";
 import { useDarkMode } from "@/hooks/useDarkMode";
 import type { EChartsOption } from "echarts";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 /** Thin echarts wrapper: init once, update option on change, resize + dispose. */
 export function Chart({

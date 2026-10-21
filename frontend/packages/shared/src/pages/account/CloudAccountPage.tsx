@@ -14,8 +14,8 @@ import { ArrowLeft, Loader2, ShieldCheck, Monitor } from "lucide-react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 
-import { AccountPage } from "@/components/layout/AccountPage";
-import { useDesktopDeviceFlow } from "@/hooks/useDesktopDeviceFlow";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
+import { useDesktopDeviceFlow } from "@sigmx/shared/hooks/useDesktopDeviceFlow";
 import { ApiError } from "@sigmx/api-client/api";
 import {
   approveDeviceAuthorize,

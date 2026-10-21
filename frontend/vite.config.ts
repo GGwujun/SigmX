@@ -84,6 +84,7 @@ export default defineConfig(({ mode }) => {
         "@": path.resolve(__dirname, "./src"),
         "@sigmx/ui": path.resolve(__dirname, "./packages/ui/src/index.ts"),
         "@sigmx/api-client": path.resolve(__dirname, "./packages/api-client/src"),
+        "@sigmx/shared": path.resolve(__dirname, "./packages/shared/src"),
       },
     },
     server: {

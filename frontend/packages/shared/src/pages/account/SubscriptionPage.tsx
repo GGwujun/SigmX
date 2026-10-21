@@ -7,8 +7,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { ProductStatus } from "@/components/layout/ProductStatus";
-import { AccountPage } from "@/components/layout/AccountPage";
+import { ProductStatus } from "@sigmx/shared/components/account/ProductStatus";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
 import { ApiError } from "@sigmx/api-client/api";
 import { activateCode, getPlans } from "@sigmx/api-client/productApi";
 

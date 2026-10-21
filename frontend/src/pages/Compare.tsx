@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { GitCompare, ArrowRight } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { api, type RunListItem, type RunData, type EquityPoint } from "@sigmx/api-client/api";
 import { echarts, CHART_GROUP, connectCharts } from "@/lib/echarts";
 import { getChartTheme } from "@/lib/chart-theme";

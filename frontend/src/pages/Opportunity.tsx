@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { CheckCircle2, Circle, Clock3, Lightbulb, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
 import { api, type DailyRecommendationItem, type Opportunity, type OpportunityCategory } from "@sigmx/api-client/api";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import {
   buildIntelPath,
   MarketEmptyState,

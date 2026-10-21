@@ -4,7 +4,7 @@
  * existing Account.tsx. Links are relative to /account/*.
  */
 import { NavLink } from "react-router-dom";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 const ITEMS = [
   { to: "/me", label: "概览", end: true },

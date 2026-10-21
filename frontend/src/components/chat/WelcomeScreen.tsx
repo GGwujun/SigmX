@@ -1,5 +1,5 @@
 import { TrendingUp, Globe, Sparkles, Users, UserCircle2, NotebookPen, Landmark } from "lucide-react";
-import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
 
 interface Example {
   title: string;

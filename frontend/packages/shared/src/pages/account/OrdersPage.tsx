@@ -7,7 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, RefreshCw, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
-import { AccountPage } from "@/components/layout/AccountPage";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
 import { ApiError } from "@sigmx/api-client/api";
 import {
   getBillingSummary, getDataCreditPacks, getPlans, listOrders, type BillingSummary, type OrderItem,

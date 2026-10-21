@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { api, isAuthRequiredError, type DataSourceSettings, type DataHealthReport, type SourceHealth, type LLMProviderOption, type LLMSettings, type NotifyConfig, type PlatformConfig, type AlertRule } from "@sigmx/api-client/api";
 import { getApiAuthKey, isAdmin, setApiAuthKey } from "@sigmx/api-client/apiAuth";
 import { getDataMode, setDataMode, getDataHubUrl, setDataHubUrl, getDataHubKey, setDataHubKey } from "@sigmx/api-client/dataMode";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 interface LLMFormState {
   provider: string;

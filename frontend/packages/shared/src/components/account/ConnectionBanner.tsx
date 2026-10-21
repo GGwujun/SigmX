@@ -1,5 +1,5 @@
 import { WifiOff, RefreshCw } from "lucide-react";
-import type { SSEStatus } from "@/hooks/useSSE";
+import type { SSEStatus } from "@sigmx/shared/hooks/useSSE";
 
 interface Props {
   status: SSEStatus;

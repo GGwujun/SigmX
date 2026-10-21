@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { api } from "@sigmx/api-client/api";
 import { setToken, setUser } from "@sigmx/api-client/apiAuth";
 import { isDesktopMode, postLoginTarget } from "@sigmx/api-client/desktop";
-import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
 import { cloudResearchApi } from "@sigmx/api-client/cloudResearchApi";
 import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
 

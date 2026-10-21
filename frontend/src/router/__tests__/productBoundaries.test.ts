@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { DESKTOP_ROUTE_PATHS, WEB_ROUTE_PATHS } from "@/router/productRoutes";
+import { DESKTOP_ROUTE_PATHS, WEB_ROUTE_PATHS } from "@sigmx/shared/router/productRoutes";
 
 const PUBLIC_WEB_ROUTES = [
   "/",

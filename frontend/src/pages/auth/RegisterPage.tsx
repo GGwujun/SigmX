@@ -5,11 +5,11 @@ import { toast } from "sonner";
 import { api } from "@sigmx/api-client/api";
 import { setToken, setUser } from "@sigmx/api-client/apiAuth";
 import { postLoginTarget } from "@sigmx/api-client/desktop";
-import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
 import {
   DISCLAIMER_AGREE_LABEL, DISCLAIMER_BODY, DISCLAIMER_NOTE,
   DISCLAIMER_NOTE_TITLE, DISCLAIMER_TITLE,
-} from "@/lib/disclaimer";
+} from "@sigmx/shared/lib/disclaimer";
 import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
 
 export function RegisterPage() {

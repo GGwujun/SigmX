@@ -8,7 +8,7 @@ import { Check, Loader2 } from "lucide-react";
 
 import { ApiError } from "@sigmx/api-client/api";
 import { formatPlanPrice, getPlans, type PlanView } from "@sigmx/api-client/productApi";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { trackPersonalFunnel } from "@sigmx/api-client/personalFunnel";
 import { isAuthenticated } from "@sigmx/api-client/apiAuth";
 

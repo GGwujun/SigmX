@@ -10,9 +10,9 @@ import { Laptop, Loader2, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { ApiError } from "@sigmx/api-client/api";
-import { AccountPage } from "@/components/layout/AccountPage";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
 import { getMyEntitlements, listDevices, revokeDevice, type DeviceItem } from "@sigmx/api-client/productApi";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 function shortDateTime(value?: string | null): string {
   if (!value) return "—";

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { AccountNav } from "@/components/layout/AccountNav";
+import { AccountNav } from "@sigmx/shared/components/account/AccountNav";
 
 export function AccountPage({ children }: { children: ReactNode }) {
   return (

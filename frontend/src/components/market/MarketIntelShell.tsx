@@ -13,7 +13,7 @@ import {
   Sparkles,
   TrendingUp,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 export type MarketStageId = "daily" | "news" | "events" | "opportunity" | "logic-chain";
 

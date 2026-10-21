@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { X, Calculator } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 interface ProfitCalculatorProps {
   nav: number;

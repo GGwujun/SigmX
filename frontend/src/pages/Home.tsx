@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { api, type AlphaForgeReportItem, type OpportunityCategory, type RunListItem } from "@sigmx/api-client/api";
 import { cached as cachedFetch } from "@/lib/cache";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { HarnessOverview } from "@/components/harness/HarnessOverview";
 import { getDataMode } from "@sigmx/api-client/dataMode";
 import { getHarnessRuns, getHarnessStatus, type HarnessRun, type HarnessStatus } from "@/lib/harnessApi";

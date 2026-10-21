@@ -11,7 +11,7 @@ import rehypeHighlight from "rehype-highlight";
 import {
   api, type FundReportDetail, type FundReportItem, type FundRunDetail, type PremiumHistoryItem,
 } from "@sigmx/api-client/api";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { PremiumHistoryChart } from "@/components/fund/PremiumHistoryChart";
 
 const FUND_TYPES = [

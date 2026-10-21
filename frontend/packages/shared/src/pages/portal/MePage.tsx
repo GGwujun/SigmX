@@ -11,7 +11,7 @@ import {
   Settings2,
 } from "lucide-react";
 
-import { AccountPage } from "@/components/layout/AccountPage";
+import { AccountPage } from "@sigmx/shared/components/account/AccountPage";
 
 import {
   listNotifications,

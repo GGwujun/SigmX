@@ -15,7 +15,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { api, type BacktestMetrics, type RunCard, type RunData } from "@sigmx/api-client/api";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
@@ -24,7 +24,7 @@ import { EquityChart } from "@/components/charts/EquityChart";
 import { MetricsCard } from "@/components/chat/MetricsCard";
 import { ValidationPanel } from "@/components/charts/ValidationPanel";
 import { Skeleton, SkeletonMetrics, SkeletonChart } from "@/components/common/Skeleton";
-import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { ErrorBoundary } from "@sigmx/shared/components/common/ErrorBoundary";
 
 const rehypePlugins = [rehypeHighlight];
 

@@ -6,7 +6,7 @@ import type {
   MarketSentiment,
   MarketEnvironment,
 } from "@sigmx/api-client/api";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 export function IndexTicker({ indices }: { indices: MarketIndexRow[] }) {
   const [active, setActive] = useState(0);

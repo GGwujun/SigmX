@@ -7,8 +7,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Link, Outlet, useLocation } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 
-import { SigmXLogo } from "@/components/brand/SigmXLogo";
-import { AccountMenu } from "@/components/navigation/AccountMenu";
+import { SigmXLogo } from "@sigmx/shared/components/brand/SigmXLogo";
+import { AccountMenu } from "@sigmx/shared/components/navigation/AccountMenu";
 import { getUser, isAuthenticated } from "@sigmx/api-client/apiAuth";
 
 export interface PublicLayoutProps {

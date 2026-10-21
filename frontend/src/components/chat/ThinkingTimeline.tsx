@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, memo } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, XCircle, Circle, Loader2 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 import { localizeToolName } from "@/lib/tools";
 import type { AgentMessage } from "@/types/agent";
 

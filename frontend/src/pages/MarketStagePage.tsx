@@ -19,7 +19,7 @@ import {
 import { api, type MarketDashboardStage, type MarketDashboardStageResponse } from "@sigmx/api-client/api";
 import { Chart } from "@/components/dashboard/Chart";
 import { getChartTheme } from "@/lib/chart-theme";
-import { cn } from "@/lib/utils";
+import { cn } from "@sigmx/shared/lib/utils";
 
 type Row = Record<string, any>;
 
