@@ -20,7 +20,12 @@ from typing import Iterable
 
 from src.data.dataset_contracts import validate_dataset
 from src.data.market_store import MarketStore, _SCHEMA
-from src.data.dataset_registry import contract_for
+from src.data.dataset_registry import (
+    contract_for,
+    post_close_core,
+    post_close_datasets,
+    table_map,
+)
 from src.data.market_quality import (
     DatasetQualityReport,
     QualityStatus,
@@ -99,74 +104,17 @@ def _settled_trade_date(store=None) -> str:
 
 _REALTIME_MIN_COVERAGE = float(os.getenv("MARKET_SYNC_REALTIME_MIN_COVERAGE", "0.90"))
 
-_POST_CLOSE_DATASETS = {
-    "calendar",
-    "master",
-    "index_master",
-    "board_master",
-    "board_members",
-    "daily",
-    "daily_basic",
-    "dragon",
-    "pool",
-    "etf",
-    "fund_daily",
-    "etf_master",
-    "fund_master",
-    "etf_size",
-    "index",
-    "board",
-    "capital",
-    "capital_rank",
-    "sector_capital",
-    "sector_snapshot",
-    "market_breadth",
-    "global_indices",
-    "us_theme",
-    "us_transmission",
-    "premarket_news",
-    "stage_snapshot",
-    "premium",
-    # a-stock-data 扩展
-    "ths_hot",
-    "zt_pool",
-    "hot_list",
-    "eps_forecast",
-    "financial_snapshot",
-    "financial_statement",
-    "announcements",
-    "fund_flow_daily",
-    "fund_flow_120d",
-    "option_chain",
-    "margin_trading",
-    "block_trade",
-    "holder_num",
-    "dividend_history",
-    "northbound",
-    "cls_telegraph",
-    "irm_qa",
-    "stock_news",
-    "lockup_expiry",
-    "fq_factors",
-    "minute_bars",
-    "unusual",
-    "hot_money",
-    "hot_money_list",
-}
+# 数据集清单/表名映射单一事实源在 dataset_registry（每 dataset 一条 spec）；
+# 这里只保留调用点的名字，不再手抄清单。
+_POST_CLOSE_DATASETS = post_close_datasets()
 
 # Tier-1 datasets: the day's core snapshot. Validated and published FIRST so the
 # live DB has a usable universe even if a slow/stalled enhanced dataset (e.g.
-# akshare fund-flow) hasn't finished. Mirrors _CRITICAL (calendar/master/
-# daily_basic/index) plus `daily`, which has its own dedicated reference check.
+# akshare fund-flow) hasn't finished. Mirrors the blocking contracts
+# (calendar/master/index) plus daily_basic/daily; see registry tier=1 notes.
 # Everything else in _POST_CLOSE_DATASETS is Tier-2 (enhanced) and publishes
 # after the core. See plan step ⑤.
-_POST_CLOSE_CORE = {
-    "calendar",
-    "master",
-    "daily_basic",
-    "index",
-    "daily",
-}
+_POST_CLOSE_CORE = post_close_core()
 
 class MarketDataQualityError(RuntimeError):
     """Raised when a sync attempt cannot be proven safe to publish."""
@@ -411,66 +359,8 @@ def _integrity_ok(db_path: Path) -> bool:
 # Map dataset name → DB table for the row-count fallback (datasets without a
 # semantic validator). Used so the quality gate trusts actual DB rows over a
 # possibly-fabricated provider return value (e.g. index when tushare is
-# rate-limited but degraded sources wrote rows).
-_DATASET_TABLE = {
-    "calendar": "trade_calendar",
-    "master": "security_master",
-    "index_master": "index_master",
-    "board_master": "board_master",
-    "board_members": "board_members",
-    "daily": "bars_daily",
-    "daily_basic": "stock_daily_basic",
-    "index": "index_daily",
-    "etf": "etf_daily",
-    "etf_master": "etf_master",
-    "fund_master": "fund_master",
-    "fund_daily": "fund_daily",
-    "etf_size": "etf_share_size",
-    "dragon": "dragon_tiger",
-    "pool": "stock_pool",
-    "zt_pool": "zt_pool",
-    "zb_pool": "zb_pool",
-    "dt_pool": "dt_pool",
-    "yzt_pool": "yzt_pool",
-    "ths_hot": "ths_limit_up",
-    "capital": "stock_capital_flow",
-    "capital_rank": "stock_capital_rank",
-    "sector_capital": "sector_capital_flow",
-    "sector_snapshot": "sector_snapshot",
-    "sector_snapshot_industry": "sector_snapshot_industry",
-    "sector_snapshot_concept": "sector_snapshot_concept",
-    "market_breadth": "market_breadth_snapshot",
-    "global_indices": "global_market_index_daily",
-    "us_theme": "us_theme_snapshot",
-    "us_transmission": "us_a_share_transmission",
-    "premarket_news": "premarket_news",
-    "stage_snapshot": "market_stage_snapshot",
-    "premium": "fund_premium_snapshot",
-    "board": "board_daily",
-    "hot_list": "hot_list",
-    "eps_forecast": "eps_forecast",
-    "financial_snapshot": "financial_snapshot",
-    "financial_statement": "financial_statement",
-    "announcements": "announcements",
-    "fund_flow_daily": "fund_flow_daily",
-    "fund_flow_120d": "fund_flow_daily",
-    "option_chain": "option_chain",
-    "margin_trading": "margin_trading",
-    "block_trade": "block_trade",
-    "holder_num": "holder_num",
-    "dividend_history": "dividend_history",
-    "northbound": "northbound_flow",
-    "cls_telegraph": "cls_telegraph",
-    "irm_qa": "irm_qa",
-    "stock_news": "stock_news",
-    "lockup_expiry": "lockup_expiry",
-    "fq_factors": "fq_factors",
-    "minute_bars": "minute_bars",
-    "unusual": "unusual_event",
-    "call_auction": "call_auction_snapshot",
-    "hot_money": "hot_money_daily",
-    "hot_money_list": "hot_money_list",
-}
+# rate-limited but degraded sources wrote rows). Sourced from the registry.
+_DATASET_TABLE = table_map()
 
 
 def _dataset_db_row_count(store: MarketStore, dataset: str, trade_date: str) -> int:

@@ -28,7 +28,12 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from src.data.dataset_contracts import validate_dataset
-from src.data.dataset_registry import contract_for
+from src.data.dataset_registry import (
+    contract_for,
+    intraday_datasets,
+    keep_days_for,
+    premarket_datasets,
+)
 from src.data.sector_matching import match_sector_row, sector_name_keys
 from src.data.market_quality import (
     DatasetQualityReport,
@@ -5075,7 +5080,7 @@ def _sync_minute_bars(store: MarketStore, trade_date: str) -> int:
         return 0
     total = sync_minute_bars_for(store, trade_date, codes)
     try:
-        keep_days = int(os.getenv("MARKET_SYNC_MINUTE_BARS_KEEP_DAYS", "60"))
+        keep_days = keep_days_for("minute_bars")
         store.prune_minute_bars(keep_days)
     except Exception:  # noqa: BLE001
         pass
@@ -5114,7 +5119,7 @@ def _sync_unusual(store: MarketStore, trade_date: str) -> int:
     written = store.upsert_unusual_events(trade_date, rows)
     if phase not in ("in_session", "lunch_break"):
         try:
-            keep = int(os.getenv("MARKET_SYNC_UNUSUAL_KEEP_DAYS", "120"))
+            keep = keep_days_for("unusual")
             store.prune_unusual_events(keep)
         except Exception:  # noqa: BLE001
             pass
@@ -5193,7 +5198,7 @@ def _sync_call_auction(store: MarketStore, trade_date: str) -> int:
             written += store.upsert_call_auction(trade_date, [
                 r for r in rows if r.get("code")], source="tpdog_locked")
     try:
-        keep = int(os.getenv("MARKET_SYNC_CALL_AUCTION_KEEP_DAYS", "60"))
+        keep = keep_days_for("call_auction")
         store.prune_call_auction(keep)
     except Exception:  # noqa: BLE001
         pass
@@ -6001,30 +6006,19 @@ def _maybe_run_daily_sync(store: MarketStore) -> None:
         logger.exception("market-sync daemon tick failed")
 
 
-_PREMARKET_DATASETS = {"global_indices", "us_theme", "us_transmission", "premarket_news", "stage_snapshot"}
+# 相位清单从 dataset_registry 派生（单一事实源）；这里只保留调度时刻表。
+_PREMARKET_DATASETS = premarket_datasets()
 _PREMARKET_OVERNIGHT_DATASETS = {"global_indices", "us_theme", "us_transmission"}
 _PREMARKET_WARMUP_DATASETS = {"global_indices", "us_theme", "us_transmission", "premarket_news", "stage_snapshot"}
 _PREMARKET_OFFICIAL_DATASETS = _PREMARKET_DATASETS
 _PREMARKET_OVERNIGHT_TIME = (5, 30)
 _PREMARKET_WARMUP_TIME = (7, 30)
 _PREMARKET_OFFICIAL_TIME = (8, 50)
-_INTRADAY_DATASETS = {
-    "realtime",
-    "pool",
-    "capital_rank",
-    "sector_capital",
-    "sector_snapshot",
-    "market_breadth",
-    "stage_snapshot",
-    # Recommendation snapshots are generated at 09:27 and 14:30.  Refresh
-    # their event/sentiment inputs on the same five-minute cadence so those
-    # runs do not consume yesterday's post-close snapshot.
-    "ths_hot",
-    "zt_pool",
-    "hot_list",
-    "northbound",
-    "cls_telegraph",
-}
+_INTRADAY_DATASETS = intraday_datasets()
+# Recommendation snapshots are generated at 09:27 and 14:30.  Refresh
+# their event/sentiment inputs on the same five-minute cadence so those
+# runs do not consume yesterday's post-close snapshot (ths_hot / zt_pool /
+# hot_list / northbound / cls_telegraph 注册在 intraday 相位)。
 _INTRADAY_BLOCKING_DATASETS = _INTRADAY_DATASETS - {"northbound"}
 _INTRADAY_SYNC_INTERVAL_MINUTES = 5
 

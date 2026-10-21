@@ -125,11 +125,19 @@ def test_daily_reference_source_unavailable_does_not_block(monkeypatch):
     down) must publish in lenient mode — not freeze the backfill."""
     import src.data.market_sync_worker as mw
 
-    class _Report:
-        status = mw.QualityStatus.PARTIAL
-        blocking_reasons = ["suspension_reference_unavailable", "cross_source_reference_unavailable"]
-
-    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: _Report())
+    # 宽松路径会把报告升格为 PUBLISHED 再落库（worker lenient-promote 块），
+    # 桩必须带全 DatasetQualityReport 的字段面。
+    report = mw.DatasetQualityReport(
+        dataset="daily",
+        trade_date="2026-07-17",
+        status=mw.QualityStatus.PARTIAL,
+        expected_rows=0,
+        received_rows=0,
+        valid_rows=0,
+        blocking_reasons=["suspension_reference_unavailable", "cross_source_reference_unavailable"],
+        source="stub",
+    )
+    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: report)
     # Stub the fetchers validate_daily_reference calls before the report.
     from src.data.market_quality import ReferenceResult, SuspensionResult
 
