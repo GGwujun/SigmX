@@ -29,6 +29,7 @@ RSSHUB_URL = os.environ.get("RSSHUB_URL", "http://rsshub:1200").rstrip("/")
 TZ_SH = timezone(timedelta(hours=8))
 ROWS_HARD_CAP = 2000
 
+from src.product.datahub_catalog import ENDPOINT_CATALOG_V2
 from src.product.datahub_gateway import DataHubBillingRoute, DataHubRequestGateway
 from src.product.store import ProductStore
 
@@ -1952,56 +1953,16 @@ def _publish_meta(trans_items):
 
 
 def _sigmx_endpoint_list():
-    return [
-        "/api/v1/market/latest-trade-date",
-        "/api/v1/market/overview",
-        "/api/v1/market/breadth",
-        "/api/v1/market/fund-summary",
-        "/api/v1/indices/daily",
-        "/api/v1/sectors/fund-flow",
-        "/api/v1/sectors/fund-flow/intraday",
-        "/api/v1/stocks/hot-pool",
-        "/api/v1/stocks/metadata",
-        "/api/v1/stocks/daily",
-        "/api/v1/stocks/daily-basic",
-        "/api/v1/etf/daily",
-        "/api/v1/fund/daily",
-        "/api/v1/boards/daily",
-        "/api/v1/boards/members",
-        "/api/v1/quotes/realtime",
-        "/api/v1/stocks/fund-flow",
-        "/api/v1/stocks/capital-flow",
-        "/api/v1/stocks/capital-rank",
-        "/api/v1/northbound/flow",
-        "/api/v1/stocks/limit-pool",
-        "/api/v1/dragon-tiger",
-        "/api/v1/hot-list",
-        "/api/v1/market/regime",
-        "/api/v1/stocks/financial-snapshot",
-        "/api/v1/stocks/financial-statement",
-        "/api/v1/stocks/eps-forecast",
-        "/api/v1/stocks/margin",
-        "/api/v1/stocks/block-trade",
-        "/api/v1/stocks/holder-num",
-        "/api/v1/stocks/dividends",
-        "/api/v1/funds/premium",
-        "/api/v1/funds/arbitrage-signals",
-        "/api/v1/etf/share-size",
-        "/api/v1/option-chain",
-        "/api/v1/market/stage-snapshot",
-        "/api/v1/stocks/fq-factors",
-        "/api/v1/stocks/minute",
-        "/api/v1/stocks/ticks",
-        "/api/v1/stocks/quote5",
-        "/api/v1/stocks/unusual",
-        "/api/v1/stocks/unusual/types",
-        "/api/v1/stocks/call-auction",
-        "/api/v1/hot-money/daily",
-        "/api/v1/hot-money/list",
-        "/api/v1/stocks/hot-history",
-        "/api/v1/news/finance/rss-summary",
-        "/api/v1/content/morning-briefing-triptych",
-    ]
+    """从计费目录派生（ENDPOINT_CATALOG_V2 是读侧清单单一事实源）。
+
+    health 自身不列；顺序按路径排序，目录增删端点时这里自动跟上，
+    不再第四处手抄清单。路由与目录的一致性由 test_datahub_parity 兜底。
+    """
+    return sorted(
+        entry.path_pattern
+        for entry in ENDPOINT_CATALOG_V2
+        if entry.enabled and entry.path_pattern != "/api/v1/health"
+    )
 
 
 @router.get("/api/v1/health")
