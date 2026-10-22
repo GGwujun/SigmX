@@ -191,3 +191,40 @@ def test_runtime_does_not_emit_final_when_evidence_validation_fails(tmp_path) ->
         runtime.run(ResearchRunRequest("寻找现金流改善公司", {"skills": []}), emitted.append)
 
     assert all(event["type"] != "assistant_final" for event in emitted)
+
+
+def test_runtime_masks_uncited_numbers_in_final(tmp_path) -> None:
+    """数字出处闸门：对不上证据数值池的数字替换（略※），只闸 final 不闸 delta。"""
+
+    class NumericLLM:
+        model_name = "test-model"
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stream_chat(self, messages, tools=None, on_text_chunk=None, timeout=None):
+            self.calls += 1
+            if self.calls == 1:
+                return LLMResponse(tool_calls=[ToolCallRequest("1", "search_market_data", {"query": "现金流"})])
+            return LLMResponse(content=json.dumps({
+                "summary": "现金流 88.5 亿元改善",
+                "conclusions": [{"text": "经营现金流 88.5 亿元，同比增速 210%",
+                                  "evidence_ids": ["e-1"]}],
+                "risks": [],
+            }, ensure_ascii=False))
+
+    tools = build_research_tools(
+        data_search=lambda query: {"evidence": [{"id": "e-1", "field": "cashflow",
+                                                 "value": 88.5, "source": "Data Hub"}]},
+        skill_loader=lambda name: {"name": name},
+    )
+    emitted: list[dict] = []
+    runtime = ResearchAgentRuntime(lambda: NumericLLM(), tools, runs_dir=tmp_path)
+
+    output = runtime.run(ResearchRunRequest("现金流改善", {"skills": []}), emitted.append)
+
+    final = next(e for e in emitted if e["type"] == "assistant_final")
+    assert "88.5" in final["summary"]                        # 证据值保留
+    assert "210" not in final["conclusions"][0]["text"]      # 无出处 → 遮蔽
+    assert "（略※）" in final["conclusions"][0]["text"]
+    assert "88.5" in output.conclusions[0]["text"]           # 定稿输出同闸

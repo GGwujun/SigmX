@@ -18,7 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .orchestrator import PipelineConfig, run_pipeline
+from .arithmetic import mask_uncited
+from .orchestrator import PipelineConfig, _known_pool, run_pipeline
 from .plugin import ResearchPlugin
 from .plugins.a_stock import A_STOCK_DEEP_RESEARCH, a_stock_plugin
 from .validator import load_run_view
@@ -104,6 +105,9 @@ class PipelineResearchRunner:
 
 
 def _conclusions(view: Any, plugin: ResearchPlugin) -> "list[dict]":
+    """阶段结论（报告阶段除外）。summary 过数字出处闸门：对不上本运行证据
+    数值池的数字替换为（略※）——报告 md 已在 gate 循环遮蔽，这里是展示层。"""
+    pool = _known_pool(view)
     out: "list[dict]" = []
     for stage in plugin.stages:
         if stage == plugin.report_stage:
@@ -113,7 +117,8 @@ def _conclusions(view: Any, plugin: ResearchPlugin) -> "list[dict]":
             continue
         out.append({
             "stage": stage,
-            "text": str(output.get("summary") or ""),
+            "text": mask_uncited(str(output.get("summary") or ""),
+                                 pool, mask="（略※）")[0],
             "evidence_ids": list(output.get("evidence_ids") or []),
             "calculation_ids": list(output.get("calculation_ids") or []),
             "gaps": list(output.get("gaps") or []),

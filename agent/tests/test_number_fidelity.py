@@ -230,3 +230,41 @@ class TestAuditNumbers:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
+
+
+class TestMaskUncited:
+    def test_loose_masked_bound_and_derived_kept(self):
+        from src.research_pipeline.arithmetic import mask_uncited
+        known = [100.0, 110.0, 10.0]
+        text = "收盘从 100 升至 110，涨幅 10.0%，另有 453.9 亿元成交。"
+        masked, n = mask_uncited(text, known)
+        assert n == 1
+        assert "〔未核实〕" in masked and "453.9" not in masked
+        assert "100" in masked and "110" in masked and "10.0%" in masked
+
+    def test_unit_conversion_bound_not_masked(self):
+        from src.research_pipeline.arithmetic import mask_uncited
+        masked, n = mask_uncited("成交 1750 亿元", [1.75e11])   # 亿换算命中
+        assert n == 0 and "1750" in masked
+
+    def test_correct_arithmetic_not_masked(self):
+        from src.research_pipeline.arithmetic import mask_uncited
+        masked, n = mask_uncited("100 ÷ 8 = 12.5", [])
+        assert n == 0 and "12.5" in masked
+
+    def test_custom_mask_marker(self):
+        from src.research_pipeline.arithmetic import mask_uncited
+        masked, n = mask_uncited("营收 88.5 亿元", [], mask="（略※）")
+        assert n == 1 and "88.5" not in masked and "（略※）" in masked
+
+    def test_non_claims_untouched(self):
+        from src.research_pipeline.arithmetic import mask_uncited
+        text = "2024 年第 3 批共 5 家公司，公告编号 2026-012345，于 2026-07-15 披露。"
+        masked, n = mask_uncited(text, [])
+        assert n == 0 and masked == text
+
+    def test_numeric_leaves_recursion(self):
+        from src.research_pipeline.arithmetic import numeric_leaves
+        obj = {"rows": [{"close": 100.5, "flag": True, "name": "x"},
+                        {"close": None}], "total": 3}
+        assert sorted(numeric_leaves(obj)) == [3.0, 100.5]

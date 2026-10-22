@@ -17,6 +17,7 @@ from typing import Any, Callable
 from src.compliance.gate import (compliance_gate, missing_sections,
                                  normalize_report_status, report_status_token)
 
+from .arithmetic import mask_uncited, numeric_leaves
 from .fetchers import fetch_dataset, write_fetch
 from .knowledge import KnowledgeRecall, archive_run, knowledge_block, recall
 from .fsutil import now_iso, read_json_if_exists, sha256_text, write_json
@@ -221,16 +222,32 @@ def _attempt_loop(cfg: PipelineConfig, stage: str, events: _Events,
     return result
 
 
+def _known_pool(view: Any) -> "list[float]":
+    """已知值池：fetch 证据数值叶（递归）+ calc 记录数值（value/args/details）。"""
+    pool: list[float] = []
+    for envelope in (view.fetch or {}).values():
+        if isinstance(envelope, dict):
+            for ev in envelope.get("evidence") or []:
+                if isinstance(ev, dict):
+                    pool.extend(numeric_leaves(ev.get("data")))
+    for record in (view.calc_records or []):
+        if isinstance(record, dict):
+            pool.extend(numeric_leaves({k: v for k, v in record.items()
+                                        if k != "calculation_id"}))
+    return pool
+
+
 def _gate_rewrite_loop(cfg: PipelineConfig, stage_results: "dict[str, StageResult]",
-                       events: _Events) -> "tuple[str, list[str]]":
+                       events: _Events) -> "tuple[str, list[str], int]":
     """报告阶段写完后：合规 gate + 章节完整性 + 首行状态档，违规带命中清单重写。
-    全过之后编排器**确定性归一**首行状态档（complete/incomplete 按阶段状态推导，
-    不以模型自报为准）。"""
+    全过之后：**数字出处遮蔽**（无出处数字替换〔未核实〕，遮蔽>0 强制 incomplete）
+    再确定性归一状态档（不以模型自报为准）。返回 (error, problems, 遮蔽数)。"""
+    known = _known_pool(load_run_view(cfg.run_dir))
     for attempt in range(1, cfg.gate_retries + 1):
         report = (Path(cfg.run_dir) / "report.md")
         text = report.read_text(encoding="utf-8", errors="replace") if report.is_file() else ""
         if not text.strip():
-            return "缺产物: report.md", []
+            return "缺产物: report.md", [], 0
 
         gate = compliance_gate(text)
         sections_missing = missing_sections(text, list(cfg.plugin.report_sections))
@@ -239,15 +256,20 @@ def _gate_rewrite_loop(cfg: PipelineConfig, stage_results: "dict[str, StageResul
         if report_status_token(text) is None:
             problems.append("首行缺状态档标记（状态: complete|incomplete|failed|stale）")
         if not problems:
-            expected = ("complete" if all(r.status == "completed" for r in stage_results.values())
-                        else "incomplete")
-            normalized, _ = normalize_report_status(text, expected)
-            if normalized != text:
+            final_text, masked = mask_uncited(text, known)
+            if masked:
+                events.write("pipeline_gate_rewrite", attempt=attempt, masked=masked,
+                             problems=[f"无出处数字 {masked} 处已替换为〔未核实〕"])
+                (Path(cfg.run_dir) / "report.md").write_text(final_text, encoding="utf-8")
+            expected = ("complete" if masked == 0 and all(
+                r.status == "completed" for r in stage_results.values()) else "incomplete")
+            normalized, _ = normalize_report_status(final_text, expected)
+            if normalized != final_text:
                 (Path(cfg.run_dir) / "report.md").write_text(normalized, encoding="utf-8")
-            return "", []
+            return "", [], masked
 
         if attempt >= cfg.gate_retries:
-            return "报告合规检查未通过", problems
+            return "报告合规检查未通过", problems, 0
 
         hits_detail = "\n".join(f"- 第 {h.line} 行命中「{h.pattern}」: {h.text[:80]}"
                                 for h in gate.hits[:10])
@@ -261,7 +283,7 @@ def _gate_rewrite_loop(cfg: PipelineConfig, stage_results: "dict[str, StageResul
         events.write("pipeline_gate_rewrite", attempt=attempt, problems=problems[:8])
         run_stage_turn(cfg.llm, ctx, rewrite_prompt,
                        max_tool_rounds=cfg.max_tool_rounds, timeout=cfg.request_timeout)
-    return "报告合规检查未通过（重写次数用尽）", []
+    return "报告合规检查未通过（重写次数用尽）", [], 0
 
 
 def run_pipeline(cfg: PipelineConfig) -> PipelineResult:
@@ -332,9 +354,10 @@ def run_pipeline(cfg: PipelineConfig) -> PipelineResult:
     # 报告阶段合格后跑 gate 重写循环
     report_stage = cfg.plugin.report_stage
     report_res = result.stages.get(report_stage)
+    masked_numbers = 0
     if report_res is not None and report_res.status in ("completed", "partial") \
             and result.status != "cancelled":
-        gate_error, problems = _gate_rewrite_loop(cfg, result.stages, events)
+        gate_error, problems, masked_numbers = _gate_rewrite_loop(cfg, result.stages, events)
         if gate_error:
             report_res.status = "failed"
             report_res.error = gate_error + ("; " + "; ".join(problems[:3]) if problems else "")
@@ -357,6 +380,7 @@ def run_pipeline(cfg: PipelineConfig) -> PipelineResult:
             "stages": {s: r.status for s, r in result.stages.items()},
             "protected": protected,
             "ledger": ledger.snapshot(),
+            "unverified_numbers": masked_numbers,
             "finished_at": now_iso(),
         })
         result.status = "completed"

@@ -434,3 +434,64 @@ class TestRunToolGuards:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])
+
+
+class TestReportNumberMasking:
+    """M3 数字出处遮蔽：报告里对不上已知值池的数字替换〔未核实〕并强制 incomplete。"""
+
+    def _report_md(self, calc_id):
+        return ("状态: incomplete\n\n# 结论\n\n两期收盘 100 与 110，涨幅 10.0%。"
+                f"计算引用 {calc_id}。另测分位 35.2%。\n")
+
+    def _llm(self, calc_id):
+        return FakeLLM([
+            [  # probe
+                ("tool", "calculate", {"function": "pct_change", "args": {"a": 110, "b": 100},
+                                       "evidence_ids": ["ev-toy_quotes-0", "ev-toy_quotes-1"],
+                                       "output_file": "01_pct.json"}),
+                ("tool", "write_stage", {"stage_output": GOOD_PROBE_STAGE}),
+                ("say", "done"),
+            ],
+            [  # report：35.2% 无出处
+                ("tool", "write_report", {"markdown": self._report_md(calc_id),
+                                          "stage_output": {"stage": "report",
+                                                           "summary": "成文完成"}}),
+                ("say", "done"),
+            ],
+        ])
+
+    def test_uncited_masked_and_forced_incomplete(self, tmp_path):
+        result, cfg = _run(tmp_path, self._llm(PCT_ID))
+        assert result.status == "completed", result.error
+        report = (Path(cfg.run_dir) / "report.md").read_text(encoding="utf-8")
+        assert "35.2" not in report and "〔未核实〕" in report
+        assert "100" in report and "10.0%" in report      # bound/derived 不遮
+        assert "incomplete" in report.splitlines()[0]     # 遮蔽强制降级状态档
+        manifest = json.loads((Path(cfg.run_dir) / "manifest.json")
+                              .read_text(encoding="utf-8"))
+        assert manifest["unverified_numbers"] == 1
+        events = (Path(cfg.run_dir) / "events.jsonl").read_text(encoding="utf-8")
+        assert '"masked": 1' in events
+        assert verify_protected(cfg.run_dir) == []        # 遮蔽事件在 hash 前
+
+    def test_fully_cited_report_masks_nothing(self, tmp_path):
+        llm = FakeLLM([
+            [  # probe
+                ("tool", "calculate", {"function": "pct_change", "args": {"a": 110, "b": 100},
+                                       "evidence_ids": ["ev-toy_quotes-0", "ev-toy_quotes-1"],
+                                       "output_file": "01_pct.json"}),
+                ("tool", "write_stage", {"stage_output": GOOD_PROBE_STAGE}),
+                ("say", "done"),
+            ],
+            [("tool", "write_report", {"markdown": _good_report_md(),
+                                       "stage_output": {"stage": "report",
+                                                        "summary": "成文完成"}}),
+             ("say", "done")],
+        ])
+        result, cfg = _run(tmp_path, llm)
+        assert result.status == "completed", result.error
+        manifest = json.loads((Path(cfg.run_dir) / "manifest.json")
+                              .read_text(encoding="utf-8"))
+        assert manifest["unverified_numbers"] == 0
+        assert "complete" in (Path(cfg.run_dir) / "report.md") \
+            .read_text(encoding="utf-8").splitlines()[0]

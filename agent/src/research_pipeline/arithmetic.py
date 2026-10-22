@@ -20,7 +20,7 @@ from __future__ import annotations
 import math
 import re
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Any, Callable, Iterable
 
 # ---------------------------------------------------------------------------
 # 基础归一
@@ -480,15 +480,7 @@ def audit_numbers(
             continue
         calcs = check_stated_arithmetic(line)
         res.bad_math.extend(c for c in calcs if not c.ok)
-        # 自洽算式里出现过的数（含结果）都算"有交代"
-        in_calc: set[float] = set()
-        for c in calcs:
-            if c.ok:
-                in_calc.add(c.stated)
-                for m in re.finditer(_NUM, c.raw):
-                    v = _to_num(m.group(0))
-                    if v is not None:
-                        in_calc.add(v)
+        in_calc = _derived_values(line)
         for t in claims(line):
             res.total += 1
             if bound(t["n"], known):
@@ -498,3 +490,75 @@ def audit_numbers(
             else:
                 res.loose.append(LooseNumber(line=line.strip()[:160], value=t["n"], raw=t["raw"]))
     return res
+
+
+# ---------------------------------------------------------------------------
+# 遮蔽（M3：audit 只标不改 → 无出处数字替换为占位符）
+# ---------------------------------------------------------------------------
+
+
+def _derived_values(line: str) -> "set[float]":
+    """自洽算式里出现过的数（含结果）——有交代，不算 loose。"""
+    out: set[float] = set()
+    for c in check_stated_arithmetic(line):
+        if not c.ok:
+            continue
+        out.add(c.stated)
+        for m in re.finditer(_NUM, c.raw):
+            v = _to_num(m.group(0))
+            if v is not None:
+                out.add(v)
+    return out
+
+
+def numeric_leaves(obj: Any) -> "list[float]":
+    """递归收集数值叶（bool 除外）——证据/计算记录构建已知值池用。"""
+    if obj is None or isinstance(obj, bool):
+        return []
+    if isinstance(obj, (int, float)):
+        return [float(obj)] if math.isfinite(float(obj)) else []
+    if isinstance(obj, dict):
+        out: list[float] = []
+        for v in obj.values():
+            out.extend(numeric_leaves(v))
+        return out
+    if isinstance(obj, (list, tuple)):
+        out = []
+        for v in obj:
+            out.extend(numeric_leaves(v))
+        return out
+    return []
+
+
+def mask_uncited(text: str, known: "list[float]",
+                 mask: str = "〔未核实〕") -> "tuple[str, int]":
+    """把无出处数字主张（loose 档）连紧邻单位替换为 mask。
+
+    bound（对得上已知值池，含单位换算）与 derived（自洽算式里的数）不遮；
+    bad_math 由审计另报，这里不处理。claim_tokens 的 index 与原行等长对齐
+    （非主张 token 被等长空白遮掉），所以替换位点直接落在原文上。
+    返回（遮蔽文, 遮蔽数）。
+    """
+    out_lines: list[str] = []
+    count = 0
+    for line in re.split(r"\r?\n", text):
+        if not line.strip():
+            out_lines.append(line)
+            continue
+        in_calc = _derived_values(line)
+        spans = [(t["index"], t["index"] + len(t["raw"]))
+                 for t in claim_tokens(line)
+                 if not number_bound(t["n"], known) and t["n"] not in in_calc]
+        if not spans:
+            out_lines.append(line)
+            continue
+        buf: list[str] = []
+        last = 0
+        for start, end in spans:
+            buf.append(line[last:start])
+            buf.append(mask)
+            last = end
+            count += 1
+        buf.append(line[last:])
+        out_lines.append("".join(buf))
+    return "\n".join(out_lines), count

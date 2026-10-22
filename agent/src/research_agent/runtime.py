@@ -14,6 +14,7 @@ from src.research_agent.runner import AgentResearchOutput, ResearchRunRequest
 from src.research_agent.tools import ResearchTool
 from src.research_agent.policy import build_research_registry
 from src.research_agent.public_updates import PublicUpdateStreamParser
+from src.research_pipeline.arithmetic import mask_uncited, numeric_leaves
 
 
 _SYSTEM_PROMPT = """你是 SigmX Web AI 投研智能体。你只能执行只读金融研究。
@@ -134,16 +135,26 @@ class ResearchAgentRuntime:
             raise ValueError("AI conclusion references unknown evidence")
         close_public_segment()
         risks = [str(item) for item in payload.get("risks", [])]
+        # 数字出处闸门：摘要/结论里对不上本运行证据数值池的数字替换为（略※）。
+        # 只闸 assistant_final（落库与展示的定稿），不闸 assistant_delta 流式。
+        pool = numeric_leaves(evidence)
+        summary, _ = mask_uncited(
+            str(payload.get("summary") or "研究已完成"), pool, mask="（略※）")
+        masked_conclusions = [
+            {**item, "text": mask_uncited(str(item.get("text") or ""),
+                                          pool, mask="（略※）")[0]}
+            for item in conclusions
+        ]
         emit({
             "type": "assistant_final",
-            "summary": str(payload.get("summary") or "研究已完成"),
-            "conclusions": conclusions,
+            "summary": summary,
+            "conclusions": masked_conclusions,
             "risks": risks,
         })
         emit({"type": "runtime_completed", "iterations": result.get("iterations", 0),
               "max_iterations": self.max_iterations, "tools": registry.tool_names})
         return AgentResearchOutput(
-            summary=str(payload.get("summary") or "研究已完成"), conclusions=conclusions,
+            summary=summary, conclusions=masked_conclusions,
             evidence=evidence, risks=risks,
             model=getattr(llm, "model_name", None),
         )
