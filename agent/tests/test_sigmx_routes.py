@@ -481,3 +481,125 @@ class TestMarketStats:
         item = r.json()["data"]["items"][0]
         assert item["stage"] == "premarket"
         assert item["payload"]["headline"] == "ok"
+
+
+class TestShortline:
+    @pytest.fixture()
+    def shortline_env(self, tmp_path, monkeypatch):
+        db = tmp_path / "market.db"
+        store = MarketStore(str(db))
+        td = "2026-07-15"
+        with store._write_transaction():
+            store._conn.executemany(
+                "INSERT OR REPLACE INTO trade_calendar "
+                "(trade_date, is_trading, market, updated_at) VALUES (?, 1, 'CN', datetime('now'))",
+                [("2026-07-11",), ("2026-07-12",), ("2026-07-13",),
+                 ("2026-07-14",), (td,)],
+            )
+        # 池表：给 cycle/theme-rotation 现场重算提供输入
+        for i, d in enumerate(["2026-07-11", "2026-07-12", "2026-07-13", "2026-07-14", td]):
+            store.upsert_zt_pool(d, [
+                {"code": "600001.SH", "name": "样本一", "price": 10.0, "pct": 10.0,
+                 "amount": 1e8, "float_cap": 5e9, "turnover": 2.0,
+                 "limit_days": 1 + i % 3, "first_seal": "092500", "last_seal": "092500",
+                 "seal_fund": 1e8, "break_times": 0, "industry": "电池", "zt_stat": ""},
+                {"code": "600002.SH", "name": "样本二", "price": 8.0, "pct": 10.0,
+                 "amount": 5e7, "float_cap": 3e9, "turnover": 1.0,
+                 "limit_days": 2 + i % 2, "first_seal": "100000", "last_seal": "100000",
+                 "seal_fund": 5e7, "break_times": 0, "industry": "地产", "zt_stat": ""},
+            ], source="eastmoney")
+            store.upsert_zt_pool(d, [
+                {"code": "600001.SH", "name": "样本一", "reason": "锂电池+国企改革"},
+                {"code": "600002.SH", "name": "样本二", "reason": "房地产"},
+            ], source="ths")
+            store.upsert_zb_pool(d, [{"code": "600003.SH", "name": "样本三", "price": 9.0,
+                                      "limit_price": 10.0, "pct": 5.0, "turnover": 2.0,
+                                      "first_seal": "093500", "break_times": 1,
+                                      "amplitude": 6.0, "speed": 0.4,
+                                      "industry": "电池", "zt_stat": ""}])
+        # 快照：12 个 kind 直读型
+        for kind, payload in [
+            ("emotion", {"money_effect": {"available": True, "avg": 2.5}}),
+            ("daily", {"readings": {"limit_up": 2}}),
+            ("facts", {"seal_quality": {"total": 2}}),
+            ("structure", {"mix": {"10%": 2}}),
+            ("ladder", {"sample_date": "2026-07-14", "highest": 4}),
+            ("settled", {"settled_cov": {"sample": 2}}),
+            ("live", {"limit_up": 2, "phase": "in_session"}),
+            ("themes", {"available": True, "theme_count": 2}),
+            ("firstboard", {"total": 1, "partial": False}),
+            ("board_ladder", {"highest": 3}),
+            ("turnover_top", {"rows": [{"code": "600001.SH"}]}),
+            ("bigcaps", {"count": 1, "rows": [{"total_mv_yi": 800.0}]}),
+        ]:
+            store.upsert_shortline_snapshot(td, kind, payload, source_tables="zt_pool")
+        # 旧日期的一行，验证缺省取最近交易日
+        store.upsert_shortline_snapshot("2026-07-14", "emotion",
+                                        {"money_effect": {"available": False}},
+                                        source_tables="zt_pool")
+        store._conn.close()
+        monkeypatch.setattr(sigmx_routes, "DB_PATH", str(db))
+        app = FastAPI()
+        register_sigmx_routes(app)
+        return TestClient(app), td
+
+    def test_kind_endpoints_return_envelope(self, shortline_env):
+        client, td = shortline_env
+        for kind, path, expected in [
+            ("emotion", ("payload", "money_effect", "available"), True),
+            ("daily", ("payload", "readings", "limit_up"), 2),
+            ("facts", ("payload", "seal_quality", "total"), 2),
+            ("structure", ("payload", "mix", "10%"), 2),
+            ("ladder", ("payload", "sample_date"), "2026-07-14"),
+            ("settled", ("payload", "settled_cov", "sample"), 2),
+            ("live", ("payload", "phase"), "in_session"),
+            ("themes", ("payload", "available"), True),
+            ("firstboard", ("payload", "total"), 1),
+            ("board-ladder", ("payload", "highest"), 3),
+            ("turnover-top", ("payload", "rows", 0, "code"), "600001.SH"),
+            ("bigcaps", ("payload", "count"), 1),
+        ]:
+            r = client.get(f"/api/v1/shortline/{kind}")
+            assert r.status_code == 200, (kind, r.text)
+            body = r.json()
+            assert body["ok"] is True and body["data"]["trade_date"] == td
+            assert body["data"]["kind"] == kind.replace("-", "_")
+            node = body["data"]
+            for key in path:
+                node = node[key]
+            assert node == expected, (kind, node)
+
+    def test_default_trade_date_is_latest(self, shortline_env):
+        client, td = shortline_env
+        r = client.get("/api/v1/shortline/emotion")
+        assert r.json()["data"]["trade_date"] == td
+        # 显式传旧日期拿到旧行
+        r2 = client.get("/api/v1/shortline/emotion",
+                        params={"trade_date": "2026-07-14"})
+        assert r2.json()["data"]["payload"]["money_effect"]["available"] is False
+
+    def test_cycle_recomputes_with_lookback(self, shortline_env):
+        client, _ = shortline_env
+        r = client.get("/api/v1/shortline/cycle", params={"lookback": 5})
+        body = r.json()["data"]["payload"]
+        assert body["available"] is True and len(body["series"]) == 5
+        r3 = client.get("/api/v1/shortline/cycle", params={"lookback": 3})
+        assert len(r3.json()["data"]["payload"]["series"]) == 3
+        bad = client.get("/api/v1/shortline/cycle", params={"lookback": 2})
+        assert bad.status_code == 422  # ge=3 校验
+
+    def test_theme_rotation_recomputes(self, shortline_env):
+        client, _ = shortline_env
+        r = client.get("/api/v1/shortline/theme-rotation", params={"days": 3})
+        payload = r.json()["data"]["payload"]
+        assert payload["available"] is True
+        # 国企改革被滤掉，锂电池 5 日都在
+        assert set(payload["themes"]) == {"锂电池", "房地产"}
+        assert payload["themes"]["锂电池"]["series"] == [1, 1, 1]  # 每日仅 600001 带锂电池标签
+
+    def test_missing_kind_returns_404(self, shortline_env):
+        client, _ = shortline_env
+        r = client.get("/api/v1/shortline/emotion",
+                       params={"trade_date": "2020-01-01"})
+        assert r.status_code == 404
+        assert r.json()["error"]["code"] == "DATA_NOT_FOUND"

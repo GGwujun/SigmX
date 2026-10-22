@@ -46,7 +46,7 @@ def test_valid_personal_key_reaches_handler(client) -> None:
 def test_every_v1_route_uses_billing_route(client) -> None:
     _, _, app = client
     data_routes = [route for route in app.routes if getattr(route, "path", "").startswith("/api/v1/")]
-    assert len(data_routes) == 49
+    assert len(data_routes) == 63
     assert all(isinstance(route, DataHubBillingRoute) for route in data_routes)
 
 

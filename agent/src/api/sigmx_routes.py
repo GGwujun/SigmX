@@ -1267,6 +1267,147 @@ def ep_stage_snapshot(trade_date: str = None, stage: str = None):
     return ok({"trade_date": td, "items": items}, {"source": "market_stage_snapshot"})
 
 
+# ----- 10k. shortline snapshots（14 kind，写侧由 shortline dataset 派生落库）
+def _shortline_kind_payload(kind: str, trade_date: str):
+    kind = kind.replace("-", "_")  # URL 用连字符，表内 kind 是下划线
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "shortline_snapshot")
+        if not td:
+            return err("DATA_NOT_FOUND", "No shortline snapshot data", 404)
+        row = conn.execute(
+            "SELECT payload_json, source_tables, updated_at FROM shortline_snapshot "
+            "WHERE trade_date=? AND kind=?", (td, kind)).fetchone()
+    if not row:
+        return err("DATA_NOT_FOUND", f"No shortline {kind} snapshot for {td}", 404)
+    try:
+        payload = json.loads(row["payload_json"])
+    except (json.JSONDecodeError, TypeError):
+        payload = None
+    return ok({"trade_date": td, "kind": kind, "payload": payload,
+               "source_tables": row["source_tables"]},
+              {"source": "shortline_snapshot"})
+
+
+@router.get("/api/v1/shortline/emotion")
+def ep_shortline_emotion(trade_date: str = None):
+    """情绪四项：赚钱效应/晋级率/连板溢价/梯队断层。"""
+    return _shortline_kind_payload("emotion", trade_date)
+
+
+@router.get("/api/v1/shortline/daily")
+def ep_shortline_daily(trade_date: str = None):
+    """每日六项读数：涨停数/最高板/炸板率/赚钱效应/深亏/晋级。"""
+    return _shortline_kind_payload("daily", trade_date)
+
+
+@router.get("/api/v1/shortline/facts")
+def ep_shortline_facts(trade_date: str = None):
+    """打板事实六表：封板质量/亏钱效应/反馈矩阵/题材结构/事件账本/分制度生态。"""
+    return _shortline_kind_payload("facts", trade_date)
+
+
+@router.get("/api/v1/shortline/structure")
+def ep_shortline_structure(trade_date: str = None):
+    """每日结构：制度构成/最高标梯队。"""
+    return _shortline_kind_payload("structure", trade_date)
+
+
+@router.get("/api/v1/shortline/ladder")
+def ep_shortline_ladder(trade_date: str = None):
+    """昨日梯队名单（date 参数=行情日，名单取其前一交易日）。"""
+    return _shortline_kind_payload("ladder", trade_date)
+
+
+@router.get("/api/v1/shortline/settled")
+def ep_shortline_settled(trade_date: str = None):
+    """昨日涨停样本与三值涨停判定。"""
+    return _shortline_kind_payload("settled", trade_date)
+
+
+@router.get("/api/v1/shortline/live")
+def ep_shortline_live(trade_date: str = None):
+    """此刻读数（盘中批刷新）：涨停/炸板/晋级/封板率/赚钱效应。"""
+    return _shortline_kind_payload("live", trade_date)
+
+
+@router.get("/api/v1/shortline/themes")
+def ep_shortline_themes(trade_date: str = None):
+    """题材树（同花顺涨停揭秘 reason 派生）。"""
+    return _shortline_kind_payload("themes", trade_date)
+
+
+@router.get("/api/v1/shortline/firstboard")
+def ep_shortline_firstboard(trade_date: str = None):
+    """首板名单（附涨停原因）。"""
+    return _shortline_kind_payload("firstboard", trade_date)
+
+
+@router.get("/api/v1/shortline/board-ladder")
+def ep_shortline_board_ladder(trade_date: str = None):
+    """连板天梯：档位/晋级/断板去向。"""
+    return _shortline_kind_payload("board-ladder", trade_date)
+
+
+@router.get("/api/v1/shortline/turnover-top")
+def ep_shortline_turnover_top(trade_date: str = None):
+    """成交额前十。"""
+    return _shortline_kind_payload("turnover-top", trade_date)
+
+
+@router.get("/api/v1/shortline/bigcaps")
+def ep_shortline_bigcaps(trade_date: str = None):
+    """500 亿大票池（总市值降序）。"""
+    return _shortline_kind_payload("bigcaps", trade_date)
+
+
+@router.get("/api/v1/shortline/cycle")
+def ep_shortline_cycle(trade_date: str = None, lookback: int = Query(10, ge=3, le=30)):
+    """情绪周期：窗口内涨停数/最高连板/炸板率 min-max 归一打分。lookback 现场重算。"""
+    from src.data import shortline_metrics as sm
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "zt_pool")
+        if not td:
+            return err("DATA_NOT_FOUND", "No pool data for cycle", 404)
+        days = [str(r[0]) for r in conn.execute(
+            "SELECT trade_date FROM trade_calendar WHERE market='CN' AND is_trading=1 "
+            "AND trade_date<=? ORDER BY trade_date DESC LIMIT ?",
+            (td, lookback)).fetchall()][::-1]
+        window = []
+        for d in days:
+            zt = [dict(r) for r in conn.execute(
+                "SELECT * FROM zt_pool WHERE trade_date=?", (d,)).fetchall()]
+            zb = [dict(r) for r in conn.execute(
+                "SELECT * FROM zb_pool WHERE trade_date=?", (d,)).fetchall()]
+            window.append((d, zt, zb))
+    payload = sm.build_cycle(td, window, requested_window=lookback)
+    return ok({"trade_date": td, "kind": "cycle", "payload": payload},
+              {"source": "zt_pool,zb_pool,trade_calendar"})
+
+
+@router.get("/api/v1/shortline/theme-rotation")
+def ep_shortline_theme_rotation(trade_date: str = None, days: int = Query(5, ge=3, le=10)):
+    """题材轮动：days 窗口逐日题材涨停数序列。缺数据日为 null。现场重算。"""
+    from src.data import shortline_metrics as sm
+    with get_db() as conn:
+        td = trade_date or latest_trade_date(conn, "zt_pool")
+        if not td:
+            return err("DATA_NOT_FOUND", "No pool data for theme rotation", 404)
+        day_list = [str(r[0]) for r in conn.execute(
+            "SELECT trade_date FROM trade_calendar WHERE market='CN' AND is_trading=1 "
+            "AND trade_date<=? ORDER BY trade_date DESC LIMIT ?",
+            (td, days)).fetchall()][::-1]
+        groups = []
+        for d in day_list:
+            zt = [dict(r) for r in conn.execute(
+                "SELECT * FROM zt_pool WHERE trade_date=?", (d,)).fetchall()]
+            ths = [dict(r) for r in conn.execute(
+                "SELECT * FROM ths_limit_up WHERE trade_date=?", (d,)).fetchall()]
+            groups.append(sm.theme_counts(zt, ths))
+    payload = sm.build_theme_rotation(td, day_list, groups, requested_days=days)
+    return ok({"trade_date": td, "kind": "theme_rotation", "payload": payload},
+              {"source": "zt_pool,ths_limit_up,trade_calendar"})
+
+
 # ----- 10j. fq-factors + minute bars + wolf passthrough (B1-B3)
 @router.get("/api/v1/stocks/fq-factors")
 def ep_fq_factors(code: str = Query(...), start: str = None, end: str = None,

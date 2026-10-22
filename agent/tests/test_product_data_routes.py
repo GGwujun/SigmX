@@ -56,8 +56,8 @@ def test_first_data_credit_read_grants_free_monthly_lot() -> None:
 
 def test_public_datahub_catalog_serializes_all_current_entries() -> None:
     response = asyncio.run(pr.datahub_catalog())
-    assert len(response.items) == 49
-    assert len({item.endpoint_code for item in response.items}) == 49
+    assert len(response.items) == 63
+    assert len({item.endpoint_code for item in response.items}) == 63
     daily = next(item for item in response.items if item.endpoint_code == "stocks.daily")
     assert daily.dataset_group == "market.v1"
     assert daily.pricing_mode == "per_unit"

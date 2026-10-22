@@ -87,11 +87,11 @@ def test_current_sigmx_get_routes_are_exactly_covered_by_v1_catalog() -> None:
                 routes.add(("GET", path.value))
 
     seeded = {(entry.http_method, entry.path_pattern) for entry in ENDPOINT_CATALOG_V1}
-    assert len(routes) == 49
+    assert len(routes) == 63
     assert seeded == routes
 
 
-def test_store_seed_contains_all_49_enabled_v1_entries(catalog: DataHubEndpointCatalog) -> None:
+def test_store_seed_contains_all_63_enabled_v1_entries(catalog: DataHubEndpointCatalog) -> None:
     entries = catalog.list(version=1)
-    assert len(entries) == 49
-    assert len({entry.endpoint_code for entry in entries}) == 49
+    assert len(entries) == 63
+    assert len({entry.endpoint_code for entry in entries}) == 63

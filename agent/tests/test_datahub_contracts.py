@@ -29,7 +29,7 @@ ADVANCED = {
 
 def test_all_per_unit_endpoints_have_explicit_contracts(catalog: DataHubEndpointCatalog) -> None:
     current = catalog.list()
-    assert len(current) == 49
+    assert len(current) == 63
     per_unit = [entry for entry in current if entry.pricing_mode == "per_unit"]
     assert len(per_unit) == 10
     assert all(entry.request_limit_params for entry in per_unit)

@@ -101,3 +101,26 @@
 | `GET /hot-money/daily` | `trade_date`；`hot_name` 模糊；`limit≤500` | 游资每日榜单（买卖净额/上榜理由，按净额绝对值降序） | hot_money_daily（新表，盘后 01302） |
 | `GET /hot-money/list` | — | 游资名录 | hot_money_list（新表，01301） |
 | `GET /stocks/hot-history` | `code`*；`days≤250`；`source` | 个股热度历史曲线（rank/hot_value 逐日） | hot_list（已有数据直查） |
+
+## 短线专题：计算型快照（D，2026-10-22 新增）
+
+14 个端点全部读 `shortline_snapshot`（14 kind 共表，盘中批只算 `live`，收盘批算全部；由 zt/zb/dt/yzt 池 + ths 涨停揭秘 + bars_daily/stock_daily_basic 本地派生，零新外部源）。计费组 `shortline.v1`（复盘 fixed 3 credits，live fixed 5）。
+
+| 端点 | 参数 | 说明 | kind |
+|---|---|---|---|
+| `GET /shortline/emotion` | `trade_date` | 情绪四项：赚钱效应（昨日涨停今日表现）/晋级率（1进2、2进3、3板以上）/连板溢价/梯队断层 | emotion |
+| `GET /shortline/daily` | `trade_date` | 每日六项读数：涨停数/最高板/炸板率/赚钱效应中位数/深亏只数/1进2 | daily |
+| `GET /shortline/facts` | `trade_date` | 打板事实六表：封板质量/亏钱效应/反馈矩阵/题材结构/事件账本/分制度生态 | facts |
+| `GET /shortline/structure` | `trade_date` | 每日结构：10%/20%/北交所制度构成、最高标梯队名单 | structure |
+| `GET /shortline/ladder` | `trade_date`（行情日语义：名单取其前一交易日） | 昨日连板梯队名单（高度降序、反包标签"N天M板"） | ladder |
+| `GET /shortline/settled` | `trade_date` | 昨日涨停样本：涨跌幅/昨日板数/三值涨停判定（True/False/null） | settled |
+| `GET /shortline/cycle` | `trade_date`；`lookback∈[3,30]` 默认 10 | 情绪周期：涨停数/最高连板/炸板率 min-max 归一打分，谷底/当前位置/趋势（窗口参数现场重算） | cycle |
+| `GET /shortline/live` | `trade_date` | 此刻读数（盘中 5 分钟批刷新）：涨停/炸板/跌停/晋级/封板率/赚钱效应 | live |
+| `GET /shortline/themes` | `trade_date` | 题材树（同花顺涨停揭秘 reason 拆标签，滤"国企改革/破净"等泛属性词；reason 缺失时 available=false） | themes |
+| `GET /shortline/firstboard` | `trade_date` | 首板名单（附涨停原因；缺 reason 标 partial） | firstboard |
+| `GET /shortline/board-ladder` | `trade_date` | 连板天梯：档位降序、每档晋级数与断板去向（涨停→炸板→跌停→其他），最高标断板档留行 | board_ladder |
+| `GET /shortline/theme-rotation` | `trade_date`；`days∈[3,10]` 默认 5 | 题材轮动：逐日题材涨停数序列（缺数据日为 null），trend/peak_day | theme_rotation |
+| `GET /shortline/turnover-top` | `trade_date` | 成交额前十（bars_daily，附亿元换算） | turnover_top |
+| `GET /shortline/bigcaps` | `trade_date` | 500 亿大票池（tushare total_mv 万元单位，阈值 5_000_000 万） | bigcaps |
+
+制度规则常量：创业板 2020-08-24 起 20%（此前 10%）；主板 ST 2026-07-06 起 10%（此前 5%）；北交所 30%。所有端点 `trade_date` 缺省取该表最近交易日；无数据返回 404 `DATA_NOT_FOUND`。

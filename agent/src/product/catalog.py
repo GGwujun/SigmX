@@ -129,7 +129,7 @@ PRO_BUNDLE: PlanSeed = {
     "description": "重度研究和批量任务",
     "entitlements": {
         "datahub.enabled": True,
-        "datahub.dataset_groups": ["basic.v1", "market.v1", "finance.v1", "pro.v1"],
+        "datahub.dataset_groups": ["basic.v1", "market.v1", "finance.v1", "pro.v1", "shortline.v1"],
         "datahub.monthly_credits": 150_000,
         "datahub.rate_limit_per_minute": 600,
         "datahub.concurrent_limit": 10,

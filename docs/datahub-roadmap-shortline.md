@@ -1,5 +1,11 @@
 # Data Hub 短线专题路线图（VA cn_shortline_* 14 端点候选池）
 
+> **状态：2026-10-22 已全部实现**（commits 56c009f / c4c107e + API 提交）。
+> 落地形态与本路线图候选一致但更进一步：14 个计算全部从本地已同步表派生
+> （`shortline_snapshot` 单表 14 kind，写侧一个 dataset、读侧 14 端点，
+> 零新 HTTP 依赖），文档见 docs/datahub-api.md「短线专题」节。下文保留作
+> 口径出处与缓存语义讨论记录。
+>
 > 来源：参考项目 Vibe-AStock（VR 底座 + 短线专题）datasources/registry.json 的
 > 14 个 `cn_shortline_*` 计算型端点。本文档是 Data Hub 下一批 dataset 的候选池，
 > **本期不实现**；缓存语义照抄 VA registry notes 原文表述。

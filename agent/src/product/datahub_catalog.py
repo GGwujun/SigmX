@@ -94,6 +94,21 @@ _V1 = [
     ("hot_money.daily", "/api/v1/hot-money/daily", "pro.v1", "fixed", 5),
     ("stocks.hot_history", "/api/v1/stocks/hot-history", "pro.v1", "fixed", 5),
     ("content.morning_briefing_triptych", "/api/v1/content/morning-briefing-triptych", "pro.v1", "fixed", 5),
+    # 短线专题（shortline.v1）：复盘 13 个 fixed 3；live 盘中热数据 fixed 5。
+    ("shortline.emotion", "/api/v1/shortline/emotion", "shortline.v1", "fixed", 3),
+    ("shortline.daily", "/api/v1/shortline/daily", "shortline.v1", "fixed", 3),
+    ("shortline.facts", "/api/v1/shortline/facts", "shortline.v1", "fixed", 3),
+    ("shortline.structure", "/api/v1/shortline/structure", "shortline.v1", "fixed", 3),
+    ("shortline.ladder", "/api/v1/shortline/ladder", "shortline.v1", "fixed", 3),
+    ("shortline.settled", "/api/v1/shortline/settled", "shortline.v1", "fixed", 3),
+    ("shortline.cycle", "/api/v1/shortline/cycle", "shortline.v1", "fixed", 3),
+    ("shortline.live", "/api/v1/shortline/live", "shortline.v1", "fixed", 5),
+    ("shortline.themes", "/api/v1/shortline/themes", "shortline.v1", "fixed", 3),
+    ("shortline.firstboard", "/api/v1/shortline/firstboard", "shortline.v1", "fixed", 3),
+    ("shortline.board_ladder", "/api/v1/shortline/board-ladder", "shortline.v1", "fixed", 3),
+    ("shortline.theme_rotation", "/api/v1/shortline/theme-rotation", "shortline.v1", "fixed", 3),
+    ("shortline.turnover_top", "/api/v1/shortline/turnover-top", "shortline.v1", "fixed", 3),
+    ("shortline.bigcaps", "/api/v1/shortline/bigcaps", "shortline.v1", "fixed", 3),
 ]
 
 ENDPOINT_CATALOG_V1 = tuple(_entry(*values) for values in _V1)
