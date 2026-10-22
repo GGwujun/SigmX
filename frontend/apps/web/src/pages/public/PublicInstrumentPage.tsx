@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { BookmarkPlus, Monitor } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { BookmarkPlus, Monitor, Search } from "lucide-react";
 import { DataStatus, ErrorState, MetricStrip, Panel } from "@/components/ui";
 
 import { cloudResearchApi, type PublicFundSummary, type PublicStockSummary } from "@/lib/cloudResearchApi";
@@ -12,6 +12,7 @@ function number(value: unknown, suffix = ""): string {
 
 export function PublicInstrumentPage({ kind }: { kind: "stock" | "fund" }) {
   const { code = "" } = useParams();
+  const navigate = useNavigate();
   const [data, setData] = useState<PublicStockSummary | PublicFundSummary | null>(null);
   const [error, setError] = useState("");
   const [handoffLink, setHandoffLink] = useState("");
@@ -52,7 +53,7 @@ export function PublicInstrumentPage({ kind }: { kind: "stock" | "fund" }) {
   ];
 
   return <div className="mx-auto max-w-6xl space-y-5 px-4 py-8 sm:px-6">
-    <header className="flex flex-wrap items-start justify-between gap-4 border-b pb-5"><div><p className="text-xs uppercase tracking-[.18em] text-primary">{kind === "stock" ? "Equity Research" : "Fund Research"}</p><h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{data.name} <code className="text-sm font-normal text-muted-foreground">{data.code}</code></h1><p className="mt-1 text-xs text-muted-foreground">{stock?.industry ?? fund?.fund_type ?? "—"}</p></div><div className="flex flex-wrap gap-2">{isAuthenticated() && <button type="button" onClick={() => void addWatchlist()} className="inline-flex items-center gap-2 rounded border px-3 py-2 text-xs"><BookmarkPlus className="h-3.5 w-3.5" />{watchlistState || "加入云自选"}</button>}<button type="button" onClick={() => void createHandoff()} className="inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"><Monitor className="h-3.5 w-3.5" />在 Desktop 中继续研究</button></div></header>
+    <header className="flex flex-wrap items-start justify-between gap-4 border-b pb-5"><div><p className="text-xs uppercase tracking-[.18em] text-primary">{kind === "stock" ? "Equity Research" : "Fund Research"}</p><h1 className="mt-2 text-2xl font-semibold sm:text-3xl">{data.name} <code className="text-sm font-normal text-muted-foreground">{data.code}</code></h1><p className="mt-1 text-xs text-muted-foreground">{stock?.industry ?? fund?.fund_type ?? "—"}</p></div><div className="flex flex-wrap gap-2">{isAuthenticated() && <button type="button" onClick={() => void addWatchlist()} className="inline-flex items-center gap-2 rounded border px-3 py-2 text-xs"><BookmarkPlus className="h-3.5 w-3.5" />{watchlistState || "加入云自选"}</button>}{kind === "stock" && <button type="button" onClick={() => navigate(`/?deep=${encodeURIComponent(code.replace(/\D/g, ""))}`)} className="inline-flex items-center gap-2 rounded border px-3 py-2 text-xs"><Search className="h-3.5 w-3.5" />深度研究</button>}<button type="button" onClick={() => void createHandoff()} className="inline-flex items-center gap-2 rounded bg-primary px-3 py-2 text-xs font-medium text-primary-foreground"><Monitor className="h-3.5 w-3.5" />在 Desktop 中继续研究</button></div></header>
     <MetricStrip items={metrics} />
     <div className="grid gap-5 lg:grid-cols-[minmax(0,1.45fr)_minmax(18rem,.75fr)]">
       <div className="space-y-5">

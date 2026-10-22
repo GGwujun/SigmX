@@ -7,12 +7,12 @@ export interface ResearchStep { key: string; label: string; status: string }
 export interface ResearchConditionAlternative { label: string; question: string }
 export interface ResearchCondition { id: string; metric: string; label: string; operator: string | null; value: number | string | null; period: string | null; benchmark: string | null; status: "supported" | "degraded" | "unavailable"; reason: string | null; alternatives: ResearchConditionAlternative[] }
 export interface ResearchDataset { key: string; name: string; status: "supported" | "degraded" | "unavailable"; as_of: string | null; coverage: string | null }
-export interface ResearchPlan { id: string; question: string; template_id: string | null; scope: Record<string, unknown>; conditions: ResearchCondition[]; ranking: Record<string, unknown>[]; datasets: ResearchDataset[]; steps: ResearchStep[]; constraints: Record<string, unknown>[]; executable: boolean; suggested_question: string | null; execution_mode?: string; model?: string | null; skills?: string[] }
+export interface ResearchPlan { id: string; question: string; template_id: string | null; scope: Record<string, unknown>; conditions: ResearchCondition[]; ranking: Record<string, unknown>[]; datasets: ResearchDataset[]; steps: ResearchStep[]; constraints: Record<string, unknown>[]; executable: boolean; suggested_question: string | null; execution_mode?: string; model?: string | null; skills?: string[]; pipeline?: string; code?: string }
 export interface CreateResearchPlanInput { question: string; template_id: string | null; scope: Record<string, unknown> }
 export interface ResearchTask { id: string; user_id: string; question: string; template_id: string | null; scope: Record<string, unknown>; constraints: Record<string, unknown>[]; status: string; steps: ResearchStep[]; error: string | null; created_at: string; started_at: string | null; finished_at: string | null }
 export interface ResearchEvidence { field: string; value: unknown; source: string; as_of: string | null }
 export interface ResearchCandidate { code: string; name: string; industry: string | null; close: number | null; pe_ttm: number | null; pb: number | null; dividend_yield: number | null; total_market_value: number | null; reason: string; evidence: ResearchEvidence[] }
-export interface ResearchResult { task_id: string; question: string; template_id: string | null; summary: string; source: string; as_of: string | null; scope: Record<string, unknown>; candidates: ResearchCandidate[]; risks: string[]; created_at: string; conclusions?: Array<{ text: string; evidence_ids: string[] }>; agent_evidence?: Array<{ id: string; field: string; value: unknown; source: string; as_of?: string | null; code?: string; name?: string }>; skills?: string[]; model?: string | null; execution_mode?: string }
+export interface ResearchResult { task_id: string; question: string; template_id: string | null; summary: string; source: string; as_of: string | null; scope: Record<string, unknown>; candidates: ResearchCandidate[]; risks: string[]; created_at: string; conclusions?: Array<{ text: string; evidence_ids: string[]; stage?: string }>; agent_evidence?: Array<{ id: string; field: string; value: unknown; source: string; as_of?: string | null; code?: string; name?: string; dataset?: string; data?: unknown }>; skills?: string[]; model?: string | null; execution_mode?: string }
 export interface ResearchEvent { id: number; type: string; payload: Record<string, unknown>; created_at?: string }
 export interface ResearchConversationTurn { task: ResearchTask; events: ResearchEvent[]; result: ResearchResult | null }
 export interface ResearchThread { turns: ResearchConversationTurn[] }
@@ -35,6 +35,37 @@ export const getDiscovery = () => json<PublicDiscovery>("/api/public/discovery")
 
 export const createResearchPlan = (input: CreateResearchPlanInput) =>
   json<ResearchPlan>("/api/research/plans", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) });
+
+export const DEEP_RESEARCH_PIPELINE = "a_stock_deep_research";
+
+/**
+ * 本地构造六阶段深研计划：跳过 /api/research/plans 的 LLM 规划，
+ * 后端按 plan.pipeline + plan.code 分流到 PipelineDispatchRunner。
+ */
+export function buildDeepResearchPlan(code: string, question: string): ResearchPlan {
+  return {
+    id: crypto.randomUUID(),
+    question,
+    template_id: null,
+    scope: { market: "A股", exclude_st: true },
+    conditions: [],
+    ranking: [],
+    datasets: [],
+    steps: [
+      { key: "profile", label: "公司画像", status: "pending" },
+      { key: "valuation", label: "估值水平", status: "pending" },
+      { key: "funds_sentiment", label: "资金与情绪", status: "pending" },
+      { key: "risk", label: "风险与反证", status: "pending" },
+      { key: "report", label: "结论", status: "pending" },
+    ],
+    constraints: [],
+    executable: true,
+    suggested_question: null,
+    execution_mode: "agent",
+    pipeline: DEEP_RESEARCH_PIPELINE,
+    code,
+  };
+}
 
 export const createResearchTask = (input: { question: string; template_id: string | null; scope: Record<string, unknown>; constraints: Record<string, unknown>[]; plan?: ResearchPlan }) =>
   json<ResearchTask>("/api/research/tasks", { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ ...input, idempotency_key: crypto.randomUUID() }) });

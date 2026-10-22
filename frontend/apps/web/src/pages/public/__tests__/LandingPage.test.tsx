@@ -26,6 +26,11 @@ function responseFor(input: RequestInfo | URL, init?: RequestInit): Response {
   return new Response("not found", { status: 404 });
 }
 
+// beforeEach 里 vi.stubGlobal 的 fetch 是 vi.fn —— 取它的调用记录
+function fetchCalls(): Array<[RequestInfo | URL, RequestInit?]> {
+  return (fetch as unknown as { mock: { calls: Array<[RequestInfo | URL, RequestInit?]> } }).mock.calls;
+}
+
 describe("LandingPage research planning flow", () => {
   it("presents a user-facing AI analysis chat without technical details", async () => {
     vi.stubGlobal("fetch", vi.fn(responseFor));
@@ -125,5 +130,40 @@ describe("LandingPage research planning flow", () => {
     render(<MemoryRouter><LandingPage /></MemoryRouter>);
     expect(await screen.findByRole("heading", { name: "对话历史" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: discovery.templates[0].prompt })).toHaveAttribute("href", "/?conversation=task-real-1");
+  });
+
+  it("runs deep research locally without LLM planning and posts the pipeline plan", async () => {
+    render(<MemoryRouter><LandingPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: "个股深度研究" }));
+    expect(screen.getByPlaceholderText("输入 6 位股票代码，如 600519")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("研究问题"), { target: { value: "深度研究 600519 的基本面" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+
+    const calls = fetchCalls();
+    const post = calls.find(([url, init]) => String(url) === "/api/research/tasks" && init?.method === "POST");
+    expect(post).toBeTruthy();
+    const body = JSON.parse(String(post?.[1]?.body)) as { plan: { pipeline?: string; code?: string; execution_mode?: string } };
+    expect(body.plan.pipeline).toBe("a_stock_deep_research");
+    expect(body.plan.code).toBe("600519");
+    expect(body.plan.execution_mode).toBe("agent");
+    expect(calls.some(([url]) => String(url) === "/api/research/plans")).toBe(false);
+  });
+
+  it("rejects deep research without a 6-digit code and creates no task", async () => {
+    render(<MemoryRouter><LandingPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: "个股深度研究" }));
+    fireEvent.change(screen.getByLabelText("研究问题"), { target: { value: "贵州茅台" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送消息" }));
+
+    expect(await screen.findByText("深度研究需要 6 位股票代码，例如 600519。")).toBeInTheDocument();
+    expect(fetchCalls().some(([url]) => String(url) === "/api/research/tasks")).toBe(false);
+  });
+
+  it("activates deep mode with the code prefilled from ?deep=", async () => {
+    render(<MemoryRouter initialEntries={["/?deep=600519"]}><LandingPage /></MemoryRouter>);
+    const composer = await screen.findByLabelText("研究问题");
+    expect(composer).toHaveValue("600519");
+    // 深研模式的占位文案（普通模式是“给 AI 发现发送消息”）
+    expect(screen.getByPlaceholderText("输入 6 位股票代码，如 600519")).toBeInTheDocument();
   });
 });

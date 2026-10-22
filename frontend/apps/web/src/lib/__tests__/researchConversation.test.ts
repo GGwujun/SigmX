@@ -67,3 +67,81 @@ describe("buildResearchConversation", () => {
     expect(blocks).toEqual([expect.objectContaining({ kind: "final", id: "legacy-final", summary: "旧任务结论", result })]);
   });
 });
+
+describe("buildResearchConversation · 六阶段管线事件", () => {
+  it("maps stages, fetches and controlled tools into visible blocks", () => {
+    const blocks = buildResearchConversation([
+      event(1, "pipeline_started", { task_id: "p1", code: "600519", plugin: "a_stock", stages: ["profile"] }),
+      event(2, "pipeline_dataset_fetched", { dataset: "security_master", status: "ok", rows: 1, stage: "profile" }),
+      event(3, "pipeline_stage_started", { stage: "profile" }),
+      event(4, "pipeline_tool_ok", { stage: "profile", tool: "calculate" }),
+      event(5, "pipeline_tool_error", { stage: "profile", tool: "write_stage", code: "stage_schema_invalid" }),
+      event(6, "pipeline_stage_completed", { stage: "profile" }),
+    ], null);
+
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "tool", id: "tool-2", label: "取数 · security_master", status: "completed", evidenceCount: 1 }),
+      expect.objectContaining({ kind: "stage", id: "stage-profile", stage: "profile", status: "completed" }),
+      expect.objectContaining({ kind: "tool", id: "tool-4", label: "计算核验", status: "completed" }),
+      expect.objectContaining({ kind: "tool", id: "tool-5", label: "落盘阶段产物", status: "error" }),
+    ]);
+  });
+
+  it("marks a partial stage with its data gaps and a failed stage as error", () => {
+    const partial = buildResearchConversation([
+      event(1, "pipeline_stage_started", { stage: "funds_sentiment" }),
+      event(2, "pipeline_stage_completed", { stage: "funds_sentiment", partial: true, gaps: ["themes: 无数据"] }),
+    ], null);
+    expect(partial).toEqual([
+      expect.objectContaining({ kind: "stage", stage: "funds_sentiment", status: "completed", partial: true, gaps: ["themes: 无数据"] }),
+    ]);
+
+    const failed = buildResearchConversation([
+      event(3, "pipeline_stage_started", { stage: "risk" }),
+      event(4, "pipeline_stage_failed", { stage: "risk", error: "校验未通过" }),
+    ], null);
+    expect(failed).toEqual([expect.objectContaining({ kind: "stage", stage: "risk", status: "error" })]);
+  });
+
+  it("surfaces report gate rewrites and failures as tool rows", () => {
+    const blocks = buildResearchConversation([
+      event(1, "pipeline_stage_started", { stage: "report" }),
+      event(2, "pipeline_stage_completed", { stage: "report" }),
+      event(3, "pipeline_gate_rewrite", { attempt: 1, problems: ["建议类表述"] }),
+      event(4, "pipeline_gate_failed", { error: "重写次数用尽" }),
+    ], null);
+
+    expect(blocks).toEqual([
+      expect.objectContaining({ kind: "stage", stage: "report", status: "completed" }),
+      expect.objectContaining({ kind: "tool", id: "tool-3", label: "报告合规重写（第 1 次）", status: "completed" }),
+      expect.objectContaining({ kind: "tool", id: "tool-4", label: "报告合规检查", status: "error" }),
+    ]);
+  });
+
+  it("ignores loop noise (attempts, turns, replies, stop guard, lifecycle)", () => {
+    const blocks = buildResearchConversation([
+      event(1, "pipeline_stage_attempt_started", { stage: "profile", attempt: 1 }),
+      event(2, "pipeline_turn_start", { stage: "profile", max_tool_rounds: 24 }),
+      event(3, "pipeline_model_reply", { stage: "profile", round: 1, tool_calls: 2, finish_reason: "tool_calls" }),
+      event(4, "pipeline_stop_guard_block", { stage: "profile", idle_streak: 1, blocks: 1, problems: ["缺产物"] }),
+      event(5, "pipeline_stage_attempt_finished", { stage: "profile", attempt: 1, ok: true, rounds: 3 }),
+      event(6, "pipeline_request_failed", { stage: "profile", round: 4, error: "TimeoutError" }),
+      event(7, "pipeline_completed", { stages: { profile: "completed" } }),
+    ], null);
+
+    expect(blocks).toEqual([]);
+  });
+
+  it("keeps stage badges on legacy-final conclusions from pipeline results", () => {
+    const result = {
+      task_id: "t2", question: "深度研究 600519", template_id: null, summary: "六阶段完成", source: "pipeline",
+      as_of: null, scope: {}, candidates: [], risks: [], created_at: "2026-10-22",
+      conclusions: [{ text: "画像结论", evidence_ids: ["ev-security_master-0"], stage: "profile" }],
+    } satisfies ResearchResult;
+
+    const blocks = buildResearchConversation([], result);
+
+    expect(blocks[0]).toEqual(expect.objectContaining({ kind: "final", id: "legacy-final" }));
+    expect((blocks[0] as { conclusions: Array<{ stage?: string }> }).conclusions[0].stage).toBe("profile");
+  });
+});
