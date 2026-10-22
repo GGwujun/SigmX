@@ -304,6 +304,7 @@ def _build_agent_runner():
     # 六阶段研究管线：plan["pipeline"] == "a_stock_deep_research" 时分流，
     # 既有 agent 运行时零改动（契约同为 run(request, emit, cancel) -> AgentResearchOutput）
     from src.data.market_store import get_market_store
+    from src.research_pipeline.knowledge import default_knowledge_root
     from src.research_pipeline.runner_adapter import (PipelineDispatchRunner,
                                                       PipelineResearchRunner)
     pipeline_runner = PipelineResearchRunner(
@@ -312,6 +313,7 @@ def _build_agent_runner():
                                           max_retries=config.max_retries,
                                           reasoning_effort=config.reasoning_effort),
         store=get_market_store(),
+        knowledge_dir=default_knowledge_root(),   # 深研档案归档召回（~/.vibe-trading/knowledge）
     )
     return PipelineDispatchRunner(default_runner=agent_runtime,
                                   pipeline_runner=pipeline_runner)

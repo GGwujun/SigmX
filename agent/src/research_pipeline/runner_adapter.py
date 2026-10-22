@@ -58,6 +58,7 @@ class PipelineResearchRunner:
     runs_root: "str | Path | None" = None
     fetch_registry: "dict | None" = None      # 测试注入合成取数
     methodology_dir: "str | Path | None" = None
+    knowledge_dir: "str | Path | None" = None    # 知识档案目录（None = 不归档不召回）
     stop_limits: "dict | None" = None         # 收工守卫上限（测试收紧用）
 
     def __post_init__(self) -> None:
@@ -82,6 +83,7 @@ class PipelineResearchRunner:
             emit=emit, cancel=cancel, store=self.store,
             fetch_registry=self.fetch_registry,
             methodology_dir=self.methodology_dir,
+            knowledge_dir=self.knowledge_dir,
             stop_limits=self.stop_limits,
         )
         result = run_pipeline(cfg)

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
@@ -17,6 +18,7 @@ from src.compliance.gate import (compliance_gate, missing_sections,
                                  normalize_report_status, report_status_token)
 
 from .fetchers import fetch_dataset, write_fetch
+from .knowledge import KnowledgeRecall, archive_run, knowledge_block, recall
 from .fsutil import now_iso, read_json_if_exists, sha256_text, write_json
 from .ledger import Ledger
 from .methodology import methodology_block, methodology_missing
@@ -32,6 +34,8 @@ GATE_RETRIES = 2           # 报告合规重写上限
 # 但最终校验防的是"运行目录被运行外的手改过"这类篡改。
 # manifest.json 不在清单里（它存别人的 hash，自己不能存自己的）
 _PROTECTED_FILES = ("_ledger.json", "events.jsonl")
+
+_LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -52,6 +56,7 @@ class PipelineConfig:
     request_timeout: "int | None" = 300
     stop_limits: "dict | None" = None                # 收工守卫上限（测试收紧用）
     methodology_dir: "str | Path | None" = None      # 测试注入方法论目录
+    knowledge_dir: "str | Path | None" = None        # 知识档案目录（None = 不归档不召回）
 
 
 @dataclass
@@ -112,9 +117,11 @@ def _protected_hashes(run_dir: Path) -> "dict[str, str]":
 
 
 def _stage_prompt(plugin: ResearchPlugin, cfg: PipelineConfig, stage: str,
-                  attempt_feedback: "list[str] | None") -> str:
-    """方法论 + 插件施工单 +（补跑时）上一轮校验错误。"""
+                  attempt_feedback: "list[str] | None",
+                  knowledge: "KnowledgeRecall | None" = None) -> str:
+    """方法论 + 历史知识档案（如有）+ 插件施工单 +（补跑时）上一轮校验错误。"""
     methodology = methodology_block(stage, cfg.methodology_dir)
+    kblock = knowledge_block(knowledge)
     sheet = plugin.build_stage_prompt(stage, {
         "code": cfg.code,
         "trade_date": cfg.trade_date,
@@ -124,7 +131,7 @@ def _stage_prompt(plugin: ResearchPlugin, cfg: PipelineConfig, stage: str,
     if attempt_feedback:
         feedback = ("\n\n# 上一轮校验未通过，逐条修复（不要重跑全流程）：\n- "
                     + "\n- ".join(attempt_feedback))
-    return f"{methodology}\n---\n\n{sheet}{feedback}"
+    return f"{methodology}\n---\n\n{kblock}{sheet}{feedback}"
 
 
 def _fetch_stage_datasets(cfg: PipelineConfig, ledger: Ledger, stage: str,
@@ -156,7 +163,8 @@ def _fetch_stage_datasets(cfg: PipelineConfig, ledger: Ledger, stage: str,
     return failed, gaps  # failed 仅供事件与诊断；attempt 循环里的 validator 才是裁判
 
 
-def _attempt_loop(cfg: PipelineConfig, stage: str, events: _Events) -> StageResult:
+def _attempt_loop(cfg: PipelineConfig, stage: str, events: _Events,
+                  knowledge: "KnowledgeRecall | None" = None) -> StageResult:
     """attempt 循环：跑 turn → validator 判定 → 带错误补跑（最多 max_stage_retries 次）。"""
     result = StageResult(stage=stage, status="failed")
     feedback: "list[str] | None" = None
@@ -169,7 +177,7 @@ def _attempt_loop(cfg: PipelineConfig, stage: str, events: _Events) -> StageResu
             return result
 
         ctx = TurnContext(run_dir=str(cfg.run_dir), stage=stage, plugin=cfg.plugin)
-        prompt = _stage_prompt(cfg.plugin, cfg, stage, feedback)
+        prompt = _stage_prompt(cfg.plugin, cfg, stage, feedback, knowledge)
         events.write("pipeline_stage_attempt_started", stage=stage, attempt=attempt)
         outcome = run_stage_turn(cfg.llm, ctx, prompt,
                                  max_tool_rounds=cfg.max_tool_rounds,
@@ -279,6 +287,14 @@ def run_pipeline(cfg: PipelineConfig) -> PipelineResult:
 
     ledger = Ledger()
 
+    # 召回历史研究结论（同标的上次已校验档案）；召回失败按无档案处理，不破运行
+    knowledge: "KnowledgeRecall | None" = None
+    if cfg.knowledge_dir:
+        try:
+            knowledge = recall(cfg.knowledge_dir, cfg.code)
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning("知识档案召回失败 code=%s", cfg.code, exc_info=True)
+
     for stage in cfg.plugin.stages:
         if cfg.cancel is not None and cfg.cancel():
             result.status = "cancelled"
@@ -301,7 +317,7 @@ def run_pipeline(cfg: PipelineConfig) -> PipelineResult:
             events.write("pipeline_stage_failed", stage=stage, error=stage_res.error)
             break
 
-        stage_res = _attempt_loop(cfg, stage, events)
+        stage_res = _attempt_loop(cfg, stage, events, knowledge)
         result.stages[stage] = stage_res
         if stage_res.status == "completed":
             events.write("pipeline_stage_completed", stage=stage)
@@ -344,6 +360,16 @@ def run_pipeline(cfg: PipelineConfig) -> PipelineResult:
             "finished_at": now_iso(),
         })
         result.status = "completed"
+
+        # 知识归档：manifest 之后、不 emit 事件也不进受保护清单（破不了 hash）；
+        # 归档失败只记日志——研究已完成，档案是副产品
+        if cfg.knowledge_dir:
+            try:
+                archive_run(load_run_view(run_dir), cfg.plugin, code=cfg.code,
+                            trade_date=cfg.trade_date, run_id=cfg.task_id,
+                            knowledge_dir=cfg.knowledge_dir)
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning("知识归档失败 run=%s", cfg.task_id, exc_info=True)
 
     result.finished_at = now_iso()
     return result

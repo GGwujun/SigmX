@@ -143,7 +143,9 @@ _FUNDS_SHEET = _sheet(
 _RISK_SHEET = _sheet(
     "risk", "找反证：不利公告、异常量价、与主叙事矛盾的数据。没有反证的研究不是研究。",
     "- fetch/announcements_90d.json（近 90 日公告，缺数据记 gaps）\n"
-    "- 本运行目录此前阶段的产物（read_run_file stages/*.json）",
+    "- 本运行目录此前阶段的产物（read_run_file stages/*.json）\n"
+    "- 提示词上方的「历史研究结论（知识档案）」（如有）：与今日数据冲突处写入"
+    " source_conflicts，显著矛盾纳入 counter_evidence",
     "回撤/放量幅度类数字必须 calculate，禁止心算。",
     _json_block({"stage": "risk", "summary": "（事实摘要）",
                  "counter_evidence": ["（≥1 条反证事实）"],
