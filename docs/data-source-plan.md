@@ -258,3 +258,12 @@
 > 复核（2026-08-14）：原 8 个里 `dragon_tiger_backup`、`tencent_index_quote` 实际**已接线**（market_sync.py 已调用，移出此列）。剩余 6 个仍为死代码——接线需要真实数据源联网验证返回值正确，避免脏数据污染降级链。这 6 个现已补解析单测覆盖（`agent/tests/test_astock_dead_code.py`，mock 网络验证解析 + 失败优雅降级），将来接线风险已降低。
 
 **未实现（期2补）**：eastmoney_reports, eastmoney_industry_reports, download_pdf, iwencai_search/query, industry_comparison, daily_dragon_tiger, dragon_tiger_board, em_hot_concept, eastmoney_stock_info, announcements_backup
+
+---
+
+## 边界四表复核（2026-10-23：1 张接真降级，3 张确认单源不接假降级）
+
+- **global_market_index_daily ✅ 已接**：yfinance → 新浪逐标的降级（美股 `ak.index_us_stock_sina`：.INX/.DJI/.IXIC/.SOX 四符号活体验证全可用且新到前一交易日；港股 `ak.stock_hk_index_daily_sina`：HSI）。source 字段标注真实来源；HSI/HSTECH 币种修正为 HKD（原硬编码 USD）。实现在 `market_sync._ak_us_index_history` / `_sync_global_market_indices`，测试 `test_market_sync_global_indices.py`（含双面全灭跳行不造数）。
+- **irm_qa ❌ 维持单源**：tushare `irm_qa` 接口探测返回「请指定正确的接口名」（服务器带 token 实测）；互动易官网与巨潮同运营主体，非独立风控面。
+- **option_chain ❌ 维持单源**：东财 clist 期权接口（`option_current_em`）本地与服务器双侧断连；上交所官方接口（`option_current_day_sse`）只有合约列表无实时报价，风险指标端点（`option_risk_indicator_sse`）返回 2024-06 过期样例数据。
+- **northbound_flow ❌ 维持单源**：见上方 #36 复核（2026-07-19），结论未变。

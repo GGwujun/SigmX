@@ -3677,8 +3677,7 @@ def _yahoo_chart_last_rows(symbols: list[str], *, period: str = "10d") -> dict[s
 
 
 def _ak_hk_index_history(symbol: str) -> list[dict[str, Any]]:
-    if symbol != "HSTECH":
-        return []
+    """新浪港股指数日线（HSI/HSTECH），yfinance 缺失时的降级面。"""
     try:
         import akshare as ak
         df = ak.stock_hk_index_daily_sina(symbol=symbol)
@@ -3700,18 +3699,64 @@ def _ak_hk_index_history(symbol: str) -> list[dict[str, Any]]:
     return rows
 
 
+# 新浪美股指数符号表：yfinance → sina 第二风控面（2026-10-23 活体验证
+# 四个符号全可用且数据新到前一交易日，含费城半导体 .SOX）
+_US_SINA_SYMBOLS = {
+    "^GSPC": ".INX",
+    "^DJI": ".DJI",
+    "^IXIC": ".IXIC",
+    "^SOX": ".SOX",
+}
+
+
+def _ak_us_index_history(symbol: str) -> list[dict[str, Any]]:
+    """新浪美股指数日线，yfinance 缺失时的逐标的降级面。"""
+    mapped = _US_SINA_SYMBOLS.get(symbol)
+    if not mapped:
+        return []
+    try:
+        import akshare as ak
+        df = ak.index_us_stock_sina(symbol=mapped)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("akshare us index history failed for %s: %s", symbol, exc)
+        return []
+    if df is None or df.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    for _, r in df.tail(8).iterrows():
+        rows.append({
+            "trade_date": str(r.get("date") or ""),
+            "open": _num(r.get("open")),
+            "high": _num(r.get("high")),
+            "low": _num(r.get("low")),
+            "close": _num(r.get("close")),
+            "volume": _num(r.get("volume")),
+        })
+    return rows
+
+
 def _sync_global_market_indices(store: MarketStore, trade_date: str) -> int:
-    # HSTECH 走 akshare（yfinance 的 HSTECH 代码已失效，恒生科技用新浪源稳定）
+    """全球指数 — yfinance 为主，新浪美股/港股逐标的降级（独立风控面）。
+
+    HSTECH 直接走新浪（yfinance 代码已失效，避免 delisted 噪音）；其余标的
+    yfinance 缺失时按符号表落到 akshare 新浪面，都不亮就跳过该行不造数。
+    """
     yf_symbols = [s for s, _ in _GLOBAL_INDEX_SYMBOLS if s != "HSTECH"]
     histories = _yf_last_rows(yf_symbols)
     rows: list[dict[str, Any]] = []
     for symbol, name in _GLOBAL_INDEX_SYMBOLS:
+        source = "yfinance"
         if symbol == "HSTECH":
-            hist = _ak_hk_index_history(symbol)  # 直接 akshare，避免 yfinance delisted 噪音
+            hist = _ak_hk_index_history(symbol)
             source = "akshare.stock_hk_index_daily_sina"
         else:
             hist = histories.get(symbol)
-            source = "yfinance"
+        if not hist and symbol in ("^HSI", "HSTECH"):
+            hist = _ak_hk_index_history(symbol)
+            source = "akshare.stock_hk_index_daily_sina"
+        if not hist and symbol in _US_SINA_SYMBOLS:
+            hist = _ak_us_index_history(symbol)
+            source = "akshare.index_us_stock_sina"
         if not hist:
             continue
         last = hist[-1]
@@ -3728,7 +3773,7 @@ def _sync_global_market_indices(store: MarketStore, trade_date: str) -> int:
             "close": close,
             "prev_close": prev_close,
             "change_pct": ((close - prev_close) / prev_close * 100.0) if prev_close else 0.0,
-            "currency": "USD",
+            "currency": "HKD" if symbol in ("^HSI", "HSTECH") else "USD",
             "source": source,
             "history": hist,
             "source_trade_date": last.get("trade_date"),

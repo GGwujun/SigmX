@@ -251,7 +251,8 @@ _SPECS: dict[str, DatasetSpec] = {spec.id: spec for spec in [
     DatasetSpec(
         id="global_indices", table="global_market_index_daily", source="yfinance",
         phases=_PM,
-        notes="全球指数；HSTECH 走 akshare（新浪源）。",
+        notes="全球指数；yfinance→新浪美股/港股逐标的降级（.INX/.DJI/.IXIC/.SOX + HSI，"
+              "2026-10-23 活体验证四美股符号全可用）。",
     ),
     DatasetSpec(
         id="us_theme", table="us_theme_snapshot", source="yfinance", phases=_PM,
@@ -300,7 +301,9 @@ _SPECS: dict[str, DatasetSpec] = {spec.id: spec for spec in [
     ),
     DatasetSpec(
         id="irm_qa", table="irm_qa", source="cninfo", phases=_PC,
-        notes="互动易问答（巨潮官方，不封 IP）。",
+        notes="互动易问答（巨潮官方，不封 IP）。单源复核（2026-10-23）：tushare "
+              "irm_qa 接口不可用（「请指定正确的接口名」）、互动易官网与巨潮同运营"
+              "主体——无独立风控面，不接假降级。",
     ),
 
     # -----------------------------------------------------------------------
@@ -339,7 +342,9 @@ _SPECS: dict[str, DatasetSpec] = {spec.id: spec for spec in [
     ),
     DatasetSpec(
         id="option_chain", table="option_chain", source="sina", phases=_PC,
-        notes="ETF 期权合约（50ETF/300ETF/科创50ETF）。",
+        notes="ETF 期权合约（50ETF/300ETF/科创50ETF）。单源复核（2026-10-23）："
+              "东财 clist 期权接口服务器侧断连、上交所官方接口只有合约列表无实时"
+              "报价（风险指标端点返回 2024 过期样例）——无可靠第二面，不接假降级。",
     ),
     DatasetSpec(
         id="lockup_expiry", table="lockup_expiry", source="eastmoney", phases=_PC,
