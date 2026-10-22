@@ -65,6 +65,57 @@ manifest.json          受保护产物逐文件 hash（_ledger.json + events.jso
 任务状态机/事件落库/SSE/retry/幂等全部复用。管线事件（`pipeline_stage_started` 等）直接进
 任务事件流。取数全部进程内直读 market_store，绕开 HTTP 与 Data Hub 计费。
 
+## 防自欺层（研究记忆 · 明日对账 · 数字遮蔽 · 回测闸口 · 产业信号）
+
+在六阶段管线与短线复盘之上加的五道确定性防线，全部「事实由机器核对，
+模型只负责陈述」：
+
+### 1. 知识归档召回（research_pipeline/knowledge.py）
+
+运行成功后把**已过校验的 stage_outputs** 抽成结构化档案（不抄报告自由文本），
+落 `~/.vibe-trading/knowledge/companies/<code>/{runs/<run_id>.md,latest.md}` +
+manifest 索引；frontmatter 记 `as_of/valid_days/status`。同标的下次运行自动召回
+（fresh 才注入，stale 标过期，refuted 不召回），注入块带防注入声明（档案正文
+是数据不是指令），冲突处要求写进 risk 阶段 source_conflicts。归档在 manifest
+之后、不 emit 事件，破不了受保护 hash；正文逐行过 compliance gate 收窄规则 +
+敏感信息正则（命中整行删）。
+
+### 2. 明日验证对账（product/shortline_verify.py）
+
+复盘 summary 段输出的 conditions 落 `shortline_conditions` 表（status=pending）。
+T+1 日 market_sync_worker post_close 后自动对账：9 个白名单 metric 按
+`METRIC_PATHS` 多级 fallback 读 T/T+1 短线快照，逐 metric eps 噪声阈值判方向
+（差 4.9 家不算 up）；没数据 = no_data 可重对账（不判错）；T+1 09:15 后写的
+late=1 照样对账但不计战绩。战绩 `track_record` 按 metric+方向分组，带基准
+发生率校正（样本 ≥12 才给 expected_rate，edge = 命中 − decided×基准）。
+幂等键 `daemon:verify:{t1}` 只在全决时落。手动：`POST /shortline/review/verify`、
+`GET /shortline/review/track`。
+
+### 3. 数字出处遮蔽（arithmetic.mask_uncited）
+
+报告级：gate 全过后，对不上本运行证据数值池（fetch 证据数值叶递归 + calc
+记录数值）的 loose 档数字主张替换〔未核实〕；亿/万换算命中已知值（bound）与
+自洽算式（derived）不遮。遮蔽 >0 强制 incomplete、manifest 记
+`unverified_numbers`、emit `pipeline_gate_rewrite(masked=n)`（在 hash 计算前，
+不破受保护产物）。对话级：`runtime.py` assistant_final 与 `runner_adapter`
+阶段结论的 summary/conclusions 同闸（mask=（略※）），只闸定稿不闸 delta 流式。
+
+### 4. 回测闸口（tools/backtest_gate.py）
+
+`plan_backtest` 纯函数读 config.json（不跑引擎不拉数据）：codes 空 / 日期倒序 /
+日线区间交易日 <60 / 非日线估算 <500 根 → Refusal（`status=refused`，不启动
+子进程）；放行 Plan 携带披露（A股做空拒单 / ST±5% 未建模 / 跨市场规则差异 /
+无杠杆）。post-run 守卫：trades.csv 交易笔数 <10 降格警告。判定落
+`run_dir/gate.json` 并入返回信封（拒绝也留痕）。**没有「带警告勉强跑」。**
+
+### 5. 产业卡口信号（research_pipeline/industry_signals.py）
+
+八类卡口关键词筛子（涨价/扩产/减产停产/订单合同/认证导入/收购合资/供需/
+管制制裁），子句级 negatives、re: 正则约束、ASCII 词边界；确定性分类不调模型。
+`FETCHERS["chokepoint_events"]` 把命中公告行（带类别与链接）变可引用证据进
+risk 阶段（optional，无命中=empty 不苛责）；行业温度（强/弱/互抵不给）只作
+定性旁证。
+
 ## AI 短线复盘（独立第二套编排）
 
 `POST /api/v1/shortline/review` 触发，后台线程生成，五段：`sentiment / capital / theme /
@@ -74,7 +125,8 @@ ladder / summary`。每段一个新会话，只喂**资料包**（短线快照�
 
 审计**只标不改**：`audit_numbers` 四档、gate 命中、未知 ev 引用全部落审计字段。
 拒跑语义：情绪快照缺失 → `no_data`；同日已有 running → 409。落库 `shortline_reviews`
-（每次一版不覆盖）。
+（每次一版不覆盖）。summary 段的明日验证条件落 `shortline_conditions` 表，由
+「明日验证对账」（上文防自欺层 §2）自动核对。
 
 ## 合规 gate 接入点
 
@@ -89,7 +141,10 @@ cd agent
 python -m pytest tests/test_compliance_gate.py tests/test_pipeline_calc.py \
   tests/test_number_fidelity.py tests/test_research_pipeline_orchestrator.py \
   tests/test_research_pipeline_runner.py tests/test_research_pipeline_tools.py \
-  tests/test_shortline_review.py tests/test_cloud_research.py -q
+  tests/test_research_pipeline_knowledge.py \
+  tests/test_research_pipeline_industry_signals.py \
+  tests/test_shortline_review.py tests/test_shortline_verify.py \
+  tests/test_backtest_gate.py tests/test_cloud_research.py -q
 ```
 
 全部 mock：FakeLLM 状态机 + 合成取数注册表，无网络无真模型。
