@@ -49,3 +49,18 @@ def test_schema_v7_is_recorded(cloud: CloudResearchService) -> None:
         for row in cloud.store._get_conn().execute("SELECT version FROM product_migrations")
     }
     assert 7 in versions
+
+
+def test_publish_report_rejects_advisory_content(cloud: CloudResearchService) -> None:
+    """发布 gate：建议类表述拒绝发布，命中清单回给调用方（不静默改写）。"""
+    with pytest.raises(ValueError, match="合规检查"):
+        cloud.publish_report("u1", "荐股帖", "该股强势，建议立即建仓并设目标价 88 元。")
+
+    # 变形逃逸也拦得住（全角/插分隔）
+    with pytest.raises(ValueError):
+        cloud.publish_report("u1", "变形", "可以考虑立即建·仓。")
+
+
+def test_publish_report_accepts_neutral_statements(cloud: CloudResearchService) -> None:
+    report = cloud.publish_report("u1", "中性复盘", "本日涨停 58 家，跌停 6 家，情绪分 62.0。")
+    assert cloud.get_public_report(report.slug).summary.startswith("本日涨停 58 家")

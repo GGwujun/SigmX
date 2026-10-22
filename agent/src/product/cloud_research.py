@@ -114,6 +114,12 @@ class CloudResearchService:
         title, summary = title.strip(), summary.strip()
         if not title or not summary:
             raise ValueError("title and summary are required")
+        # 合规 gate：违规内容拒绝发布（命中清单回给调用方，不静默改写）
+        from src.compliance.gate import compliance_gate
+        gate = compliance_gate(summary)
+        if not gate.ok:
+            hits = "; ".join(f"第 {h.line} 行命中「{h.pattern}」" for h in gate.hits[:5])
+            raise ValueError(f"报告未通过合规检查: {hits}")
         item = ReportSnapshot(
             id=str(uuid.uuid4()), user_id=user_id, slug=uuid.uuid4().hex,
             title=title, summary=summary, created_at=self._now(), revoked_at=None,

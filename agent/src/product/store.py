@@ -390,6 +390,21 @@ class ProductStore:
             CREATE INDEX IF NOT EXISTS idx_datahub_credentials_user
                 ON datahub_credentials(user_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS shortline_reviews (
+                id TEXT PRIMARY KEY,
+                trade_date TEXT NOT NULL,
+                model TEXT,
+                status TEXT NOT NULL,
+                sections_json TEXT NOT NULL DEFAULT '{}',
+                gaps_json TEXT NOT NULL DEFAULT '[]',
+                conditions_json TEXT NOT NULL DEFAULT '[]',
+                error TEXT,
+                created_at TEXT NOT NULL,
+                finished_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_shortline_reviews_date
+                ON shortline_reviews(trade_date, created_at);
+
             CREATE TABLE IF NOT EXISTS datahub_rate_buckets (
                 user_id TEXT NOT NULL,
                 minute TEXT NOT NULL,

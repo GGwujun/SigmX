@@ -3441,6 +3441,9 @@ register_market_sync_routes(app)
 from src.api.sigmx_routes import register_sigmx_routes  # noqa: E402
 register_sigmx_routes(app)
 
+from src.api.shortline_review_routes import register_shortline_review_routes  # noqa: E402
+register_shortline_review_routes(app)
+
 # Desktop first-run onboarding (loopback-only)
 from src.api.onboarding_routes import register_onboarding_routes  # noqa: E402
 register_onboarding_routes(app)
