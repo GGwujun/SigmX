@@ -243,6 +243,12 @@ _SPECS: dict[str, DatasetSpec] = {spec.id: spec for spec in [
         notes="盘面阶段快照；由 pool/capital/sector 快照计算，无独立外部源。",
     ),
     DatasetSpec(
+        id="shortline", table="shortline_snapshot", source="derived", phases=_IDC,
+        minimum_rows=1,
+        notes="短线计算快照（14 kind 共表）；盘中批只算 live，收盘批算全部；"
+              "由 zt/zb/dt/yzt 池派生，无独立外部源。",
+    ),
+    DatasetSpec(
         id="global_indices", table="global_market_index_daily", source="yfinance",
         phases=_PM,
         notes="全球指数；HSTECH 走 akshare（新浪源）。",

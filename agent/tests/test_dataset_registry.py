@@ -88,7 +88,7 @@ _OLD_POST_CLOSE = {
     "fund_flow_daily", "fund_flow_120d", "option_chain", "margin_trading",
     "block_trade", "holder_num", "dividend_history", "northbound",
     "cls_telegraph", "irm_qa", "stock_news", "lockup_expiry", "fq_factors",
-    "minute_bars", "unusual", "hot_money", "hot_money_list",
+    "minute_bars", "unusual", "hot_money", "hot_money_list", "shortline",
 }
 
 _OLD_POST_CLOSE_CORE = {"calendar", "master", "daily_basic", "index", "daily"}
@@ -101,7 +101,7 @@ _OLD_PREMARKET = {
 _OLD_INTRADAY = {
     "realtime", "pool", "capital_rank", "sector_capital", "sector_snapshot",
     "market_breadth", "stage_snapshot", "ths_hot", "zt_pool", "hot_list",
-    "northbound", "cls_telegraph",
+    "northbound", "cls_telegraph", "shortline",
 }
 
 _OLD_DATASET_TABLE = {
@@ -123,6 +123,7 @@ _OLD_DATASET_TABLE = {
     "us_transmission": "us_a_share_transmission",
     "premarket_news": "premarket_news",
     "stage_snapshot": "market_stage_snapshot", "premium": "fund_premium_snapshot",
+    "shortline": "shortline_snapshot",
     "board": "board_daily", "hot_list": "hot_list", "eps_forecast": "eps_forecast",
     "financial_snapshot": "financial_snapshot",
     "financial_statement": "financial_statement",
@@ -226,7 +227,7 @@ def test_hard_fail_set_matches_pre_registry_literal() -> None:
 
 def test_registry_invariants() -> None:
     valid_phases = {"premarket", "intraday", "post_close"}
-    assert len(_SPECS) == 58  # 57 张表 + realtime
+    assert len(_SPECS) == 59  # 58 张表 + realtime
     for dataset, spec in _SPECS.items():
         assert spec.id == dataset  # 键与 id 一致（dict 构造已保证，显式断言防手滑）
         assert spec.phases <= valid_phases, dataset

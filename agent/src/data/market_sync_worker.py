@@ -244,6 +244,7 @@ _DATE_KEYED_TABLES = (
     "sector_snapshot_concept",
     "market_breadth_snapshot",
     "market_stage_snapshot",
+    "shortline_snapshot",
     "global_market_index_daily",
     "us_theme_snapshot",
     "premarket_news",

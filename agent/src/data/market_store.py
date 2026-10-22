@@ -361,6 +361,15 @@ CREATE TABLE IF NOT EXISTS market_stage_snapshot (
 );
 CREATE INDEX IF NOT EXISTS idx_market_stage_snapshot_stage_date ON market_stage_snapshot(stage, trade_date);
 
+-- 短线: 计算型快照（14 类 kind 共表，由池表/ths_limit_up/daily_basic/bars_daily 派生）
+CREATE TABLE IF NOT EXISTS shortline_snapshot (
+    trade_date TEXT NOT NULL, kind TEXT NOT NULL,
+    payload_json TEXT NOT NULL, source_tables TEXT,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (trade_date, kind)
+);
+CREATE INDEX IF NOT EXISTS idx_shortline_snapshot_kind_date ON shortline_snapshot(kind, trade_date);
+
 CREATE TABLE IF NOT EXISTS position_analysis_snapshot (
     snapshot_key TEXT PRIMARY KEY,
     symbols_json TEXT NOT NULL,
@@ -2574,6 +2583,78 @@ class MarketStore:
         return {
             "trade_date": row["trade_date"],
             "stage": row["stage"],
+            "payload": payload,
+            "source_tables": source_tables,
+            "updated_at": row["updated_at"],
+        }
+
+    @_synchronized
+    def upsert_shortline_snapshot(
+        self,
+        trade_date: str,
+        kind: str,
+        payload: dict[str, Any],
+        *,
+        source_tables: list[str] | None = None,
+    ) -> int:
+        if not trade_date or not kind:
+            return 0
+        with self._write_transaction():
+            self._conn.execute(
+                "INSERT OR REPLACE INTO shortline_snapshot "
+                "(trade_date, kind, payload_json, source_tables, updated_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    trade_date,
+                    kind,
+                    json.dumps(payload, ensure_ascii=False),
+                    json.dumps(source_tables or [], ensure_ascii=False),
+                    _now_iso(),
+                ),
+            )
+        return 1
+
+    @_synchronized
+    def get_shortline_snapshot(self, kind: str, trade_date: str | None = None) -> dict | None:
+        return self._read_shortline_snapshot(self._conn, kind, trade_date)
+
+    def get_shortline_snapshot_fast(self, kind: str, trade_date: str | None = None) -> dict | None:
+        """短命只读连接读短线快照（WAL 并发读，不被同步连接的 Python 锁阻塞）。"""
+        try:
+            with self._readonly_conn() as conn:
+                row_found = self._read_shortline_snapshot(conn, kind, trade_date)
+        except sqlite3.Error as exc:
+            logger.debug("fast shortline snapshot read failed, falling back: %s", exc)
+            return self.get_shortline_snapshot(kind, trade_date)
+        return row_found
+
+    @staticmethod
+    def _read_shortline_snapshot(conn: sqlite3.Connection, kind: str, trade_date: str | None) -> dict | None:
+        if trade_date:
+            row = conn.execute(
+                "SELECT trade_date, kind, payload_json, source_tables, updated_at "
+                "FROM shortline_snapshot WHERE kind = ? AND trade_date = ?",
+                (kind, trade_date),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                "SELECT trade_date, kind, payload_json, source_tables, updated_at "
+                "FROM shortline_snapshot WHERE kind = ? ORDER BY trade_date DESC LIMIT 1",
+                (kind,),
+            ).fetchone()
+        if not row:
+            return None
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, ValueError):
+            payload = {}
+        try:
+            source_tables = json.loads(row["source_tables"] or "[]")
+        except (TypeError, ValueError):
+            source_tables = []
+        return {
+            "trade_date": row["trade_date"],
+            "kind": row["kind"],
             "payload": payload,
             "source_tables": source_tables,
             "updated_at": row["updated_at"],

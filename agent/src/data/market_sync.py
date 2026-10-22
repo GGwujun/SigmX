@@ -4796,6 +4796,103 @@ def _sync_zt_pool(store: MarketStore, trade_date: str) -> dict[str, int]:
     return {"zt_pool": sum(counts.values()), **counts}
 
 
+def _sync_shortline_snapshots(store: MarketStore, trade_date: str) -> dict[str, int]:
+    """短线计算型快照：全部由本地池表派生，零新 HTTP 依赖。
+
+    盘中相位只算 ``live``；目标日已收盘（<今天，或=今天且 post_close/closed）
+    算全部复盘 kind。各 kind 独立 try/except，单个失败不拖垮兄弟 kind。
+    """
+    from src.data import shortline_metrics as sm
+    from src.data.trade_calendar import cn_market_phase
+
+    today_str = _today_cst_str()
+    phase = cn_market_phase()
+    settled = trade_date < today_str or (
+        trade_date == today_str and phase in ("post_close", "closed")
+    )
+
+    def _rows(table: str, day: str) -> list[dict]:
+        return [
+            dict(r)
+            for r in store._conn.execute(
+                f"SELECT * FROM {table} WHERE trade_date = ?", (day,)
+            ).fetchall()
+        ]
+
+    def _prev_trading_day(day: str) -> Optional[str]:
+        row = store._conn.execute(
+            "SELECT MAX(trade_date) AS d FROM trade_calendar "
+            "WHERE market = 'CN' AND is_trading = 1 AND trade_date < ?",
+            (day,),
+        ).fetchone()
+        return str(row["d"]) if row and row["d"] else None
+
+    def _window_days(day: str, size: int) -> list[str]:
+        rows = store._conn.execute(
+            "SELECT trade_date FROM trade_calendar "
+            "WHERE market = 'CN' AND is_trading = 1 AND trade_date <= ? "
+            "ORDER BY trade_date DESC LIMIT ?",
+            (day, size),
+        ).fetchall()
+        return [str(r["trade_date"]) for r in reversed(rows)]
+
+    written = 0
+
+    def _emit(kind: str, payload: dict, source_tables: str) -> None:
+        nonlocal written
+        store.upsert_shortline_snapshot(
+            trade_date, kind, payload, source_tables=source_tables
+        )
+        written += 1
+
+    def _guard(kind: str, fn: Any, source_tables: str) -> None:
+        try:
+            payload = fn()
+            if payload is not None:
+                _emit(kind, payload, source_tables)
+        except Exception:  # noqa: BLE001
+            logger.exception("market_sync: shortline kind %s failed", kind)
+
+    zt = _rows("zt_pool", trade_date)
+    zb = _rows("zb_pool", trade_date)
+    dt = _rows("dt_pool", trade_date)
+    yzt = _rows("yzt_pool", trade_date)
+    prev_date = _prev_trading_day(trade_date)
+    prev_zt = _rows("zt_pool", prev_date) if prev_date else []
+    pool_src = "zt_pool,zb_pool,dt_pool,yzt_pool,trade_calendar"
+
+    if not settled:
+        # 盘中批：只有 live 有"此刻"语义，复盘 kind 等收盘批。
+        _guard("live", lambda: sm.build_live(
+            trade_date, phase, _now_cst().isoformat(timespec="seconds"),
+            zt, zb, dt, yzt, prev_zt), pool_src)
+        return {"shortline": written}
+
+    _guard("emotion", lambda: sm.build_emotion(
+        trade_date, prev_date, zt, prev_zt, yzt), pool_src)
+    _guard("daily", lambda: sm.build_daily(
+        trade_date, prev_date, zt, zb, yzt, prev_zt), pool_src)
+    _guard("facts", lambda: sm.build_facts(
+        trade_date, prev_date, zt, zb, dt, yzt, prev_zt), pool_src)
+    _guard("structure", lambda: sm.build_structure(trade_date, zt, zb, dt, yzt), pool_src)
+    _guard("ladder", lambda: sm.build_ladder(
+        trade_date, prev_date, prev_zt), pool_src)
+    _guard("settled", lambda: sm.build_settled(trade_date, prev_date, yzt), pool_src)
+
+    def _cycle() -> dict:
+        window = [
+            (day, _rows("zt_pool", day), _rows("zb_pool", day))
+            for day in _window_days(trade_date, 10)
+        ]
+        return sm.build_cycle(trade_date, window, requested_window=10)
+
+    _guard("cycle", _cycle, pool_src)
+    _guard("live", lambda: sm.build_live(
+        trade_date, phase, _now_cst().isoformat(timespec="seconds"),
+        zt, zb, dt, yzt, prev_zt), pool_src)
+    return {"shortline": written}
+
+
 def _sync_hot_list(store: MarketStore, trade_date: str) -> dict[str, int]:
     """同花顺热榜 + 东财人气榜；ths 失败时 tpdog 01903 个股热榜兜底写 hot_list。"""
     from src.data.astock_client import ths_hot_list, eastmoney_popularity, tpdog_hot_list
@@ -5719,6 +5816,7 @@ def run_daily_sync(
         "premarket_news",
         "stage_snapshot",
         "premium",
+        "shortline",
     }
     if "daily" in datasets and not sync_run_id:
         raise ValueError("daily synchronization requires a sync_run_id")
@@ -5932,6 +6030,7 @@ def run_daily_sync(
     # a-stock-data 扩展数据源
     _run("ths_hot", lambda: _sync_ths_hot_reason(store, trade_date))
     _run("zt_pool", lambda: _sync_zt_pool(store, trade_date))
+    _run("shortline", lambda: _sync_shortline_snapshots(store, trade_date))
     _run("hot_list", lambda: _sync_hot_list(store, trade_date))
     _run("eps_forecast", lambda: _sync_eps_forecast(store, trade_date))
     _run("financial_snapshot", lambda: _sync_financial_snapshot(store, trade_date))
