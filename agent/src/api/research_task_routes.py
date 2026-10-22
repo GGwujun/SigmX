@@ -344,6 +344,12 @@ async def create_research_task(
     user: dict = Depends(require_user),
 ) -> ResearchTaskResponse:
     try:
+        # 管线任务必须显式走 agent 执行：漏了 execution_mode=agent 会被编排器
+        # 静默降级成 12 秒规则结果（2026-10-23 线上烟测踩过）——宁拒不错。
+        if body.plan is not None and body.plan.get("pipeline") \
+                and body.plan.get("execution_mode") != "agent":
+            raise InvalidResearchConstraint(
+                "管线任务需要 plan.execution_mode=agent（规则引擎无法执行深研管线，拒绝静默降级）")
         kwargs = dict(question=body.question.strip(), template_id=body.template_id,
                       scope=body.scope, constraints=body.constraints,
                       idempotency_key=body.idempotency_key)

@@ -157,6 +157,17 @@ def test_unknown_constraint_is_rejected_without_fabricated_result() -> None:
     assert error.value.status_code == 422
 
 
+def test_pipeline_plan_without_agent_mode_is_rejected_not_silently_degraded() -> None:
+    """plan 带 pipeline 但漏 execution_mode=agent：422 拒绝，不静默跑规则引擎。"""
+    body = _body("research-pipeline-no-agent")
+    body.plan = {"pipeline": "a_stock_deep_research", "code": "600519"}
+
+    with pytest.raises(routes.HTTPException) as error:
+        asyncio.run(routes.create_research_task(body, user={"id": "u1"}))
+    assert error.value.status_code == 422
+    assert "execution_mode" in error.value.detail
+
+
 def test_quality_cash_flow_question_reports_unsupported_data_instead_of_empty_success() -> None:
     body = routes.CreateResearchTaskRequest(
         question="寻找经营现金流持续改善、盈利质量高于行业中位数的 A 股公司",
