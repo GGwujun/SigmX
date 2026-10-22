@@ -4890,6 +4890,45 @@ def _sync_shortline_snapshots(store: MarketStore, trade_date: str) -> dict[str, 
     _guard("live", lambda: sm.build_live(
         trade_date, phase, _now_cst().isoformat(timespec="seconds"),
         zt, zb, dt, yzt, prev_zt), pool_src)
+
+    # 题材家族：reason 来自 ths_limit_up（随 zt_pool 数据集一并同步）。
+    ths = _rows("ths_limit_up", trade_date)
+    family_src = "zt_pool,ths_limit_up,trade_calendar"
+    _guard("themes", lambda: sm.build_themes(trade_date, zt, ths), family_src)
+    _guard("firstboard", lambda: sm.build_firstboard(trade_date, zt, ths), family_src)
+    _guard("board_ladder", lambda: sm.build_board_ladder(
+        trade_date, zt, zb, dt, prev_zt), pool_src)
+
+    def _rotation() -> dict:
+        days = _window_days(trade_date, 5)
+        groups = [sm.theme_counts(_rows("zt_pool", d), _rows("ths_limit_up", d))
+                  for d in days]
+        return sm.build_theme_rotation(trade_date, days, groups, requested_days=5)
+
+    _guard("theme_rotation", _rotation, family_src)
+
+    def _turnover_rows() -> list[dict]:
+        return [dict(r) for r in store._conn.execute(
+            "SELECT b.code AS code, COALESCE(s.name, b.name) AS name, "
+            "b.total_amt AS total_amt, b.close AS close, b.rise_rate AS rise_rate "
+            "FROM bars_daily b LEFT JOIN security_master s ON s.code = b.code "
+            "WHERE b.trade_date = ? ORDER BY b.total_amt DESC LIMIT 10",
+            (trade_date,)).fetchall()]
+
+    _guard("turnover_top", lambda: sm.build_turnover_top(
+        trade_date, _turnover_rows()), "bars_daily,security_master")
+
+    def _bigcap_rows() -> list[dict]:
+        return [dict(r) for r in store._conn.execute(
+            "SELECT d.code AS code, COALESCE(s.name, '') AS name, d.total_mv, "
+            "d.circ_mv, d.close, d.turnover_rate, d.pe "
+            "FROM stock_daily_basic d LEFT JOIN security_master s ON s.code = d.code "
+            "WHERE d.trade_date = ? AND d.total_mv >= ? "
+            "ORDER BY d.total_mv DESC",
+            (trade_date, sm.BIGCAP_TOTAL_MV_WAN)).fetchall()]
+
+    _guard("bigcaps", lambda: sm.build_bigcaps(
+        trade_date, _bigcap_rows(), sm.BIGCAP_TOTAL_MV_WAN), "stock_daily_basic,security_master")
     return {"shortline": written}
 
 

@@ -319,10 +319,38 @@ def _seed_pools(store: MarketStore, trade_date: str, prev_date: str) -> None:
         _zt("600002.SH", 1, industry="电池"),
         _zt("600003.SH", 4, industry="电池", zt_stat="5天4板"),
     ], source="eastmoney")
+    # 同花顺涨停揭秘（题材 reason 源）
+    store.upsert_zt_pool(trade_date, [
+        _ths("600001.SH", "银行+国企改革"),
+        _ths("600002.SH", "锂电池"),
+        _ths("600003.SH", "锂电池+固态电池"),
+    ], source="ths")
     store.upsert_zb_pool(trade_date, [_zb("600004.SH", industry="电池")])
     store.upsert_yzt_pool(trade_date, [
         _yzt("600001.SH", 10.0, prev_boards=1, industry="银行"),
         _yzt("600002.SH", -6.0, prev_boards=1, industry="电池"),
+    ])
+
+
+def _seed_derived_inputs(store: MarketStore, trade_date: str) -> None:
+    store.upsert_daily_bars(
+        "600001.SH",
+        [{"date": trade_date, "open": 10, "high": 11, "low": 9, "close": 10.5,
+          "volume": 1000, "total_amt": 3.2e9, "rise_rate": 5.0}],
+        source="test.fixture", sync_run_id="run-1",
+    )
+    store.upsert_daily_bars(
+        "600002.SH",
+        [{"date": trade_date, "open": 8, "high": 9, "low": 7, "close": 8.8,
+          "volume": 500, "total_amt": 1.1e9, "rise_rate": 2.0}],
+        source="test.fixture", sync_run_id="run-1",
+    )
+    # tushare total_mv 单位万元：600001=8000 亿、600002=60 亿（不达 500 亿阈值）
+    store.upsert_stock_daily_basic([
+        {"code": "600001.SH", "trade_date": trade_date, "close": 10.5,
+         "turnover_rate": 1.2, "pe": 5.0, "total_mv": 8_000_000, "circ_mv": 6_000_000},
+        {"code": "600002.SH", "trade_date": trade_date, "close": 8.8,
+         "turnover_rate": 3.0, "pe": 20.0, "total_mv": 600_000, "circ_mv": 400_000},
     ])
 
 
@@ -356,16 +384,20 @@ def test_sync_shortline_post_close_writes_all_review_kinds(
         store.upsert_zt_pool(d, [_zt("600001.SH", 1 + i % 3)], source="eastmoney")
         store.upsert_zb_pool(d, ([_zb("600004.SH")] if i % 2 else []))
     _seed_pools(store, trade_date, "2026-07-14")
+    _seed_derived_inputs(store, trade_date)
     monkeypatch.setattr("src.data.trade_calendar.cn_market_phase", lambda *a, **k: "post_close")
 
     result = ms._sync_shortline_snapshots(store, trade_date)
 
-    assert result == {"shortline": 8}
-    rows = {r["kind"]: r for r in store._conn.execute(
-        "SELECT kind, payload_json FROM shortline_snapshot WHERE trade_date = ?",
+    assert result == {"shortline": 14}
+    rows = {r["kind"] for r in store._conn.execute(
+        "SELECT kind FROM shortline_snapshot WHERE trade_date = ?",
         (trade_date,))}
-    assert set(rows) == {"emotion", "daily", "facts", "structure",
-                         "ladder", "settled", "cycle", "live"}
+    assert rows == {
+        "emotion", "daily", "facts", "structure", "ladder", "settled",
+        "cycle", "live", "themes", "firstboard", "board_ladder",
+        "theme_rotation", "turnover_top", "bigcaps",
+    }
     emotion = store.get_shortline_snapshot("emotion", trade_date)["payload"]
     assert emotion["money_effect"]["available"] is True
 
@@ -377,8 +409,144 @@ def test_sync_shortline_post_close_writes_all_review_kinds(
     assert cycle["payload"]["available"] is True
     assert len(cycle["payload"]["series"]) == 10
 
+    themes = store.get_shortline_snapshot("themes", trade_date)["payload"]
+    assert themes["available"] is True
+    assert "锂电池" in themes["themes"]
+    assert "银行" in themes["themes"]  # "国企改革"被滤掉，银行保留
+
+    firstboard = store.get_shortline_snapshot("firstboard", trade_date)["payload"]
+    assert firstboard["total"] == 1  # 只有 600001 是首板
+
+    board_ladder = store.get_shortline_snapshot("board_ladder", trade_date)["payload"]
+    tiers = {t["boards"]: t for t in board_ladder["tiers"]}
+    assert tiers[4]["fates"]["zt"] == 1  # 600003 昨 4 板今 5 板晋级
+    assert tiers[1]["fates"]["zb"] == 0 and tiers[1]["promoted"] >= 1
+
+    rotation = store.get_shortline_snapshot("theme_rotation", trade_date)["payload"]
+    assert rotation["available"] is True and len(rotation["days"]) == 5
+
+    turnover = store.get_shortline_snapshot("turnover_top", trade_date)["payload"]
+    assert turnover["available"] is True
+    assert turnover["rows"][0]["code"] == "600001.SH"
+    assert turnover["rows"][0]["total_amt_yi"] == 32.0
+
+    bigcaps = store.get_shortline_snapshot("bigcaps", trade_date)["payload"]
+    assert bigcaps["count"] == 1  # 60 亿的 600002 不达 500 亿阈值
+    assert bigcaps["rows"][0]["code"] == "600001.SH"
+    assert bigcaps["rows"][0]["total_mv_yi"] == 800.0  # 8_000_000 万元 = 800 亿
+
     # 幂等：重跑不涨行数（PK 覆盖）
-    assert ms._sync_shortline_snapshots(store, trade_date) == {"shortline": 8}
+    assert ms._sync_shortline_snapshots(store, trade_date) == {"shortline": 14}
+
+
+# ---------------------------------------------------------------------------
+# B 组：题材家族（reason 语义）
+# ---------------------------------------------------------------------------
+
+def _ths(code: str, reason: str, *, high_days: int = 1) -> dict:
+    return {"code": code, "name": "样本", "price": 10.0, "pct": 10.0,
+            "reason": reason, "board_type": "", "seal_rate": 1.0,
+            "break_times": 0, "seal_amount": 1e8, "high_days": high_days,
+            "first_time": "093000", "is_again": 0}
+
+
+def test_clean_reason_filters_generic_words_and_variants() -> None:
+    assert sm.clean_reason("新能源汽车+锂电池+国企改革+破净") == ["新能源汽车", "锂电池"]
+    assert sm.clean_reason("机器人、减速器，算力；液冷") == ["机器人", "减速器", "算力", "液冷"]
+    # 全是泛属性词 → 空
+    assert sm.clean_reason("国企改革+国资") == []
+    assert sm.clean_reason("") == []
+    # 超长标签串：≤4 个标签截断
+    many = sm.clean_reason("一题材+二题材+三题材+四题材+五题材+六题材")
+    assert many == ["一题材", "二题材", "三题材", "四题材"]
+
+
+def test_build_themes_tree_and_missing_reason_degradation() -> None:
+    zt = [
+        _zt("600001.SH", 1, industry="电池"),
+        _zt("600002.SH", 3, industry="电池"),
+        _zt("600003.SH", 1, industry="地产"),
+    ]
+    ths = [
+        _ths("600001.SH", "锂电池+国企改革"),
+        _ths("600002.SH", "锂电池"),
+        _ths("600003.SH", "房地产"),
+    ]
+    out = sm.build_themes("2026-07-15", zt, ths)
+    assert out["available"] is True and out["theme_count"] == 2
+    # 多标签股同时进两个题材；泛词"国企改革"被滤掉
+    assert out["themes"]["锂电池"]["limit_up"] == 2
+    assert out["themes"]["锂电池"]["consec_boards"] == 1
+    assert out["themes"]["锂电池"]["highest"] == 3
+    assert out["themes"]["房地产"]["limit_up"] == 1
+    # reason 整体缺失：不拿 industry 冒充
+    gone = sm.build_themes("2026-07-15", zt, [_ths("600001.SH", "")])
+    assert gone["available"] is False and gone["themes"] == {}
+
+
+def test_build_firstboard_lists_with_reason_and_partial_flag() -> None:
+    zt = [_zt("600001.SH", 1), _zt("600002.SH", 2), _zt("600003.SH", 1)]
+    ths = [_ths("600001.SH", "锂电池")]
+    out = sm.build_firstboard("2026-07-15", zt, ths)
+    assert out["available"] is True and out["total"] == 2  # 2 板那只不算首板
+    codes = [r["code"] for r in out["rows"]]
+    assert codes == ["600001.SH", "600003.SH"]
+    assert out["rows"][0]["reason"] == ["锂电池"]
+    assert out["rows"][1]["reason"] is None
+    assert out["partial"] is True and out["missing_reason"] == 1
+
+
+def test_build_board_ladder_fates_and_broken_top_tier_stays() -> None:
+    zt = [_zt("A", 2), _zt("B", 1)]
+    zb = [_zb("C")]
+    dt = [{"code": "D", "name": "样本", "pct": -10.0, "dt_days": 1, "industry": "电池"}]
+    # 昨日 4 板档今日全员断板（C 炸板 / D 跌停 / E 其他去向）→ 该档仍要留行
+    prev_zt = [_zt("C", 4), _zt("D", 4), _zt("E", 4), _zt("A", 2), _zt("B", 1)]
+    out = sm.build_board_ladder("2026-07-15", zt, zb, dt, prev_zt)
+
+    assert out["available"] is True and out["highest"] == 4
+    tiers = {t["boards"]: t for t in out["tiers"]}
+    assert tiers[4]["count"] == 0  # 最高档今日无人，但留行
+    assert tiers[4]["fates"] == {"zt": 0, "zb": 1, "dt": 1, "other": 1}
+    assert tiers[2]["promoted"] == 1  # A 昨 2 板今 2 板
+    assert tiers[2]["stocks"][0]["code"] == "A"
+    assert tiers[1]["stocks"][0]["code"] == "B"
+
+
+def test_build_theme_rotation_keeps_missing_days_as_none() -> None:
+    days = ["2026-07-11", "2026-07-12", "2026-07-13", "2026-07-14", "2026-07-15"]
+    groups = [
+        {"锂电池": 3, "机器人": 5},
+        {"锂电池": 6, "机器人": 4},
+        None,  # 缺数据日
+        {"锂电池": 8, "机器人": 2},
+        {"锂电池": 5, "机器人": 1},
+    ]
+    out = sm.build_theme_rotation("2026-07-15", days, groups, requested_days=5)
+    assert out["available"] is True
+    li = out["themes"]["锂电池"]
+    assert li["series"] == [3, 6, None, 8, 5]
+    assert li["peak_day"] == "2026-07-14" and li["trend"] == "falling"
+    bot = out["themes"]["机器人"]
+    assert bot["trend"] == "falling" and bot["total"] == 12
+    empty = sm.build_theme_rotation("2026-07-15", days, [None] * 5)
+    assert empty["available"] is False
+
+
+def test_build_turnover_top_and_bigcaps_unit_conversion() -> None:
+    top = sm.build_turnover_top("2026-07-15", [
+        {"code": "600000.SH", "name": "浦发", "total_amt": 2.5e9, "close": 10.0, "rise_rate": 1.2},
+    ])
+    assert top["available"] is True
+    assert top["rows"][0]["total_amt_yi"] == 25.0  # 元 → 亿
+
+    caps = sm.build_bigcaps("2026-07-15", [
+        {"code": "601398.SH", "name": "工商银行", "total_mv": 2.0e8,
+         "circ_mv": 1.5e8, "close": 5.0, "turnover_rate": 0.1, "pe": 5.0},
+    ], min_total_mv_wan=5_000_000)
+    assert caps["threshold_mv_wan"] == 5_000_000
+    # tushare total_mv 万元 → 亿：2.0e8 万 = 2 万亿 → 20000 亿
+    assert caps["rows"][0]["total_mv_yi"] == 20000.0
 
 
 def test_run_daily_sync_dispatches_shortline_dataset(

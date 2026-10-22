@@ -22,6 +22,14 @@ from typing import Any
 CHINEXT_20PCT_FROM = "2020-08-24"
 ST_10PCT_FROM = "2026-07-06"
 
+# tushare daily_basic.total_mv 单位是万元（原值透传入库），500 亿 = 5_000_000 万。
+BIGCAP_TOTAL_MV_WAN = 5_000_000
+
+# 同花顺 reason 里的泛属性词：不是题材，归组时过滤（VA _GENERIC）。
+_GENERIC_REASON_WORDS = ("国企改革", "破净", "国资", "国企", "板块")
+_MAX_REASON_TAGS = 4
+_MAX_REASON_TOTAL_LEN = 40
+
 # 反包标签："3天2板" / "3/2" 形态。
 _ZT_STAT_RE_PAIR = ("天", "/")
 
@@ -715,3 +723,209 @@ def build_live(trade_date: str, phase: str, as_of: str,
             "sample": len(rets)},
         "deep_loss": sum(1 for x in rets if x <= -5),
     }
+
+
+# ---------------------------------------------------------------------------
+# 9-12. 题材家族（输入 = ths_limit_up.reason + 池表）
+# ---------------------------------------------------------------------------
+
+def clean_reason(reason: Any) -> list[str]:
+    """拆 reason 标签：分隔符切分 → 滤空/泛属性词 → ≤4 个、总长 40。"""
+    import re
+    text = _norm_name(reason)
+    if not text:
+        return []
+    tags = [t.strip() for t in re.split(r"[+＋、,，;；/]", text) if t.strip()]
+    tags = [t for t in tags if not any(w in t for w in _GENERIC_REASON_WORDS)]
+    out: list[str] = []
+    total = 0
+    for t in tags:
+        if len(out) >= _MAX_REASON_TAGS or total + len(t) > _MAX_REASON_TOTAL_LEN:
+            break
+        out.append(t)
+        total += len(t)
+    return out
+
+
+def _reason_by_code(ths_rows: list[dict]) -> dict[str, str]:
+    return {str(r.get("code") or ""): str(r.get("reason") or "") for r in ths_rows}
+
+
+def theme_map(zt_rows: list[dict], ths_rows: list[dict]) -> dict[str, list[dict]]:
+    """题材 → 涨停行列表（一股多标签会进多个题材；无标签的行不进树）。"""
+    reason_by_code = _reason_by_code(ths_rows)
+    out: dict[str, list[dict]] = {}
+    for r in zt_rows:
+        for tag in clean_reason(reason_by_code.get(str(r.get("code") or ""), "")):
+            out.setdefault(tag, []).append(r)
+    return out
+
+
+def theme_counts(zt_rows: list[dict], ths_rows: list[dict]) -> dict[str, int] | None:
+    """题材 → 当日涨停数；两池皆空返回 None（轮动序列里的"缺日"）。"""
+    if not zt_rows and not ths_rows:
+        return None
+    return {tag: len(rows) for tag, rows in theme_map(zt_rows, ths_rows).items()}
+
+
+def build_themes(trade_date: str, zt_rows: list[dict],
+                 ths_rows: list[dict]) -> dict:
+    has_reason = any(str(r.get("reason") or "").strip() for r in ths_rows)
+    if not zt_rows or not has_reason:
+        # reason 整体缺失：不拿 industry 冒充题材（VA 语义）。
+        return {"date": trade_date, "available": False, "theme_count": 0, "themes": {},
+                "reason": "ths_limit_up.reason 缺失（同花顺涨停揭秘未同步）"}
+    tree: dict[str, dict] = {}
+    for tag, rows in theme_map(zt_rows, ths_rows).items():
+        boards = [int(r.get("limit_days") or 1) for r in rows]
+        names = sorted(
+            ({"code": r.get("code"), "name": r.get("name"),
+              "boards": int(r.get("limit_days") or 1),
+              "first_seal": r.get("first_seal"),
+              "broken_times": int(r.get("break_times") or 0)} for r in rows),
+            key=lambda n: (-n["boards"], str(n["code"])))
+        tree[tag] = {
+            "limit_up": len(rows),
+            "first_boards": sum(1 for b in boards if b <= 1),
+            "consec_boards": sum(1 for b in boards if b >= 2),
+            "highest": max(boards),
+            "names": names[:10],
+        }
+    ordered = dict(sorted(tree.items(), key=lambda kv: (-kv[1]["limit_up"], kv[0])))
+    return {"date": trade_date, "available": True, "theme_count": len(tree),
+            "themes": ordered}
+
+
+def build_firstboard(trade_date: str, zt_rows: list[dict],
+                     ths_rows: list[dict]) -> dict:
+    reason_by_code = _reason_by_code(ths_rows)
+    rows = []
+    missing_reason = 0
+    for r in zt_rows:
+        if int(r.get("limit_days") or 1) != 1:
+            continue
+        reason = clean_reason(reason_by_code.get(str(r.get("code") or ""), ""))
+        if not reason:
+            missing_reason += 1
+        rows.append({
+            "code": r.get("code"), "name": r.get("name"),
+            "sector": r.get("industry"), "first_seal": r.get("first_seal"),
+            "seal_fund": r.get("seal_fund"), "turnover": r.get("turnover"),
+            "reason": reason or None,
+        })
+    rows.sort(key=lambda x: (str(x["first_seal"] or "999999"), str(x["code"] or "")))
+    has_reason = any(reason_by_code.values())
+    return {
+        "date": trade_date, "available": bool(rows), "total": len(rows),
+        "rows": rows,
+        "reasons_available": has_reason,
+        "partial": bool(missing_reason) or not has_reason,
+        "missing_reason": missing_reason,
+    }
+
+
+def build_board_ladder(trade_date: str, zt_rows: list[dict], zb_rows: list[dict],
+                       dt_rows: list[dict], prev_zt_rows: list[dict]) -> dict:
+    zt_codes = {str(r.get("code") or "") for r in zt_rows}
+    zb_codes = {str(r.get("code") or "") for r in zb_rows}
+    dt_codes = {str(r.get("code") or "") for r in dt_rows}
+
+    def _by_boards(rows: list[dict]) -> dict[int, list[dict]]:
+        out: dict[int, list[dict]] = {}
+        for r in rows:
+            out.setdefault(int(r.get("limit_days") or 1), []).append(r)
+        return out
+
+    prev_groups = _by_boards(prev_zt_rows)
+    today_groups = _by_boards(zt_rows)
+    heights = sorted(set(prev_groups) | set(today_groups), reverse=True)
+    if not heights:
+        return {"date": trade_date, "available": False, "tiers": [],
+                "reason": "今日/昨日涨停池均为空"}
+
+    tiers = []
+    for h in heights:
+        today = sorted(today_groups.get(h, []),
+                       key=lambda r: (str(r.get("first_seal") or "999999"), str(r.get("code") or "")))
+        fates = []
+        for r in sorted(prev_groups.get(h, []),
+                        key=lambda r: str(r.get("code") or "")):
+            code = str(r.get("code") or "")
+            to = "zt" if code in zt_codes else (
+                "zb" if code in zb_codes else ("dt" if code in dt_codes else "other"))
+            fates.append({"code": r.get("code"), "name": r.get("name"), "to": to})
+        tiers.append({
+            "boards": h,
+            "label": f"{h}板",
+            "count": len(today),
+            "stocks": [{
+                "code": r.get("code"), "name": r.get("name"),
+                "label": board_label(r.get("zt_stat"), h),
+                "sector": r.get("industry"), "first_seal": r.get("first_seal"),
+                "seal_fund": r.get("seal_fund"),
+                "broken_times": int(r.get("break_times") or 0)} for r in today],
+            "promoted": sum(1 for f in fates if f["to"] == "zt"),
+            "fates": {k: sum(1 for f in fates if f["to"] == k)
+                      for k in ("zt", "zb", "dt", "other")},
+            "fate_detail": fates,
+        })
+    return {"date": trade_date, "available": True, "tiers": tiers,
+            "highest": heights[0]}
+
+
+def build_theme_rotation(trade_date: str, days: list[str],
+                         groups: list[dict[str, int] | None],
+                         requested_days: int = 5) -> dict:
+    """days 与 groups 对齐；None = 该日池表缺数据（序列留 None 不当 0）。"""
+    totals: dict[str, int] = {}
+    for g in groups:
+        for tag, n in (g or {}).items():
+            totals[tag] = totals.get(tag, 0) + n
+    themes = {}
+    for tag in sorted(totals, key=lambda t: (-totals[t], t)):
+        series = [g.get(tag) if g is not None else None for g in groups]
+        non_null = [(i, v) for i, v in enumerate(series) if v is not None]
+        peak_day = days[max(non_null, key=lambda iv: (iv[1], iv[0]))[0]] if non_null else None
+        trend = None
+        if len(non_null) >= 2:
+            a, b = non_null[-2][1], non_null[-1][1]
+            trend = "rising" if b > a else ("falling" if b < a else "flat")
+        themes[tag] = {"series": series, "total": totals[tag],
+                       "peak_day": peak_day, "trend": trend}
+    return {"date": trade_date, "available": bool(themes),
+            "requested_days": requested_days, "days": days, "themes": themes}
+
+
+# ---------------------------------------------------------------------------
+# 13-14. 本地派生（bars_daily / stock_daily_basic）
+# ---------------------------------------------------------------------------
+
+def build_turnover_top(trade_date: str, rows: list[dict]) -> dict:
+    out = []
+    for r in rows:
+        amt = r.get("total_amt")
+        try:
+            amt_yi = round(float(amt) / 1e8, 2) if amt is not None else None
+        except (TypeError, ValueError):
+            amt_yi = None
+        out.append({"code": r.get("code"), "name": r.get("name"),
+                    "total_amt": amt, "total_amt_yi": amt_yi,
+                    "close": r.get("close"), "rise_rate": r.get("rise_rate")})
+    return {"date": trade_date, "available": bool(out), "rows": out}
+
+
+def build_bigcaps(trade_date: str, rows: list[dict],
+                  min_total_mv_wan: float = BIGCAP_TOTAL_MV_WAN) -> dict:
+    out = []
+    for r in rows:
+        mv = r.get("total_mv")
+        try:
+            mv_yi = round(float(mv) / 1e4, 1) if mv is not None else None  # 万→亿
+        except (TypeError, ValueError):
+            mv_yi = None
+        out.append({"code": r.get("code"), "name": r.get("name"),
+                    "total_mv_wan": mv, "total_mv_yi": mv_yi,
+                    "circ_mv": r.get("circ_mv"), "close": r.get("close"),
+                    "turnover_rate": r.get("turnover_rate"), "pe": r.get("pe")})
+    return {"date": trade_date, "threshold_mv_wan": min_total_mv_wan,
+            "available": bool(out), "count": len(out), "rows": out}
