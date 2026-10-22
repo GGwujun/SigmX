@@ -57,6 +57,7 @@ docs/*
 !docs/data-source-plan.md
 !docs/datahub-api.md
 !docs/datahub-roadmap-shortline.md
+!docs/agent-pipeline.md
 docs/screenshots/agent-run.png
 docs/screenshots/boot.png
 data/minutes/
