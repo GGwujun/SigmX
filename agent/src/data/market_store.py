@@ -1195,6 +1195,17 @@ class MarketStore:
         return [dict(r) for r in self._conn.execute(sql).fetchall()]
 
     @_synchronized
+    def get_security_profile(self, code: str) -> dict | None:
+        """单只股票的 security_master 档案（研究管线取数用）。"""
+        row = self._conn.execute(
+            "SELECT code, symbol, name, area, industry, market, exchange, "
+            "list_status, list_date, delist_date, is_hs, is_st, is_delisting, is_bj, is_active "
+            "FROM security_master WHERE code = ?",
+            (code,),
+        ).fetchone()
+        return dict(row) if row else None
+
+    @_synchronized
     def default_strategy_codes(self) -> list[str]:
         rows = self._conn.execute(
             "SELECT code FROM security_master "
@@ -1563,6 +1574,35 @@ class MarketStore:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             payload,
         )
+
+    @_synchronized
+    def get_stock_daily_basic(
+        self,
+        code: str,
+        *,
+        days: int | None = None,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> list[dict]:
+        """估值/换手日线基础数据（升序返回；days 截最近 N 条）。"""
+        clauses = ["code = ?"]
+        params: list[Any] = [code]
+        if start:
+            clauses.append("trade_date >= ?")
+            params.append(start)
+        if end:
+            clauses.append("trade_date <= ?")
+            params.append(end)
+        sql = (
+            "SELECT trade_date, close, turnover_rate, turnover_rate_f, volume_ratio, "
+            "pe, pe_ttm, pb, ps, ps_ttm, dv_ratio, dv_ttm, "
+            "total_share, float_share, free_share, total_mv, circ_mv "
+            f"FROM stock_daily_basic WHERE {' AND '.join(clauses)} ORDER BY trade_date DESC"
+        )
+        if days is not None:
+            sql += f" LIMIT {int(days)}"
+        rows = self._conn.execute(sql, params).fetchall()
+        return [dict(r) for r in reversed(rows)]
 
     @_synchronized
     def upsert_etf_master(self, rows: list[dict]) -> int:
@@ -3644,6 +3684,22 @@ class MarketStore:
                      r.get("type", ""), r.get("url", ""), _now_iso()),
                 )
         return len(rows)
+
+    @_synchronized
+    def get_announcements(self, code: str, *, days: int | None = None, start: str | None = None) -> list[dict]:
+        """个股公告（倒序返回；days 截最近 N 条）。"""
+        clauses = ["code = ?"]
+        params: list[Any] = [code]
+        if start:
+            clauses.append("ann_date >= ?")
+            params.append(start)
+        sql = (
+            f"SELECT code, ann_date, title, ann_type, url FROM announcement "
+            f"WHERE {' AND '.join(clauses)} ORDER BY ann_date DESC"
+        )
+        if days is not None:
+            sql += f" LIMIT {int(days)}"
+        return [dict(r) for r in self._conn.execute(sql, params).fetchall()]
 
     @_synchronized
     def upsert_zt_pool(self, trade_date: str, rows: list[dict], *, source: str = "eastmoney") -> int:
