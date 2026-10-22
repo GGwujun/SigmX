@@ -69,6 +69,8 @@ _STAGE_SCHEMAS = {
                                 "description": "后续应跟踪验证的决策要点（≥3 条）"},
             "source_conflicts": {"type": "array", "items": {"type": "string"},
                                  "description": "数据源之间的矛盾陈述，没有给空数组"},
+            "chokepoint_events": {"type": "array", "items": {"type": "string"},
+                                  "description": "命中的卡口事件类别清单（读 fetch/chokepoint_events.json 汇总，无命中可不填）"},
         },
         required=("counter_evidence", "decision_points", "source_conflicts"),
     ),
@@ -143,6 +145,11 @@ _FUNDS_SHEET = _sheet(
 _RISK_SHEET = _sheet(
     "risk", "找反证：不利公告、异常量价、与主叙事矛盾的数据。没有反证的研究不是研究。",
     "- fetch/announcements_90d.json（近 90 日公告，缺数据记 gaps）\n"
+    "- fetch/chokepoint_events.json（公告卡口分类：涨价/扩产/减产停产/订单合同/"
+    "认证导入/收购合资/供需/管制制裁；命中事件进 decision_points（按类别跟踪）"
+    "与 counter_evidence（减产停产/管制制裁类优先），无命中如实说没有）\n"
+    "- 行业温度参考（定性旁证，不是本公司数据）：文本命中「供不应求/缺货/满产/"
+    "涨价/sold out」类词为强、「供过于求/过剩/降价/减产」类词为弱、两向互抵不给温度\n"
     "- 本运行目录此前阶段的产物（read_run_file stages/*.json）\n"
     "- 提示词上方的「历史研究结论（知识档案）」（如有）：与今日数据冲突处写入"
     " source_conflicts，显著矛盾纳入 counter_evidence",
@@ -150,7 +157,7 @@ _RISK_SHEET = _sheet(
     _json_block({"stage": "risk", "summary": "（事实摘要）",
                  "counter_evidence": ["（≥1 条反证事实）"],
                  "decision_points": ["（≥3 条后续跟踪要点）"],
-                 "source_conflicts": [],
+                 "source_conflicts": [], "chokepoint_events": [],
                  "evidence_ids": [], "calculation_ids": []}),
 )
 
@@ -193,7 +200,7 @@ a_stock_plugin = ResearchPlugin(
         "funds_sentiment": StageDatasets(
             optional=("capital_flow_20d", "pool_zt_today", "pool_zb_today",
                       "pool_dt_today", "pool_yzt_today", "shortline_themes")),
-        "risk": StageDatasets(optional=("announcements_90d",)),
+        "risk": StageDatasets(optional=("announcements_90d", "chokepoint_events")),
         "report": StageDatasets(),
     },
     critical_datasets=("security_profile", "bars_daily_90d", "daily_basic_90d"),

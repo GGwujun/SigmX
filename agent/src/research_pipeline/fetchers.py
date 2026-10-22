@@ -96,6 +96,26 @@ def _fetch_announcements_90d(store: Any, code: str, trade_date: "str | None") ->
     return store.get_announcements(code, days=90)
 
 
+def _fetch_chokepoint_events(store: Any, code: str, trade_date: "str | None") -> list:
+    """近 90 日公告过卡口筛子：命中的带类别与原始链接，未命中不产生行。
+
+    分类是确定性关键词匹配（industry_signals），不调模型；「没有命中」
+    如实返回空列表（status=empty），不是故障。
+    """
+    from .industry_signals import classify_announcement
+
+    rows = store.get_announcements(code, days=90)
+    out: list[dict] = []
+    for r in rows:
+        categories = classify_announcement(str(r.get("title") or ""))
+        if categories:
+            out.append({"ann_date": r.get("ann_date", ""),
+                        "title": r.get("title", ""),
+                        "categories": categories,
+                        "url": r.get("url", "")})
+    return out
+
+
 FETCHERS: "dict[str, Callable]" = {
     "security_profile": _fetch_security_profile,
     "bars_daily_90d": _fetch_bars_daily_90d,
@@ -110,6 +130,7 @@ FETCHERS: "dict[str, Callable]" = {
     "shortline_ladder": _snapshot_fetcher("ladder"),
     "shortline_firstboard": _snapshot_fetcher("firstboard"),
     "announcements_90d": _fetch_announcements_90d,
+    "chokepoint_events": _fetch_chokepoint_events,
 }
 
 
