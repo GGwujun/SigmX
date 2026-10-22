@@ -8,6 +8,7 @@ from pathlib import Path
 from src.agent.progress import emit_progress
 from src.agent.tools import BaseTool
 from src.core.runner import Runner
+from src.tools.backtest_gate import apply_post_run, plan_backtest, write_gate
 from src.tools.path_utils import safe_run_dir
 
 
@@ -46,6 +47,14 @@ def run_backtest(run_dir: str) -> str:
     if not signal_path.exists():
         return json.dumps({"status": "error", "error": "code/signal_engine.py not found"}, ensure_ascii=False)
 
+    # 前置闸口：样本不足直接拒绝（不跑子进程）；放行则携带披露清单
+    gate = plan_backtest(run_path)
+    if not gate:
+        write_gate(run_path, gate.as_dict())
+        emit_progress("refused", message="; ".join(gate.as_dict()["reasons"]))
+        return json.dumps({"status": "refused", "gate": gate.as_dict(),
+                           "run_dir": run_dir}, ensure_ascii=False)
+
     agent_root = Path(__file__).resolve().parents[2]
     entry_script = agent_root / "backtest" / "runner.py"
 
@@ -63,6 +72,10 @@ def run_backtest(run_dir: str) -> str:
     )
 
     emit_progress("finalize", message="collecting artifacts")
+    # post-run 守卫：交易笔数不足降格为警告；判定落盘并入信封
+    if result.success:
+        apply_post_run(gate, run_path)
+    write_gate(run_path, gate.as_dict())
     artifacts_found = {name: str(path) for name, path in result.artifacts.items()}
     return json.dumps({
         "status": "ok" if result.success else "error",
@@ -70,6 +83,7 @@ def run_backtest(run_dir: str) -> str:
         "stdout": result.stdout[-2000:] if len(result.stdout) > 2000 else result.stdout,
         "stderr": result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr,
         "artifacts": artifacts_found,
+        "gate": gate.as_dict(),
         "run_dir": run_dir,
     }, ensure_ascii=False)
 

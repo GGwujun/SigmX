@@ -154,6 +154,7 @@ def run_shadow_backtest(
         profile=profile,
         journal_path=journal_path,
         combined=combined,
+        initial_capital=initial_capital,
     )
 
     result = ShadowBacktestResult(
@@ -356,9 +357,12 @@ def _attribution_or_zero(
     profile: ShadowProfile,
     journal_path: str | Path | None,
     combined: dict[str, float],
+    initial_capital: float = 1_000_000.0,
 ) -> tuple[AttributionBreakdown, float, float]:
     """Compute attribution if the journal is available, else return zeros."""
-    shadow_pnl = float(combined.get("total_return_abs") or combined.get("total_pnl") or 0.0)
+    # metrics.py 的键是 total_return（收益率比值）——绝对盈亏 = 比值 × 初始资金。
+    # 旧代码读 total_return_abs/total_pnl（不存在的键）恒得 0，missed_signals 残差失真。
+    shadow_pnl = float(combined.get("total_return") or 0.0) * initial_capital
     if not journal_path:
         return _zero_attribution(), shadow_pnl, 0.0
     path = Path(journal_path)

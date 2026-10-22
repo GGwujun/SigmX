@@ -330,7 +330,7 @@ def test_run_shadow_backtest_with_mocked_runner(
         artifacts_dir.mkdir(parents=True, exist_ok=True)
         metrics_path = artifacts_dir / "metrics.json"
         metrics_path.write_text(json.dumps({
-            "total_return_abs": 12_345.0,
+            "total_return": 0.12345,   # 引擎真实键：收益率比值（metrics.py）
             "sharpe": 1.5,
             "max_drawdown": -0.12,
             "win_rate": 0.55,
@@ -359,9 +359,10 @@ def test_run_shadow_backtest_with_mocked_runner(
     assert isinstance(result, ShadowBacktestResult)
     assert result.shadow_id == profile.shadow_id
     assert set(result.per_market.keys()) == {"china_a", "hk", "us", "crypto"}
-    assert result.combined["total_return_abs"] == 12_345.0
+    assert result.combined["total_return"] == 0.12345
     assert result.combined["sharpe"] == 1.5
-    assert result.shadow_total_pnl == 12_345.0
+    # shadow_total_pnl = total_return × 初始资金（默认 1_000_000）
+    assert result.shadow_total_pnl == 123_450.0
     assert result.real_total_pnl > 0  # all profitable test data
     assert result.delta_pnl == round(result.shadow_total_pnl - result.real_total_pnl, 2)
     assert isinstance(result.attribution, AttributionBreakdown)
@@ -578,7 +579,7 @@ def test_attribution_is_zero_without_journal(
 
     def stub_runner(run_dir_str: str) -> str:
         metrics_path = Path(run_dir_str) / "metrics.json"
-        metrics_path.write_text(json.dumps({"total_return_abs": 0.0}), encoding="utf-8")
+        metrics_path.write_text(json.dumps({"total_return": 0.0}), encoding="utf-8")
         return json.dumps({
             "status": "ok",
             "exit_code": 0,
