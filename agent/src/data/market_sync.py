@@ -62,10 +62,15 @@ _TICK_DEADLINE_SECONDS = 600  # one sync tick must not run longer than 10 min
 # 需 90+ min），提升到 600s 让大多数 dataset 能完成；整体 deadline 仍然兜底。
 _DATASET_TIMEOUT = float(os.getenv("MARKET_SYNC_DATASET_TIMEOUT", "600"))
 _POOL_TYPES = ("limitup", "limitdown", "strong", "fire", "secnew", "previous")
-_SLEEP_BETWEEN_CALLS = 0.05  # tpdog caps at 30 calls/sec
+# 限频等待统一登记在 rate_limit.py（默认值与历史一致，env 可线上调参）。
+# 调用处一律 time.sleep(rate_seconds(...))——走本模块 time 引用，测试桩
+# （monkeypatch ms.time.sleep）继续生效。
+from src.data.rate_limit import rate_seconds  # noqa: E402
+_SLEEP_BETWEEN_CALLS = rate_seconds("tpdog_pacing")  # tpdog caps at 30 calls/sec
 _DAILY_COMPENSATION_LIMIT = 200
 # akshare 同花顺单股资金流兜底：限流 ~1 QPS 易被封，sleep 比较保守
-_AKSHARE_CAPITAL_SLEEP = float(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_SLEEP", "0.6"))
+# （旧 env MARKET_SYNC_AKSHARE_CAPITAL_SLEEP 保留优先，新调参走 rate_limit）
+_AKSHARE_CAPITAL_SLEEP = float(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_SLEEP", "") or rate_seconds("akshare_capital_pacing"))
 _AKSHARE_CAPITAL_BUDGET = int(os.getenv("MARKET_SYNC_AKSHARE_CAPITAL_BUDGET", "1500"))  # 25 分钟时间盒
 # tpdog fund/stock 全市场逐股资金流：30次/秒 限流, 5000+ 只逐股拉。
 # 时间盒保护单次 tick 不超时(超时 break, 下个 tick 断点续传)。积分消耗 ~5000/天,
@@ -1123,7 +1128,7 @@ def _sync_stock_daily_basic_tushare_by_date(
                 "tushare daily_basic rate-limited for %s, retrying in 62min: %s",
                 trade_date, err_msg[:120],
             )
-            time.sleep(62 * 60)
+            time.sleep(rate_seconds("tushare_daily_basic_quota_retry"))
             try:
                 df = api.daily_basic(trade_date=trade_date.replace("-", ""), fields=fields)
             except Exception as exc2:  # noqa: BLE001
@@ -1179,7 +1184,7 @@ def _sync_stock_daily_basic_tushare_by_date(
     # tpdog not viable for daily_basic (per-code 1 credit × 5000 = too expensive).
     # Retry tushare with backoff instead.
     if not rows:
-        time.sleep(60)  # respect rate limit
+        time.sleep(rate_seconds("tushare_daily_basic_empty_retry"))  # respect rate limit
         try:
             df2 = api.daily_basic(trade_date=trade_date.replace("-", ""), fields=fields)
             if df2 is not None and not df2.empty:
@@ -1595,7 +1600,7 @@ def _sync_index_daily_tushare(
         # Tushare rate-limits index_daily to 1 req/min — sleep between calls
         # (skip sleep before the first call).
         if idx > 0 and not rate_limited:
-            time.sleep(62)
+            time.sleep(rate_seconds("tushare_index_pacing"))
         if rate_limited:
             # Once rate-limited, skip remaining codes — fallback chain (tpdog,
             # akshare, tencent, sina) will pick up the missing data.
@@ -2040,7 +2045,7 @@ def _sync_etf_daily(store: MarketStore, etf_codes: list[str], trade_date: str, t
             "ETF daily sync %s: got 0 rows, waiting 30min for tpdog data delay...",
             trade_date,
         )
-        time.sleep(30 * 60)
+        time.sleep(rate_seconds("tpdog_etf_data_delay"))
     return total
 
 
@@ -3742,7 +3747,7 @@ def _sync_us_theme_snapshot(store: MarketStore, trade_date: str) -> int:
         except Exception:
             pass
         if attempt == 0:
-            time.sleep(10)
+            time.sleep(rate_seconds("yfinance_retry"))
     # akshare fallback for global indices if yfinance completely failed
     if not histories:
         try:
@@ -4126,7 +4131,7 @@ def _sync_market_breadth_snapshot(store: MarketStore, trade_date: str) -> int:
         raw_rows.extend(page_rows)
         if len(page_rows) < 100:
             break
-        time.sleep(0.15)
+        time.sleep(rate_seconds("eastmoney_clist_paging"))
     rows = [{"change_pct": raw.get("f3"), "amount": raw.get("f6")} for raw in raw_rows]
     written = _write_from_rows(rows, source="eastmoney.clist.a_spot")
     if not written:
@@ -5021,7 +5026,7 @@ def _sync_eps_forecast(store: MarketStore, trade_date: str) -> int:
                 total += store.upsert_eps_forecast(stored_code, trade_date, forecasts)
         except Exception:
             continue
-        time.sleep(0.3)
+        time.sleep(rate_seconds("eps_forecast_pacing"))
     return total
 
 
@@ -5055,7 +5060,7 @@ def _sync_financial_snapshot(store: MarketStore, trade_date: str) -> int:
                 total += store.upsert_financial_snapshot(stored_code, data)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("financial_snapshot upsert failed %s: %s", stored_code, exc)
-        time.sleep(0.1)
+        time.sleep(rate_seconds("financial_snapshot_pacing"))
     return total
 
 
