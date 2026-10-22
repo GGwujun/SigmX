@@ -12,6 +12,7 @@ const ITEMS = [
   { to: "/account/subscription", label: "套餐与权益", end: false },
   { to: "/account/orders", label: "订单", end: false },
   { to: "/account/data-hub", label: "Data Hub", end: false },
+  { to: "/account/shortline-review", label: "短线复盘", end: false },
   { to: "/account/devices", label: "设备", end: false },
 ] as const;
 

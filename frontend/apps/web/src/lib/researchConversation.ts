@@ -171,11 +171,14 @@ export function buildResearchConversation(
 
     if (event.type === "pipeline_gate_rewrite") {
       const attempt = numberValue(event.payload.attempt);
+      const masked = numberValue(event.payload.masked);
       blocks.push({
         kind: "tool",
         id: `tool-${event.id}`,
         tool: "pipeline:gate_rewrite",
-        label: attempt ? `报告合规重写（第 ${attempt} 次）` : "报告合规重写",
+        label: masked
+          ? `数字出处遮蔽（${masked} 处替换为〔未核实〕，报告降为 incomplete）`
+          : attempt ? `报告合规重写（第 ${attempt} 次）` : "报告合规重写",
         status: "completed",
       });
       continue;

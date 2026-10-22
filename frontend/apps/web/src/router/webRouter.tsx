@@ -27,6 +27,7 @@ const SubscriptionPage = lazy(() => import("@/pages/account/SubscriptionPage").t
 const DevicesPage = lazy(() => import("@/pages/account/DevicesPage").then(m => ({ default: m.DevicesPage })));
 const OrdersPage = lazy(() => import("@/pages/account/OrdersPage").then(m => ({ default: m.OrdersPage })));
 const DataHubConsolePage = lazy(() => import("@/pages/account/DataHubConsolePage").then(m => ({ default: m.DataHubConsolePage })));
+const ShortlineReviewPage = lazy(() => import("@/pages/account/ShortlineReviewPage").then(m => ({ default: m.ShortlineReviewPage })));
 const CloudAccountPage = lazy(() => import("@/pages/account/CloudAccountPage").then(m => ({ default: m.CloudAccountPage })));
 const OperationsPage = lazy(() => import("@/pages/admin/OperationsPage").then(m => ({ default: m.OperationsPage })));
 const AdminLayout = lazy(() => import("@/components/admin/AdminLayout").then(m => ({ default: m.AdminLayout })));
@@ -63,6 +64,7 @@ export const webRoutes: RouteObject[] = [
       { path: "/account/devices", element: wrap(DevicesPage) },
       { path: "/account/orders", element: wrap(OrdersPage) },
       { path: "/account/data-hub", element: wrap(DataHubConsolePage) },
+      { path: "/account/shortline-review", element: wrap(ShortlineReviewPage) },
       { path: "/account/devices/authorize", element: wrap(CloudAccountPage) },
     ] },
     { element: <RequireAdmin />, children: [

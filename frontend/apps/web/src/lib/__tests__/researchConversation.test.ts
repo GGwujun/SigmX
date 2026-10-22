@@ -118,6 +118,21 @@ describe("buildResearchConversation · 六阶段管线事件", () => {
     ]);
   });
 
+  it("labels number-masking gate events distinctly from compliance rewrites", () => {
+    const blocks = buildResearchConversation([
+      event(1, "pipeline_gate_rewrite", { attempt: 1, masked: 3,
+        problems: ["无出处数字 3 处已替换为〔未核实〕"] }),
+    ], null);
+
+    expect(blocks).toEqual([
+      expect.objectContaining({
+        kind: "tool",
+        label: "数字出处遮蔽（3 处替换为〔未核实〕，报告降为 incomplete）",
+        status: "completed",
+      }),
+    ]);
+  });
+
   it("ignores loop noise (attempts, turns, replies, stop guard, lifecycle)", () => {
     const blocks = buildResearchConversation([
       event(1, "pipeline_stage_attempt_started", { stage: "profile", attempt: 1 }),
