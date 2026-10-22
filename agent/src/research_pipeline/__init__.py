@@ -28,12 +28,19 @@ from .plugin import (  # noqa: F401
     register_plugin,
     validate_plugin,
 )
+from .plugins import A_STOCK_DEEP_RESEARCH, a_stock_plugin  # noqa: F401
 from .run_tools import (  # noqa: F401
     RunToolsError,
     TurnContext,
     call_run_tool,
     run_tools_as_specs,
     tool_result_text,
+)
+from .runner_adapter import (  # noqa: F401
+    PipelineDispatchRunner,
+    PipelineResearchRunner,
+    default_runs_root,
+    resolve_code,
 )
 from .stage_loop import TurnOutcome, run_stage_turn  # noqa: F401
 from .stop_guard import StopGuard, stage_problems, valid_calcs  # noqa: F401

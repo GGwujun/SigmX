@@ -294,12 +294,27 @@ def _build_agent_runner():
         skill_loader=skill_loader,
         financial_quality=lambda limit: financial_research.screen(limit=limit),
     )
-    return ResearchAgentRuntime(
+    agent_runtime = ResearchAgentRuntime(
         lambda: build_configured_chat(config.execution, temperature=config.temperature,
                                       timeout_seconds=config.timeout_seconds, max_retries=config.max_retries,
                                       reasoning_effort=config.reasoning_effort),
         tools, max_iterations=12,
     )
+
+    # 六阶段研究管线：plan["pipeline"] == "a_stock_deep_research" 时分流，
+    # 既有 agent 运行时零改动（契约同为 run(request, emit, cancel) -> AgentResearchOutput）
+    from src.data.market_store import get_market_store
+    from src.research_pipeline.runner_adapter import (PipelineDispatchRunner,
+                                                      PipelineResearchRunner)
+    pipeline_runner = PipelineResearchRunner(
+        llm=lambda: build_configured_chat(config.execution, temperature=config.temperature,
+                                          timeout_seconds=config.timeout_seconds,
+                                          max_retries=config.max_retries,
+                                          reasoning_effort=config.reasoning_effort),
+        store=get_market_store(),
+    )
+    return PipelineDispatchRunner(default_runner=agent_runtime,
+                                  pipeline_runner=pipeline_runner)
 
 
 @plan_router.post("", response_model=ResearchPlanResponse)
