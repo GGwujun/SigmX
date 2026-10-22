@@ -66,14 +66,18 @@ def test_data_grant_rejects_non_positive_amount(store: ProductStore) -> None:
 
 def test_monthly_data_credit_grant_uses_plan_value_and_next_month_expiry(store: ProductStore) -> None:
     ledger = DataCreditLedger(store)
-    first = grant_monthly_data_credits(ledger, "u1", "desktop_pro", date(2026, 8, 15))
-    second = grant_monthly_data_credits(ledger, "u1", "desktop_pro", date(2026, 8, 28))
+    # Period must be current-UTC: balance() drops lots whose expiry (next month
+    # 1st, UTC) is already in the past, so a hardcoded historical date fails.
+    today = datetime.now(timezone.utc).date()
+    first = grant_monthly_data_credits(ledger, "u1", "desktop_pro", today)
+    second = grant_monthly_data_credits(ledger, "u1", "desktop_pro", today)
     assert first is not None
     assert second is not None and second.idempotent_replay is True
     assert ledger.balance("u1").available == 10_000
     lot = ledger.list_lots("u1")[0]
-    assert lot["idempotency_key"] == "data-plan-month:u1:desktop_pro:2026-08"
-    assert lot["expires_at"] == "2026-09-01T00:00:00+00:00"
+    assert lot["idempotency_key"] == f"data-plan-month:u1:desktop_pro:{today:%Y-%m}"
+    next_month = date(today.year + (today.month == 12), today.month % 12 + 1, 1)
+    assert lot["expires_at"] == f"{next_month:%Y-%m-%d}T00:00:00+00:00"
 
 
 def test_monthly_data_credit_grant_rejects_removed_enterprise_plan(store: ProductStore) -> None:
