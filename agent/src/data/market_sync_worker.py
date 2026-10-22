@@ -845,6 +845,52 @@ def _run_post_close_shadow_sync(
     return {**core_rows, **enhanced_rows}
 
 
+_PRODUCT_STORE_FOR_VERIFY = None
+
+
+def _product_store_for_verify():
+    """复盘条件表所在的 product.db 惰性单例（worker 进程）。"""
+    global _PRODUCT_STORE_FOR_VERIFY
+    if _PRODUCT_STORE_FOR_VERIFY is None:
+        from src.product.store import ProductStore
+
+        _PRODUCT_STORE_FOR_VERIFY = ProductStore()
+    return _PRODUCT_STORE_FOR_VERIFY
+
+
+def _maybe_run_shortline_verify(live_store) -> None:
+    """对账昨日复盘的明日验证条件（幂等 ``daemon:verify:{t1}``）。
+
+    t1 = 已结算日（post_close 期间即 T+1），T = previous_trading_day(t1)。
+    数据未齐（no_data）不落幂等键——下一轮 tick 用补齐的数据重对账；
+    全部已决（或 T 无条件）才记键停手。
+    """
+    t1 = _settled_trade_date(live_store)
+    if not t1:
+        return
+    key = f"daemon:verify:{t1}"
+    if live_store.get_meta(key):
+        return
+    from src.data.trade_calendar import previous_trading_day
+    from src.product.shortline_verify import (has_open_conditions,
+                                              verify_trade_date)
+
+    t = previous_trading_day(t1)
+    product_store = _product_store_for_verify()
+    try:
+        if not has_open_conditions(product_store, t):
+            live_store.set_meta(key, _now_cst().isoformat())
+            return
+        stats = verify_trade_date(product_store, live_store, t1)
+        logger.info("shortline verify %s -> %s", t1,
+                    {k: stats[k] for k in ("checked", "verified", "mismatch",
+                                           "no_data", "late")})
+        if stats["remaining"] == 0:
+            live_store.set_meta(key, _now_cst().isoformat())
+    except Exception:
+        logger.exception("shortline verify failed for %s", t1)
+
+
 def run_once(
     *,
     trade_date: str | None = None,
@@ -918,6 +964,9 @@ def run_worker(interval_seconds: int = 60) -> None:
                     # snapshot publish, on its own idempotent meta_key. Slow/idempotent;
                     # must never block the day's core publish. See plan step ③.
                     _maybe_run_index_history_sync(live_store)
+                    # T+1 verification of yesterday's shortline review conditions
+                    # (idempotent on daemon:verify:{date}; retries while no_data).
+                    _maybe_run_shortline_verify(live_store)
 
                 if integrity_interval > 0 and time.monotonic() - last_integrity >= integrity_interval:
                     last_integrity = time.monotonic()

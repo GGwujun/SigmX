@@ -342,6 +342,11 @@ class ShortlineReviewService:
             self._update(review_id, status="completed",
                          sections=sections, gaps=gaps, conditions=conditions,
                          finished_at=self._now())
+            # 明日验证条件落表（status=pending），等 T+1 收盘后对账
+            if conditions:
+                from src.product.shortline_verify import insert_conditions
+                insert_conditions(self.store, review_id, trade_date, conditions,
+                                  written_at=self._now())
         except Exception as exc:  # noqa: BLE001 —— 后台线程不能裸抛
             self._update(review_id, status="failed", error=f"{type(exc).__name__}: {exc}"[:500],
                          finished_at=self._now())

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 _DB_PATH = Path.home() / ".vibe-trading" / "product.db"
 
-_SCHEMA_VERSION = 19
+_SCHEMA_VERSION = 20
 
 _OLD_DATAHUB_ENTITLEMENT_KEYS = {
     "datahub.basic",
@@ -404,6 +404,25 @@ class ProductStore:
             );
             CREATE INDEX IF NOT EXISTS idx_shortline_reviews_date
                 ON shortline_reviews(trade_date, created_at);
+
+            CREATE TABLE IF NOT EXISTS shortline_conditions (
+                id TEXT PRIMARY KEY,
+                trade_date TEXT NOT NULL,
+                metric TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                note TEXT,
+                source_review_id TEXT,
+                written_at TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                prev_value REAL,
+                cur_value REAL,
+                actual TEXT,
+                verified INTEGER NOT NULL DEFAULT 0,
+                late INTEGER NOT NULL DEFAULT 0,
+                checked_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_shortline_conditions_date
+                ON shortline_conditions(trade_date, status);
 
             CREATE TABLE IF NOT EXISTS datahub_rate_buckets (
                 user_id TEXT NOT NULL,
