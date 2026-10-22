@@ -345,11 +345,12 @@ def _seed_derived_inputs(store: MarketStore, trade_date: str) -> None:
           "volume": 500, "total_amt": 1.1e9, "rise_rate": 2.0}],
         source="test.fixture", sync_run_id="run-1",
     )
-    # tushare total_mv 单位万元：600001=8000 亿、600002=60 亿（不达 500 亿阈值）
+    # tushare total_mv 单位万元：600001=800 亿、600002=60 亿（不达 500 亿阈值）。
+    # daily_basic 只在 07-14 有数据（模拟 tushare 限频滞后）→ 07-15 目标日回落。
     store.upsert_stock_daily_basic([
-        {"code": "600001.SH", "trade_date": trade_date, "close": 10.5,
+        {"code": "600001.SH", "trade_date": "2026-07-14", "close": 10.4,
          "turnover_rate": 1.2, "pe": 5.0, "total_mv": 8_000_000, "circ_mv": 6_000_000},
-        {"code": "600002.SH", "trade_date": trade_date, "close": 8.8,
+        {"code": "600002.SH", "trade_date": "2026-07-14", "close": 8.8,
          "turnover_rate": 3.0, "pe": 20.0, "total_mv": 600_000, "circ_mv": 400_000},
     ])
 
@@ -431,7 +432,9 @@ def test_sync_shortline_post_close_writes_all_review_kinds(
     assert turnover["rows"][0]["total_amt_yi"] == 32.0
 
     bigcaps = store.get_shortline_snapshot("bigcaps", trade_date)["payload"]
+    # daily_basic 滞后一天：目标日 07-15 回落到 07-14 数据，source_date 标注
     assert bigcaps["count"] == 1  # 60 亿的 600002 不达 500 亿阈值
+    assert bigcaps["source_date"] == "2026-07-14"
     assert bigcaps["rows"][0]["code"] == "600001.SH"
     assert bigcaps["rows"][0]["total_mv_yi"] == 800.0  # 8_000_000 万元 = 800 亿
 
@@ -456,6 +459,9 @@ def test_clean_reason_filters_generic_words_and_variants() -> None:
     # 全是泛属性词 → 空
     assert sm.clean_reason("国企改革+国资") == []
     assert sm.clean_reason("") == []
+    # 财报业绩系词根（2026-08 真实数据验证补充）
+    assert sm.clean_reason("半年报增长+中报扭亏+业绩增长+年报预增") == []
+    assert sm.clean_reason("创新药+半年报增长") == ["创新药"]
     # 超长标签串：≤4 个标签截断
     many = sm.clean_reason("一题材+二题材+三题材+四题材+五题材+六题材")
     assert many == ["一题材", "二题材", "三题材", "四题材"]

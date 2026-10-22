@@ -25,8 +25,15 @@ ST_10PCT_FROM = "2026-07-06"
 # tushare daily_basic.total_mv 单位是万元（原值透传入库），500 亿 = 5_000_000 万。
 BIGCAP_TOTAL_MV_WAN = 5_000_000
 
-# 同花顺 reason 里的泛属性词：不是题材，归组时过滤（VA _GENERIC）。
-_GENERIC_REASON_WORDS = ("国企改革", "破净", "国资", "国企", "板块")
+# 同花顺 reason 里的泛属性词（包含匹配）：不是题材，归组时过滤。
+# 前五个是 VA _GENERIC；2026-08 真实数据验证后补财报业绩系词根——
+# "半年报增长/中报扭亏/业绩增长"这类标签高频出现但不是题材，会把
+# 题材树撑到 200+ 且轮动榜被业绩词霸榜。
+_GENERIC_REASON_WORDS = (
+    "破净", "板块", "国资", "国企",
+    "业绩", "半年报", "中报", "年报", "季报", "财报",
+    "扭亏", "预增", "预减", "减亏", "摘帽",
+)
 _MAX_REASON_TAGS = 4
 _MAX_REASON_TOTAL_LEN = 40
 
@@ -900,7 +907,8 @@ def build_theme_rotation(trade_date: str, days: list[str],
 # 13-14. 本地派生（bars_daily / stock_daily_basic）
 # ---------------------------------------------------------------------------
 
-def build_turnover_top(trade_date: str, rows: list[dict]) -> dict:
+def build_turnover_top(trade_date: str, rows: list[dict],
+                       source_date: str | None = None) -> dict:
     out = []
     for r in rows:
         amt = r.get("total_amt")
@@ -911,11 +919,13 @@ def build_turnover_top(trade_date: str, rows: list[dict]) -> dict:
         out.append({"code": r.get("code"), "name": r.get("name"),
                     "total_amt": amt, "total_amt_yi": amt_yi,
                     "close": r.get("close"), "rise_rate": r.get("rise_rate")})
-    return {"date": trade_date, "available": bool(out), "rows": out}
+    return {"date": trade_date, "source_date": source_date or trade_date,
+            "available": bool(out), "rows": out}
 
 
 def build_bigcaps(trade_date: str, rows: list[dict],
-                  min_total_mv_wan: float = BIGCAP_TOTAL_MV_WAN) -> dict:
+                  min_total_mv_wan: float = BIGCAP_TOTAL_MV_WAN,
+                  source_date: str | None = None) -> dict:
     out = []
     for r in rows:
         mv = r.get("total_mv")
@@ -927,5 +937,6 @@ def build_bigcaps(trade_date: str, rows: list[dict],
                     "total_mv_wan": mv, "total_mv_yi": mv_yi,
                     "circ_mv": r.get("circ_mv"), "close": r.get("close"),
                     "turnover_rate": r.get("turnover_rate"), "pe": r.get("pe")})
-    return {"date": trade_date, "threshold_mv_wan": min_total_mv_wan,
+    return {"date": trade_date, "source_date": source_date or trade_date,
+            "threshold_mv_wan": min_total_mv_wan,
             "available": bool(out), "count": len(out), "rows": out}

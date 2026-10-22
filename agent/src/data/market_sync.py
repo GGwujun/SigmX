@@ -4907,28 +4907,47 @@ def _sync_shortline_snapshots(store: MarketStore, trade_date: str) -> dict[str, 
 
     _guard("theme_rotation", _rotation, family_src)
 
-    def _turnover_rows() -> list[dict]:
-        return [dict(r) for r in store._conn.execute(
+    def _latest_data_date(table: str) -> Optional[str]:
+        """目标日若无该表数据，回落到 ≤ 目标日的最近数据日（bigcaps/turnover_top 专用）。"""
+        row = store._conn.execute(
+            f"SELECT MAX(trade_date) AS d FROM {table} WHERE trade_date <= ?",
+            (trade_date,)).fetchone()
+        return str(row["d"]) if row and row["d"] else None
+
+    def _turnover() -> dict:
+        # bars_daily 常比目标日多同步一天（盘中就有昨日 K），目标日缺则回落。
+        src_date = _latest_data_date("bars_daily")
+        if not src_date:
+            return {"date": trade_date, "available": False, "rows": [],
+                    "reason": "bars_daily 无数据"}
+        rows = [dict(r) for r in store._conn.execute(
             "SELECT b.code AS code, COALESCE(s.name, b.name) AS name, "
             "b.total_amt AS total_amt, b.close AS close, b.rise_rate AS rise_rate "
             "FROM bars_daily b LEFT JOIN security_master s ON s.code = b.code "
             "WHERE b.trade_date = ? ORDER BY b.total_amt DESC LIMIT 10",
-            (trade_date,)).fetchall()]
+            (src_date,)).fetchall()]
+        return sm.build_turnover_top(trade_date, rows, source_date=src_date)
 
-    _guard("turnover_top", lambda: sm.build_turnover_top(
-        trade_date, _turnover_rows()), "bars_daily,security_master")
+    _guard("turnover_top", _turnover, "bars_daily,security_master")
 
-    def _bigcap_rows() -> list[dict]:
-        return [dict(r) for r in store._conn.execute(
+    def _bigcaps() -> dict:
+        # daily_basic 受 tushare 限频影响常滞后 1-2 日；总市值变化慢，回落取最近可用日。
+        src_date = _latest_data_date("stock_daily_basic")
+        if not src_date:
+            return {"date": trade_date, "available": False, "count": 0, "rows": [],
+                    "threshold_mv_wan": sm.BIGCAP_TOTAL_MV_WAN,
+                    "reason": "stock_daily_basic 无数据"}
+        rows = [dict(r) for r in store._conn.execute(
             "SELECT d.code AS code, COALESCE(s.name, '') AS name, d.total_mv, "
             "d.circ_mv, d.close, d.turnover_rate, d.pe "
             "FROM stock_daily_basic d LEFT JOIN security_master s ON s.code = d.code "
             "WHERE d.trade_date = ? AND d.total_mv >= ? "
             "ORDER BY d.total_mv DESC",
-            (trade_date, sm.BIGCAP_TOTAL_MV_WAN)).fetchall()]
+            (src_date, sm.BIGCAP_TOTAL_MV_WAN)).fetchall()]
+        return sm.build_bigcaps(trade_date, rows, sm.BIGCAP_TOTAL_MV_WAN,
+                                source_date=src_date)
 
-    _guard("bigcaps", lambda: sm.build_bigcaps(
-        trade_date, _bigcap_rows(), sm.BIGCAP_TOTAL_MV_WAN), "stock_daily_basic,security_master")
+    _guard("bigcaps", _bigcaps, "stock_daily_basic,security_master")
     return {"shortline": written}
 
 
