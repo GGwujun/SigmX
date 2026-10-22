@@ -179,6 +179,41 @@ class TestAStockPlugin:
         with pytest.raises(ValueError):
             resolve_code({}, "没有代码的问题")
 
+    def test_canonical_store_code_aligns_bare_to_suffixed_store(self):
+        """线上库（tushare 后缀码）：裸码探测命中后缀后返回库内码型。"""
+        from src.research_pipeline.runner_adapter import canonical_store_code
+
+        class SuffixStore:
+            def __init__(self, codes):
+                self.codes = set(codes)
+                self.probes = []
+
+            def get_security_profile(self, code):
+                self.probes.append(code)
+                return {"code": code} if code in self.codes else None
+
+        store = SuffixStore({"600519.SH"})
+        assert canonical_store_code(store, "600519") == "600519.SH"
+        assert store.probes == ["600519", "600519.SH"]   # 裸码未命中后只试了 .SH
+
+    def test_canonical_store_code_keeps_bare_store_and_unknown(self):
+        from src.research_pipeline.runner_adapter import canonical_store_code
+
+        class BareStore:
+            def get_security_profile(self, code):
+                return {"code": code} if code == "600519" else None
+
+        assert canonical_store_code(BareStore(), "600519") == "600519"    # 裸码库
+        assert canonical_store_code(None, "600519") == "600519"           # 无库不探测
+        assert canonical_store_code(BareStore(), "600519.SH") == "600519.SH"  # 已带后缀原样
+
+        class EmptyStore:
+            def get_security_profile(self, code):
+                return None
+
+        # 全不命中：原样返回（宁可 empty 信封亮缺口，不猜码）
+        assert canonical_store_code(EmptyStore(), "600519") == "600519"
+
 
 class TestPipelineResearchRunner:
     def test_full_five_stage_run(self, tmp_path):

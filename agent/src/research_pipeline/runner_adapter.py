@@ -49,6 +49,34 @@ def resolve_code(plan: dict, question: str) -> str:
     raise ValueError("a_stock 深研管线需要 6 位股票代码（plan.code 或问题文本中给出）")
 
 
+def canonical_store_code(store: Any, code: str) -> str:
+    """把入口解析出的 6 位裸码对齐成库内实际码型。
+
+    线上 market.db 是 tushare 后缀码（600519.SH），本地/测试合成库常是
+    裸码（600519）。fetcher 全部走 ``code = ?`` 精确查询，码型对不上时
+    三个 critical 数据集会齐刷刷 empty——2026-10-23 线上首跑就栽在这。
+
+    裁决规则（security_master 权威，最多 4 次索引精确查）：
+    1. 已带后缀 → 原样返回（不再探测）；
+    2. 裸码精确命中 → 裸码库，返回裸码；
+    3. .SH/.SZ/.BJ 后缀逐一探测，命中即返回；
+    4. 全不命中 → 原样返回——宁可 fetch 落 empty 信封把缺口亮出来，
+       也不按前缀规则猜一个可能查错标的的码。
+    """
+    if "." in code or store is None:
+        return code
+    try:
+        if store.get_security_profile(code):
+            return code
+        for suffix in (".SH", ".SZ", ".BJ"):
+            hit = store.get_security_profile(code + suffix)
+            if hit:
+                return code + suffix
+    except Exception:  # noqa: BLE001 —— 合成桩/异常库不应炸管线入口
+        return code
+    return code
+
+
 @dataclass
 class PipelineResearchRunner:
     """把一次研究任务跑成六阶段管线，并把产物组装成 AgentResearchOutput。"""
@@ -74,7 +102,7 @@ class PipelineResearchRunner:
 
         plan = getattr(request, "plan", None) or {}
         question = getattr(request, "question", "") or ""
-        code = resolve_code(plan, question)
+        code = canonical_store_code(self.store, resolve_code(plan, question))
         task_ref = str(plan.get("id") or f"pipeline-{uuid.uuid4().hex[:12]}")
         run_dir = Path(self.runs_root or default_runs_root()) / task_ref
 
