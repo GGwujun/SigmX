@@ -155,10 +155,10 @@
 .aiw-hero {
   background-image:
     radial-gradient(closest-side, rgba(0, 194, 168, 0.12), transparent),
-    radial-gradient(rgba(148, 163, 184, 0.2) 1px, transparent 1.2px);
-  background-size: 100% 100%, 22px 22px;
-  -webkit-mask-image: radial-gradient(ellipse 68% 60% at 50% 44%, #000 20%, transparent 80%);
-  mask-image: radial-gradient(ellipse 68% 60% at 50% 44%, #000 20%, transparent 80%);
+    radial-gradient(rgba(148, 163, 184, 0.32) 1px, transparent 1.25px);
+  background-size: 100% 100%, 24px 24px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 68% at 50% 44%, #000 15%, transparent 82%);
+  mask-image: radial-gradient(ellipse 75% 68% at 50% 44%, #000 15%, transparent 82%);
 }
 /* 消息入场微动效：轻微上浮淡入，尊重系统减弱动效设置。 */
 @keyframes aiw-enter {

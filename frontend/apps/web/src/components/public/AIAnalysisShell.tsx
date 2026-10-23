@@ -18,7 +18,7 @@ function HistoryList({ tasks, activeTaskId, onSelect }: { tasks: ResearchTask[];
 }
 
 function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Props, "children"> & { onClose?: () => void }) {
-  return <div className="flex h-full flex-col bg-[#0f1620]">
+  return <div className="flex h-full flex-col bg-[#101823]">
     <div className="flex items-center justify-between px-4 pb-2.5 pt-4"><h2 className="text-[13px] font-semibold tracking-[0.01em] text-slate-200">对话历史</h2>{onClose && <button type="button" aria-label="关闭对话历史" onClick={onClose} className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-slate-200"><X className="h-4 w-4" /></button>}</div>
     <div className="px-3"><button type="button" onClick={() => { onNewAnalysis(); onClose?.(); }} className="flex w-full items-center justify-center gap-2 rounded-lg border border-teal-400/25 bg-teal-400/[0.08] px-3 py-2.5 text-[13px] font-semibold text-teal-200 transition-colors hover:border-teal-400/45 hover:bg-teal-400/[0.14]"><Plus className="h-4 w-4 stroke-[2]" />新建分析</button><label className="mt-2.5 flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-2 transition focus-within:border-teal-400/40 focus-within:bg-white/[0.05]"><Search className="h-3.5 w-3.5 stroke-[1.8] text-slate-500" /><input placeholder="搜索对话" className="min-w-0 flex-1 bg-transparent text-[12px] text-slate-200 outline-none placeholder:text-slate-600" /></label></div>
     <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-4 pt-1"><HistoryList tasks={recentTasks} activeTaskId={activeTaskId} onSelect={onClose} /></div>
@@ -29,8 +29,8 @@ export function AIAnalysisShell({ recentTasks, activeTaskId, onNewAnalysis, chil
   const [open, setOpen] = useState(false);
   // 122px = PublicLayout 顶栏 57（h-14 56 + border 1）+ 页脚 65（border 1 + py-6 48 + 文本 16）。
   // 精确贴合可避免深色画布与浅色页脚之间露出浅色死带；顶部 hairline 让明暗切换显得刻意。
-  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="grid h-[calc(100dvh-122px)] min-h-[600px] grid-rows-[minmax(0,1fr)] overflow-hidden border-t border-white/[0.12] lg:grid-cols-[248px_minmax(0,1fr)]">
+  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="grid h-[calc(100dvh-122px)] min-h-[600px] grid-rows-[minmax(0,1fr)] overflow-hidden border-t border-white/25 lg:grid-cols-[248px_minmax(0,1fr)]">
     <aside className="hidden border-r border-white/[0.08] lg:block"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} /></aside>
     <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden"><button type="button" aria-label="打开对话历史" onClick={() => setOpen(true)} className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-[#10161f]/90 p-2 text-slate-300 shadow-lg backdrop-blur transition-colors hover:bg-[#161e2a] hover:text-white lg:hidden"><Menu className="h-[19px] w-[19px] stroke-[1.8]" /></button>{children}</section>
-  </div>{open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="关闭对话历史遮罩" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" /><aside className="relative h-full w-[min(84vw,300px)] border-r border-white/10 bg-[#0f1620] shadow-2xl"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} onClose={() => setOpen(false)} /></aside></div>}</div>;
+  </div>{open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="关闭对话历史遮罩" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" /><aside className="relative h-full w-[min(84vw,300px)] border-r border-white/10 bg-[#101823] shadow-2xl"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} onClose={() => setOpen(false)} /></aside></div>}</div>;
 }
