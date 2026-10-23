@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LandingPage } from "../LandingPage";
@@ -40,7 +40,8 @@ describe("LandingPage research planning flow", () => {
     expect(screen.getByPlaceholderText("给 AI 发现发送消息")).toBeInTheDocument();
     expect(screen.getByTestId("ai-analysis-body")).toHaveClass("flex-1", "min-h-0");
     expect(screen.getByTestId("analysis-composer")).toHaveClass("max-w-[760px]");
-    expect(screen.queryByText(/AgentLoop|模型|Data Hub 工具|Skills/)).not.toBeInTheDocument();
+    // 技术黑话不得出现在分析正文里（站点导航里的「投研 Skills」产品页链接不算）
+    expect(within(screen.getByTestId("ai-analysis-body")).queryByText(/AgentLoop|模型|Data Hub 工具|Skills/)).not.toBeInTheDocument();
   });
   beforeEach(() => {
     localStorage.setItem("sigmx_auth_token", "jwt-token");

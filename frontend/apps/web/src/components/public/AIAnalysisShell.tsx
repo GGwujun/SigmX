@@ -2,6 +2,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { History, Menu, Plus, Search, X } from "lucide-react";
 import type { ResearchTask } from "@/lib/researchApi";
+import { PublicHeader } from "@/components/public/PublicHeader";
 
 interface Props { recentTasks: ResearchTask[]; activeTaskId: string | null; onNewAnalysis: () => void; children: ReactNode }
 const isToday = (value: string) => new Date(value).toDateString() === new Date().toDateString();
@@ -27,10 +28,12 @@ function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Pro
 
 export function AIAnalysisShell({ recentTasks, activeTaskId, onNewAnalysis, children }: Props) {
   const [open, setOpen] = useState(false);
-  // 57px = PublicLayout 顶栏（h-14 56 + border 1）。沉浸态没有页脚（PublicLayout 根路径不渲染），
-  // 聊天画布直接铺到视口底。
-  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="grid h-[calc(100dvh-57px)] min-h-[600px] grid-rows-[minmax(0,1fr)] overflow-hidden border-t border-white/[0.06] lg:grid-cols-[248px_minmax(0,1fr)]">
-    <aside className="hidden border-r border-white/[0.08] lg:block"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} /></aside>
-    <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden"><button type="button" aria-label="打开对话历史" onClick={() => setOpen(true)} className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-[#10161f]/90 p-2 text-slate-300 shadow-lg backdrop-blur transition-colors hover:bg-[#161e2a] hover:text-white lg:hidden"><Menu className="h-[19px] w-[19px] stroke-[1.8]" /></button>{children}</section>
+  // ChatGPT 式左右布局：左栏（对话历史）从视口顶铺到底（lg 下 row-span-2），
+  // 顶栏渲染进右栏顶部且透明无下边线——右栏自此是一整块连续聊天表面。
+  // 高度由 grid 行自动分配：auto（顶栏 57）+ minmax(0,1fr)（画布铺满余下视口）。
+  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="grid h-dvh min-h-[600px] grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[248px_minmax(0,1fr)]">
+    <div className="lg:col-start-2 lg:row-start-1"><PublicHeader dark /></div>
+    <aside className="hidden border-r border-white/[0.08] bg-[#101823] lg:col-start-1 lg:row-span-2 lg:row-start-1 lg:block"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} /></aside>
+    <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden lg:col-start-2 lg:row-start-2"><button type="button" aria-label="打开对话历史" onClick={() => setOpen(true)} className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-[#10161f]/90 p-2 text-slate-300 shadow-lg backdrop-blur transition-colors hover:bg-[#161e2a] hover:text-white lg:hidden"><Menu className="h-[19px] w-[19px] stroke-[1.8]" /></button>{children}</section>
   </div>{open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="关闭对话历史遮罩" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" /><aside className="relative h-full w-[min(84vw,300px)] border-r border-white/10 bg-[#101823] shadow-2xl"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} onClose={() => setOpen(false)} /></aside></div>}</div>;
 }
