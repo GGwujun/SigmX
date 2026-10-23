@@ -12,7 +12,7 @@ const ACCOUNT_LINKS = [
   { to: "/account/devices", label: "Desktop 设备" },
 ] as const;
 
-export function AccountMenu({ user }: { user: AuthUser }) {
+export function AccountMenu({ user, tone = "light" }: { user: AuthUser; tone?: "light" | "dark" }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -51,9 +51,9 @@ export function AccountMenu({ user }: { user: AuthUser }) {
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-9 max-w-56 items-center gap-2 rounded-full border bg-card px-2.5 text-sm font-medium shadow-sm hover:bg-muted"
+        className={`inline-flex h-9 max-w-56 items-center gap-2 rounded-full border px-2.5 text-sm font-medium shadow-sm ${tone === "dark" ? "border-white/[0.12] bg-white/[0.06] text-slate-200 hover:bg-white/[0.1]" : "border-border bg-card hover:bg-muted"}`}
       >
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-primary/10 text-primary"><UserRound className="h-3.5 w-3.5" /></span>
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${tone === "dark" ? "bg-teal-400/15 text-teal-300" : "bg-primary/10 text-primary"}`}><UserRound className="h-3.5 w-3.5" /></span>
         <span className="hidden truncate sm:inline">{user.email}</span>
         <ChevronDown className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`} />
       </button>

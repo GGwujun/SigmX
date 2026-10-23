@@ -19,10 +19,11 @@ function Welcome({ loadError }: { loadError: string }) {
   return <div className="relative mx-auto flex min-h-[380px] w-full max-w-2xl flex-1 flex-col items-center justify-center px-6 pb-14 pt-10 text-center">
     <span aria-hidden="true" className="aiw-hero pointer-events-none absolute inset-0" />
     <div className="relative flex flex-col items-center">
-      <span className="grid h-[52px] w-[52px] place-items-center rounded-2xl bg-gradient-to-br from-teal-300 to-cyan-500 text-[#03211d] shadow-[0_0_44px_rgba(45,212,191,.28)]"><Sparkles className="h-[22px] w-[22px] stroke-[1.8]" /></span>
-      <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.26em] text-teal-300">SigmX Research Agent</p>
-      <h2 className="mt-3.5 text-[26px] font-semibold leading-9 tracking-[-0.02em] text-slate-50">今天想分析什么？</h2>
-      <p className="mt-4 max-w-xl text-[14px] leading-[1.75] text-slate-400">描述你关注的股票、行业或筛选条件，我会查询数据、核验证据并直接给出分析。</p>
+      <span className="grid h-[54px] w-[54px] place-items-center rounded-2xl bg-gradient-to-br from-teal-300 to-cyan-500 text-[#03211d] shadow-[0_0_44px_rgba(45,212,191,.28),inset_0_1px_0_rgba(255,255,255,.4)]"><Sparkles className="h-[23px] w-[23px] stroke-[1.8]" /></span>
+      <p className="mt-7 text-[11px] font-semibold uppercase tracking-[0.28em] text-teal-300">SigmX Research Agent</p>
+      <h2 className="mt-3.5 bg-gradient-to-b from-white via-slate-100 to-slate-400 bg-clip-text text-[30px] font-semibold leading-[1.3] tracking-[-0.02em] text-transparent">今天想分析什么？</h2>
+      <p className="mt-4 max-w-[30rem] text-[14.5px] leading-[1.8] text-slate-400/90">描述你关注的股票、行业或筛选条件，我会查询数据、核验证据并直接给出分析。</p>
+      <p className="mt-6 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1.5 text-[11.5px] tracking-[0.02em] text-slate-500"><span>多路数据直连</span><span aria-hidden="true" className="h-1 w-1 rounded-full bg-teal-400/50" /><span>证据核验</span><span aria-hidden="true" className="h-1 w-1 rounded-full bg-teal-400/50" /><span>六阶段深度研究</span><span aria-hidden="true" className="h-1 w-1 rounded-full bg-teal-400/50" /><span>支持追问</span></p>
       {loadError && <p className="mt-5 rounded-lg border border-amber-400/25 bg-amber-400/[0.07] px-3.5 py-2 text-[13px] text-amber-300">部分市场信息暂时不可用，但仍可继续创建分析。</p>}
     </div>
   </div>;
