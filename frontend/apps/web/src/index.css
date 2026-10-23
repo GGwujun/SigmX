@@ -148,7 +148,26 @@
   background-color: #0b0f14;
   background-image:
     radial-gradient(1100px 480px at 72% -8%, rgba(0, 194, 168, 0.08), transparent 62%),
+    radial-gradient(900px 420px at 10% 108%, rgba(56, 189, 248, 0.05), transparent 60%),
     linear-gradient(165deg, #0d1219 0%, #0b0f14 46%, #090d12 100%);
+}
+/* 欢迎区氛围：点阵网格（终端工作台质感）+ 品牌青呼吸光晕，径向遮罩向边缘消隐。 */
+.aiw-hero {
+  background-image:
+    radial-gradient(closest-side, rgba(0, 194, 168, 0.1), transparent),
+    radial-gradient(rgba(148, 163, 184, 0.13) 1px, transparent 1px);
+  background-size: 100% 100%, 24px 24px;
+  -webkit-mask-image: radial-gradient(ellipse 62% 55% at 50% 42%, #000 25%, transparent 78%);
+  mask-image: radial-gradient(ellipse 62% 55% at 50% 42%, #000 25%, transparent 78%);
+}
+/* 消息入场微动效：轻微上浮淡入，尊重系统减弱动效设置。 */
+@keyframes aiw-enter {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: none; }
+}
+.aiw-enter { animation: aiw-enter 0.28s ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .aiw-enter { animation: none; }
 }
 .aiw ::selection {
   background: rgba(45, 212, 191, 0.28);

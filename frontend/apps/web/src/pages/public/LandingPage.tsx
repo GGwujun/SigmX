@@ -25,6 +25,7 @@ export function LandingPage() {
   const restoredPending = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const draftRef = useRef<HTMLTextAreaElement>(null);
   const conversationId = params.get("conversation");
   const busy = planning || turns.some(turn => ["queued", "running"].includes(turn.task.status));
 
@@ -49,6 +50,13 @@ export function LandingPage() {
     // scrollTop 赋值而非 scrollTo()：流式高频滚动要的就是即时贴底，且测试环境（jsdom）没有 scrollTo。
     if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
   }, [turns, pendingQuestion]);
+  // 输入框按内容自动撑高（封顶 max-h-32 后转内部滚动），draft 被程序清空时同步复位。
+  useEffect(() => {
+    const el = draftRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 128)}px`;
+  }, [draft]);
 
   const updateTurn = useCallback((taskId: string, update: (turn: ResearchConversationTurn) => ResearchConversationTurn) => {
     setTurns(current => current.map(turn => turn.task.id === taskId ? update(turn) : turn));
@@ -187,16 +195,16 @@ export function LandingPage() {
   const showSuggestions = !turns.length && !pendingQuestion && !draft.trim();
   const hasConversation = turns.length > 0 || Boolean(pendingQuestion);
   const composer = <div data-testid="analysis-composer" className="mx-auto w-full max-w-[760px] px-5 sm:px-7">
-    {showSuggestions && <div className="mb-3 flex gap-2 overflow-x-auto pb-1">{templates.map(item => <button key={item.id} type="button" onClick={() => chooseTemplate(item)} className="shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-[7px] text-[12px] font-medium text-slate-300 transition-colors hover:border-teal-400/40 hover:bg-teal-400/[0.06] hover:text-teal-200">{item.label}</button>)}<button type="button" aria-pressed={deepMode} onClick={activateDeepResearch} className={deepMode ? "shrink-0 rounded-full border border-teal-400/50 bg-teal-400/[0.14] px-3.5 py-[7px] text-[12px] font-semibold text-teal-200" : "shrink-0 rounded-full border border-white/10 bg-white/[0.04] px-3.5 py-[7px] text-[12px] font-medium text-slate-300 transition-colors hover:border-teal-400/40 hover:bg-teal-400/[0.06] hover:text-teal-200"}>个股深度研究</button></div>}
-    <form onSubmit={submit} className="rounded-[24px] border border-white/[0.09] bg-[#0f151d]/95 p-2 shadow-[0_18px_50px_rgba(2,6,12,.5)] backdrop-blur transition-[border-color,box-shadow] focus-within:border-teal-400/45 focus-within:shadow-[0_0_0_3px_rgba(45,212,191,.13),0_18px_50px_rgba(2,6,12,.5)]"><div className="flex items-end gap-1.5"><span className="mb-1 ml-1 grid h-8 w-8 place-items-center rounded-full border border-white/10 text-slate-400 transition-colors hover:border-teal-400/40 hover:text-teal-300"><Plus className="h-[18px] w-[18px] stroke-[1.8]" /></span><textarea aria-label="研究问题" rows={1} value={draft} onChange={event => { setDraft(event.target.value); setTemplate(null); }} onKeyDown={event => { // 中文输入法选字期间的 Enter 是确认候选词，不是发送（isComposing 只在原生事件上）。
+    {showSuggestions && <div className="mb-3.5 flex gap-2 overflow-x-auto pb-1">{templates.map(item => <button key={item.id} type="button" onClick={() => chooseTemplate(item)} className="shrink-0 rounded-full border border-white/[0.09] bg-white/[0.045] px-3.5 py-[7px] text-[12px] font-medium text-slate-300 transition-colors hover:border-teal-400/40 hover:bg-white/[0.075] hover:text-teal-200">{item.label}</button>)}<button type="button" aria-pressed={deepMode} onClick={activateDeepResearch} className={deepMode ? "shrink-0 rounded-full border border-teal-400/50 bg-teal-400/[0.14] px-3.5 py-[7px] text-[12px] font-semibold text-teal-200" : "shrink-0 rounded-full border border-white/[0.09] bg-white/[0.045] px-3.5 py-[7px] text-[12px] font-medium text-slate-300 transition-colors hover:border-teal-400/40 hover:bg-white/[0.075] hover:text-teal-200"}>个股深度研究</button></div>}
+    <form onSubmit={submit} className="rounded-[24px] border border-white/[0.1] bg-[#0f151d]/95 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,.04),0_18px_50px_rgba(2,6,12,.5)] backdrop-blur transition-[border-color,box-shadow] focus-within:border-teal-400/45 focus-within:shadow-[0_0_0_3px_rgba(45,212,191,.13),inset_0_1px_0_rgba(255,255,255,.04),0_18px_50px_rgba(2,6,12,.5)]"><div className="flex items-end gap-1.5"><span className="mb-1 ml-1 grid h-8 w-8 place-items-center rounded-full border border-white/[0.09] text-slate-400 transition-colors hover:border-teal-400/40 hover:text-teal-300"><Plus className="h-[18px] w-[18px] stroke-[1.8]" /></span><textarea ref={draftRef} aria-label="研究问题" rows={1} value={draft} onChange={event => { setDraft(event.target.value); setTemplate(null); }} onKeyDown={event => { // 中文输入法选字期间的 Enter 是确认候选词，不是发送（isComposing 只在原生事件上）。
       if (event.nativeEvent.isComposing) return;
       if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
-    }} placeholder={deepMode ? "输入 6 位股票代码，如 600519" : turns.length ? "继续追问" : "给 AI 发现发送消息"} className="max-h-32 min-h-[38px] flex-1 resize-none bg-transparent px-1 py-[7px] text-[13.5px] leading-6 text-slate-100 outline-none placeholder:text-slate-500" /><button type="submit" aria-label="发送消息" disabled={busy || !draft.trim()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-teal-400 text-[#03211d] transition-colors hover:bg-teal-300 disabled:cursor-not-allowed disabled:bg-white/[0.06] disabled:text-slate-600">{busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4 stroke-[2.2]" />}</button></div></form><p className="pt-2 text-center text-[10px] leading-4 text-slate-600">AI 分析仅供研究参考，不构成投资建议</p>
+    }} placeholder={deepMode ? "输入 6 位股票代码，如 600519" : turns.length ? "继续追问" : "给 AI 发现发送消息"} className="max-h-32 min-h-[38px] flex-1 resize-none overflow-y-auto bg-transparent px-1 py-[7px] text-[13.5px] leading-6 text-slate-100 outline-none placeholder:text-slate-500" /><button type="submit" aria-label="发送消息" disabled={busy || !draft.trim()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-transparent bg-gradient-to-b from-teal-300 to-teal-400 text-[#03211d] shadow-[0_0_18px_rgba(45,212,191,.35)] transition-all hover:from-teal-200 hover:to-teal-300 disabled:cursor-not-allowed disabled:border-white/[0.08] disabled:bg-white/[0.05] disabled:bg-none disabled:shadow-none disabled:text-slate-400">{busy ? <LoaderCircle className="h-4 w-4 animate-spin text-teal-300" /> : <ArrowUp className="h-4 w-4 stroke-[2.2]" />}</button></div></form><p className="pt-2.5 text-center text-[10.5px] leading-4 text-slate-500">AI 分析仅供研究参考，不构成投资建议</p>
   </div>;
 
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={turns[turns.length - 1]?.task.id ?? conversationId} onNewAnalysis={resetConversation}>
     <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1 flex-col">
-      <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-28"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "min-h-0 flex-1"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
+      <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "min-h-0 flex-1"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
       <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#0b0f14] via-[#0b0f14] via-75% to-transparent pb-3 pt-6">{composer}</div>
     </div>
   </AIAnalysisShell>;
