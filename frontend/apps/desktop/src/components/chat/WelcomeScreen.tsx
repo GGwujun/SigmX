@@ -1,5 +1,6 @@
 import { TrendingUp, Globe, Sparkles, Users, UserCircle2, NotebookPen, Landmark } from "lucide-react";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
+import { TRADING_UI_ENABLED } from "@/lib/tradingUi";
 
 interface Example {
   title: string;
@@ -169,6 +170,10 @@ const CAPABILITY_CHIPS = [
   "会话搜索",
 ];
 
+/* 交易入口按产品开关隐藏（见 lib/tradingUi.ts），代码保留、翻回即恢复。 */
+const VISIBLE_CATEGORIES = TRADING_UI_ENABLED ? CATEGORIES : CATEGORIES.filter(cat => cat.label !== "交易连接器");
+const VISIBLE_CHIPS = TRADING_UI_ENABLED ? CAPABILITY_CHIPS : CAPABILITY_CHIPS.filter(chip => chip !== "交易连接器配置");
+
 interface Props {
   onExample: (s: string) => void;
 }
@@ -184,7 +189,7 @@ export function WelcomeScreen({ onExample }: Props) {
         <div>
           <h2 className="text-2xl font-bold tracking-tight">SigmX</h2>
           <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed">
-            与专业金融智能体团队一起进行直觉交易
+            与专业金融智能体团队一起做深度研究
           </p>
           <p className="text-sm text-muted-foreground mt-2 max-w-md leading-relaxed mx-auto">
             描述一个交易策略即可开始。
@@ -194,7 +199,7 @@ export function WelcomeScreen({ onExample }: Props) {
 
       {/* Capability chips */}
       <div className="flex flex-wrap justify-center gap-2 max-w-lg">
-        {CAPABILITY_CHIPS.map((chip) => (
+        {VISIBLE_CHIPS.map((chip) => (
           <span
             key={chip}
             className="px-2.5 py-1 text-xs rounded-full border border-border/60 text-muted-foreground bg-muted/30"
@@ -208,7 +213,7 @@ export function WelcomeScreen({ onExample }: Props) {
       <div className="w-full max-w-2xl text-left space-y-4">
         <p className="text-xs text-muted-foreground px-1">试试这些例子：</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {CATEGORIES.map((cat) => (
+          {VISIBLE_CATEGORIES.map((cat) => (
             <div key={cat.label} className="space-y-2">
               <div className={`flex items-center gap-1.5 text-xs font-medium px-1 ${cat.color.split(" ").filter(c => c.startsWith("text-")).join(" ")}`}>
                 {cat.icon}

@@ -16,6 +16,7 @@ import { ToolProgressIndicator } from "@/components/chat/ToolProgressIndicator";
 import { MandateProposalCard } from "@/components/chat/MandateProposalCard";
 import { RunnerStatus } from "@/components/chat/RunnerStatus";
 import { takeConsumedResearchHandoff } from "@/lib/researchHandoff";
+import { TRADING_UI_ENABLED } from "@/lib/tradingUi";
 
 /* ---------- Message grouping ---------- */
 type MsgGroup =
@@ -1346,13 +1347,16 @@ export function Agent() {
             </div>
           )}
           {/* Persistent live runtime status panel — sits alongside the goal/mandate
-              badges (SPEC §7.5 + audit C2). Self-hides when no broker is configured. */}
-          <RunnerStatus
-            status={liveStatus}
-            unavailable={liveStatusUnavailable}
-            halted={liveIsHalted}
-            onRefresh={refreshLiveStatus}
-          />
+              badges (SPEC §7.5 + audit C2). Self-hides when no broker is configured.
+              交易入口按产品开关隐藏（lib/tradingUi.ts），后端 live 代码保留。 */}
+          {TRADING_UI_ENABLED && (
+            <RunnerStatus
+              status={liveStatus}
+              unavailable={liveStatusUnavailable}
+              halted={liveIsHalted}
+              onRefresh={refreshLiveStatus}
+            />
+          )}
           {/* Attachment badge */}
           {attachment && (
             <div className="flex items-center gap-1">
@@ -1374,7 +1378,7 @@ export function Agent() {
           )}
           {/* Persistent kill switch — distinct from the per-turn Stop button
               above; disables all live order activity (SPEC Consent §4). */}
-          {liveActive && (
+          {TRADING_UI_ENABLED && liveActive && (
             <div className="flex items-center gap-2">
               {liveIsHalted ? (
                 <span className="inline-flex items-center gap-1.5 rounded-lg bg-destructive/10 px-2.5 py-1 text-xs font-medium text-destructive">
@@ -1444,7 +1448,9 @@ export function Agent() {
                     <Users className="h-4 w-4" />
                     智能体集群
                   </button>
-                  <div className="border-t my-1" />
+                  {TRADING_UI_ENABLED && (
+                  <>
+<div className="border-t my-1" />
                   <button
                     type="button"
                     onClick={() => {
@@ -1467,7 +1473,8 @@ export function Agent() {
                     <Landmark className="h-4 w-4" />
                     分析连接器持仓
                   </button>
-                </div>
+                  </>
+                  )}                </div>
               )}
             </div>
             <input
