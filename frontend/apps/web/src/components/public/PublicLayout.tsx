@@ -62,11 +62,14 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
         <Outlet />
       </main>
 
-      <footer className={`border-t py-6 text-center text-xs ${immersive ? "border-white/[0.07] bg-[#0b0f14] text-slate-500" : "text-muted-foreground"}`}>
-        <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-10">
-          SigmX · 产品分离、平台能力共享 · © {new Date().getFullYear()}
-        </div>
-      </footer>
+      {/* 沉浸态（AI 发现工作台）不渲染页脚：聊天画布直接铺到视口底，页脚只留给内容页 */}
+      {!immersive && (
+        <footer className="border-t py-6 text-center text-xs text-muted-foreground">
+          <div className="mx-auto max-w-[1440px] px-5 sm:px-8 lg:px-10">
+            SigmX · 产品分离、平台能力共享 · © {new Date().getFullYear()}
+          </div>
+        </footer>
+      )}
     </div>
   );
 }

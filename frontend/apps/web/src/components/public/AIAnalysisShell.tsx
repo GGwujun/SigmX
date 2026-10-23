@@ -27,9 +27,9 @@ function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Pro
 
 export function AIAnalysisShell({ recentTasks, activeTaskId, onNewAnalysis, children }: Props) {
   const [open, setOpen] = useState(false);
-  // 122px = PublicLayout 顶栏 57（h-14 56 + border 1）+ 页脚 65（border 1 + py-6 48 + 文本 16）。
-  // 沉浸态下顶栏/页脚同为深色，画布顶缘只留一道 whisper 分隔即可。
-  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="grid h-[calc(100dvh-122px)] min-h-[600px] grid-rows-[minmax(0,1fr)] overflow-hidden border-t border-white/[0.06] lg:grid-cols-[248px_minmax(0,1fr)]">
+  // 57px = PublicLayout 顶栏（h-14 56 + border 1）。沉浸态没有页脚（PublicLayout 根路径不渲染），
+  // 聊天画布直接铺到视口底。
+  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="grid h-[calc(100dvh-57px)] min-h-[600px] grid-rows-[minmax(0,1fr)] overflow-hidden border-t border-white/[0.06] lg:grid-cols-[248px_minmax(0,1fr)]">
     <aside className="hidden border-r border-white/[0.08] lg:block"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} /></aside>
     <section className="relative flex min-h-0 min-w-0 flex-col overflow-hidden"><button type="button" aria-label="打开对话历史" onClick={() => setOpen(true)} className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-[#10161f]/90 p-2 text-slate-300 shadow-lg backdrop-blur transition-colors hover:bg-[#161e2a] hover:text-white lg:hidden"><Menu className="h-[19px] w-[19px] stroke-[1.8]" /></button>{children}</section>
   </div>{open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="关闭对话历史遮罩" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" /><aside className="relative h-full w-[min(84vw,300px)] border-r border-white/10 bg-[#101823] shadow-2xl"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} onClose={() => setOpen(false)} /></aside></div>}</div>;
