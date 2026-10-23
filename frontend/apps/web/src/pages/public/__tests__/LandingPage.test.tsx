@@ -91,6 +91,17 @@ describe("LandingPage research planning flow", () => {
     expect(composer).toHaveValue("");
   });
 
+  it("does not submit while an IME composition is confirming a candidate word", async () => {
+    render(<MemoryRouter><LandingPage /></MemoryRouter>);
+    const composer = await screen.findByLabelText("研究问题");
+    fireEvent.change(composer, { target: { value: "贵州茅台" } });
+    // 中文输入法选字期间的 Enter 是确认候选词，不是发送。
+    fireEvent.keyDown(composer, { key: "Enter", isComposing: true });
+
+    expect(composer).toHaveValue("贵州茅台");
+    expect(fetchCalls().some(([url]) => String(url) === "/api/research/plans")).toBe(false);
+  });
+
   it("blocks task creation for unavailable conditions and offers a replacement", async () => {
     const unavailable = { ...plan, question: "经营现金流持续改善", executable: false, constraints: [], suggested_question: "寻找低估值公司", conditions: [{ ...plan.conditions[0], id: "cash", metric: "operating_cashflow_trend", label: "经营现金流持续改善", status: "unavailable", reason: "多期数据尚未接入" }] };
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input) === "/api/research/plans" ? new Response(JSON.stringify(unavailable), { status: 200 }) : responseFor(input, init));

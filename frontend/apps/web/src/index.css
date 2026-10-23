@@ -140,3 +140,20 @@
   50%  { transform: translateX(200%); }
   100% { transform: translateX(-100%); }
 }
+
+/* Agent 工作台（AI 分析聊天）：学习 Vibe-Research 的 ai-surface 做法 —— 聊天区
+   是一块独立 scoped 表面，深墨底 + 青色品牌光，与外层浅色产品页冷暖解耦。 */
+.aiw {
+  color-scheme: dark;
+  background-color: #0b0f14;
+  background-image:
+    radial-gradient(1100px 480px at 72% -8%, rgba(0, 194, 168, 0.08), transparent 62%),
+    linear-gradient(165deg, #0d1219 0%, #0b0f14 46%, #090d12 100%);
+}
+.aiw ::selection {
+  background: rgba(45, 212, 191, 0.28);
+}
+.aiw ::-webkit-scrollbar { width: 6px; height: 6px; }
+.aiw ::-webkit-scrollbar-track { background: transparent; }
+.aiw ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.18); border-radius: 999px; }
+.aiw ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.32); }
