@@ -204,7 +204,7 @@ export function LandingPage() {
 
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={turns[turns.length - 1]?.task.id ?? conversationId} onNewAnalysis={resetConversation}>
     <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1 flex-col">
-      <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "min-h-0 flex-1"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
+      <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "flex min-h-0 flex-1 flex-col"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
       <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#0b0f14] via-[#0b0f14] via-75% to-transparent pb-3 pt-6">{composer}</div>
     </div>
   </AIAnalysisShell>;

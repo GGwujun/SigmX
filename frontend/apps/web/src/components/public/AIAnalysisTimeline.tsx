@@ -16,7 +16,7 @@ export function AIAnalysisTimeline({ turns, pendingQuestion, planning, pendingEr
 }
 
 function Welcome({ loadError }: { loadError: string }) {
-  return <div className="relative mx-auto flex h-full min-h-[380px] max-w-2xl flex-col items-center justify-center px-6 pb-14 pt-10 text-center">
+  return <div className="relative mx-auto flex min-h-[380px] w-full max-w-2xl flex-1 flex-col items-center justify-center px-6 pb-14 pt-10 text-center">
     <span aria-hidden="true" className="aiw-hero pointer-events-none absolute inset-0" />
     <div className="relative flex flex-col items-center">
       <span className="grid h-[52px] w-[52px] place-items-center rounded-2xl bg-gradient-to-br from-teal-300 to-cyan-500 text-[#03211d] shadow-[0_0_44px_rgba(45,212,191,.28)]"><Sparkles className="h-[22px] w-[22px] stroke-[1.8]" /></span>
