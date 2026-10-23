@@ -1,6 +1,6 @@
 import { type ReactNode, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { History, Menu, Plus, Search, X } from "lucide-react";
+import { Menu, Search, SquarePen, X } from "lucide-react";
 import type { ResearchTask } from "@/lib/researchApi";
 import { getUser, isAuthenticated } from "@/lib/apiAuth";
 import { SigmXLogo } from "@/components/brand/SigmXLogo";
@@ -10,46 +10,55 @@ import { publicNavItems } from "@/components/public/publicNav";
 interface Props { recentTasks: ResearchTask[]; activeTaskId: string | null; onNewAnalysis: () => void; children: ReactNode }
 const isToday = (value: string) => new Date(value).toDateString() === new Date().toDateString();
 
-function HistoryList({ tasks, activeTaskId, onSelect }: { tasks: ResearchTask[]; activeTaskId: string | null; onSelect?: () => void }) {
+function HistoryList({ tasks, query, activeTaskId, onSelect }: { tasks: ResearchTask[]; query: string; activeTaskId: string | null; onSelect?: () => void }) {
   const groups = useMemo(() => {
     // Retries of the same question produce many identical rows — keep the newest one.
     const unique = tasks.filter((item, index, all) => all.findIndex(other => other.question === item.question) === index);
-    return { today: unique.filter(item => isToday(item.created_at)), earlier: unique.filter(item => !isToday(item.created_at)) };
-  }, [tasks]);
-  if (!tasks.length) return <div className="flex h-full flex-col items-center justify-center px-6 text-center"><History className="mb-3.5 h-6 w-6 stroke-[1.5] text-slate-600" /><p className="text-[13px] font-medium text-slate-400">还没有分析记录</p><p className="mt-1.5 text-xs leading-5 text-slate-600">开始一次分析后会显示在这里</p></div>;
-  const group = (label: string, items: ResearchTask[]) => items.length ? <section className="mt-4"><h3 className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">{label}</h3><div className="mt-1.5 space-y-px">{items.map(item => <Link key={item.id} to={`/?conversation=${item.id}`} aria-label={item.question} aria-current={item.id === activeTaskId ? "page" : undefined} onClick={onSelect} className={`block truncate rounded-lg px-2.5 py-[7px] text-[12px] leading-5 transition-colors ${item.id === activeTaskId ? "bg-teal-400/[0.12] font-medium text-teal-100 ring-1 ring-inset ring-teal-400/25" : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"}`}>{item.question}</Link>)}</div></section> : null;
+    const matched = query.trim() ? unique.filter(item => item.question.toLowerCase().includes(query.trim().toLowerCase())) : unique;
+    return { today: matched.filter(item => isToday(item.created_at)), earlier: matched.filter(item => !isToday(item.created_at)) };
+  }, [tasks, query]);
+  if (!tasks.length) return <p className="px-2.5 py-6 text-[13px] leading-5 text-[#8f8f8f]">还没有分析记录，开始一次分析后会显示在这里。</p>;
+  if (query.trim() && !groups.today.length && !groups.earlier.length) return <p className="px-2.5 py-4 text-[13px] text-[#8f8f8f]">没有匹配的对话</p>;
+  const group = (label: string, items: ResearchTask[]) => items.length ? <section className="mt-3"><h3 className="px-2.5 text-[11px] font-medium text-[#8f8f8f]">{label}</h3><div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.id} to={`/?conversation=${item.id}`} aria-label={item.question} aria-current={item.id === activeTaskId ? "page" : undefined} onClick={onSelect} className={`block truncate rounded-lg px-2.5 py-[7px] text-[13px] leading-5 transition-colors ${item.id === activeTaskId ? "bg-[#ececec] font-medium text-[#0d0d0d]" : "text-[#5d5d5d] hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"}`}>{item.question}</Link>)}</div></section> : null;
   return <>{group("今天", groups.today)}{group("更早", groups.earlier)}</>;
 }
 
-// ChatGPT 式侧栏（与截图对齐）：logo → 新建分析 → 搜索 → 产品导航 → 对话历史 → 底部账号。
-// 顶部不再有任何横贯栏——导航与账号全部长在左栏里。
+// ChatGPT 式浅色侧栏（与用户截图逐项对齐）：顶行=品牌+搜索图标钮；
+// 新建分析与产品导航全部一级 icon 行（无分组标签）；「对话历史」小灰字分组；
+// 底部头像账号行。白底近无彩色，active 为浅灰圆角底。
 function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Props, "children"> & { onClose?: () => void }) {
   const { pathname } = useLocation();
   const items = publicNavItems(pathname);
   const user = isAuthenticated() ? getUser() : null;
-  return <div className="flex h-full flex-col bg-[#101823]">
-    <div className="flex items-center justify-between px-4 pb-2.5 pt-4">
-      <Link to="/" className="flex items-center gap-2 font-bold text-slate-50"><SigmXLogo className="h-6 w-6" /><span>SigmX</span></Link>
-      {onClose && <button type="button" aria-label="关闭菜单" onClick={onClose} className="rounded-lg p-2 text-slate-500 transition-colors hover:bg-white/[0.06] hover:text-slate-200"><X className="h-4 w-4" /></button>}
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const rowClass = (active: boolean) => `flex h-9 items-center gap-2.5 rounded-lg px-2.5 text-[14px] transition-colors ${active ? "bg-[#ececec] font-medium text-[#0d0d0d]" : "text-[#5d5d5d] hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"}`;
+  return <div className="flex h-full flex-col bg-[#f9f9f9]">
+    <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 pt-3">
+      <Link to="/" className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-[15px] font-semibold text-[#0d0d0d]"><SigmXLogo className="h-[22px] w-[22px]" />SigmX</Link>
+      <div className="flex items-center gap-0.5">
+        <button type="button" aria-label={searchOpen ? "关闭搜索" : "搜索对话"} aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setQuery(""); }} className={`grid h-9 w-9 place-items-center rounded-lg transition-colors ${searchOpen ? "bg-[#ececec] text-[#0d0d0d]" : "text-[#5d5d5d] hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"}`}><Search className="h-[18px] w-[18px] stroke-[1.8]" /></button>
+        {onClose && <button type="button" aria-label="关闭菜单" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-[#5d5d5d] transition-colors hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"><X className="h-[18px] w-[18px]" /></button>}
+      </div>
     </div>
-    <div className="px-3"><button type="button" onClick={() => { onNewAnalysis(); onClose?.(); }} className="flex w-full items-center justify-center gap-2 rounded-lg border border-teal-400/25 bg-teal-400/[0.08] px-3 py-2.5 text-[13px] font-semibold text-teal-200 transition-colors hover:border-teal-400/45 hover:bg-teal-400/[0.14]"><Plus className="h-4 w-4 stroke-[2]" />新建分析</button><label className="mt-2.5 flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-2.5 py-2 transition focus-within:border-teal-400/40 focus-within:bg-white/[0.05]"><Search className="h-3.5 w-3.5 stroke-[1.8] text-slate-500" /><input placeholder="搜索对话" className="min-w-0 flex-1 bg-transparent text-[12px] text-slate-200 outline-none placeholder:text-slate-600" /></label></div>
-    <nav aria-label="产品导航" className="mt-3 px-2.5">
-      <h3 className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">产品</h3>
-      <div className="mt-1.5 space-y-px">{items.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={`block truncate rounded-lg px-2.5 py-[7px] text-[12px] leading-5 transition-colors ${item.active ? "bg-teal-400/10 font-medium text-teal-200" : "text-slate-400 hover:bg-white/[0.05] hover:text-slate-200"}`}>{item.label}</Link>)}</div>
+    {searchOpen && <div className="px-3 pb-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索对话" className="h-9 w-full rounded-lg border border-[#e0e0e0] bg-white px-3 text-[13px] text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f] focus:border-[#c9c9c9]" /></div>}
+    <nav aria-label="产品导航" className="px-2">
+      <button type="button" onClick={() => { onNewAnalysis(); onClose?.(); }} className={`${rowClass(false)} w-full`}><SquarePen className="h-4 w-4 shrink-0 stroke-[1.8]" />新建分析</button>
+      <div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={rowClass(item.active)}><item.icon className="h-4 w-4 shrink-0 stroke-[1.8]" />{item.label}</Link>)}</div>
     </nav>
-    <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-4 pt-3"><h2 className="px-2.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">对话历史</h2><HistoryList tasks={recentTasks} activeTaskId={activeTaskId} onSelect={onClose} /></div>
-    <div className="border-t border-white/[0.07] p-3">
-      {user ? <AccountMenu user={user} tone="dark" align="left" /> : <Link to="/register" className="flex h-9 w-full items-center justify-center rounded-lg bg-primary text-[13px] font-semibold text-primary-foreground transition-opacity hover:opacity-90">注册体验</Link>}
+    <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3"><h2 className="mt-5 px-2.5 text-[12px] font-medium text-[#8f8f8f]">对话历史</h2><HistoryList tasks={recentTasks} query={query} activeTaskId={activeTaskId} onSelect={onClose} /></div>
+    <div className="shrink-0 border-t border-[#ececec] p-2">
+      {user ? <AccountMenu user={user} align="left" /> : <div className="flex items-center gap-2 px-0.5"><Link to="/login" className="flex h-8 flex-1 items-center justify-center rounded-full border border-[#d9d9e3] text-[13px] font-medium text-[#0d0d0d] transition-colors hover:bg-[#f3f3f3]">登录</Link><Link to="/register" className="flex h-8 flex-1 items-center justify-center rounded-full bg-[#0d0d0d] text-[13px] font-medium text-white transition-opacity hover:opacity-90">注册体验</Link></div>}
     </div>
   </div>;
 }
 
 export function AIAnalysisShell({ recentTasks, activeTaskId, onNewAnalysis, children }: Props) {
   const [open, setOpen] = useState(false);
-  // ChatGPT 式布局（与截图完全对齐）：左栏从视口顶铺到底，承载 logo/新建/搜索/
-  // 产品导航/对话历史/账号——整页没有横贯顶栏；右栏是一整块纯聊天表面。
-  return <div className="aiw text-slate-100"><div data-testid="analysis-workspace" className="flex h-dvh min-h-[600px] overflow-hidden lg:grid lg:grid-cols-[248px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
-    <aside className="hidden border-r border-white/[0.08] bg-[#101823] lg:col-start-1 lg:row-start-1 lg:block"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} /></aside>
-    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:col-start-2 lg:row-start-1"><button type="button" aria-label="打开菜单" onClick={() => setOpen(true)} className="absolute left-3 top-3 z-10 rounded-lg border border-white/10 bg-[#10161f]/90 p-2 text-slate-300 shadow-lg backdrop-blur transition-colors hover:bg-[#161e2a] hover:text-white lg:hidden"><Menu className="h-[19px] w-[19px] stroke-[1.8]" /></button>{children}</section>
-  </div>{open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="关闭菜单遮罩" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" /><aside className="relative h-full w-[min(84vw,300px)] border-r border-white/10 bg-[#101823] shadow-2xl"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} onClose={() => setOpen(false)} /></aside></div>}</div>;
+  // ChatGPT 式布局（与用户截图完全对齐）：左栏从视口顶铺到底，承载品牌/搜索/
+  // 一级功能行/对话历史/账号——整页没有横贯顶栏；右栏是一整块纯聊天表面。
+  return <div className="aiw"><div data-testid="analysis-workspace" className="flex h-dvh min-h-[600px] overflow-hidden lg:grid lg:grid-cols-[288px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
+    <aside className="hidden border-r border-[#ececec] bg-[#f9f9f9] lg:col-start-1 lg:row-start-1 lg:block"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} /></aside>
+    <section className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white lg:col-start-2 lg:row-start-1"><button type="button" aria-label="打开菜单" onClick={() => setOpen(true)} className="absolute left-3 top-3 z-10 grid h-9 w-9 place-items-center rounded-full border border-black/10 bg-white text-[#0d0d0d] shadow-md transition-colors hover:bg-[#f7f7f7] lg:hidden"><Menu className="h-[18px] w-[18px]" /></button>{children}</section>
+  </div>{open && <div className="fixed inset-0 z-50 lg:hidden"><button type="button" aria-label="关闭菜单遮罩" onClick={() => setOpen(false)} className="absolute inset-0 bg-black/40" /><aside className="relative h-full w-[min(84vw,300px)] border-r border-[#ececec] bg-[#f9f9f9] shadow-2xl"><Sidebar recentTasks={recentTasks} activeTaskId={activeTaskId} onNewAnalysis={onNewAnalysis} onClose={() => setOpen(false)} /></aside></div>}</div>;
 }

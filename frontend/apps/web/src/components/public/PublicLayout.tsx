@@ -21,7 +21,7 @@ export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }:
   // 左右布局——左栏从视口顶铺到底、顶栏渲染进右栏、无页脚。/query /stock 等
   // 内容页保持浅色顶栏 + 页脚的常规布局。
   if (pathname === "/") {
-    return <div className="flex min-h-dvh flex-col bg-[#0b0f14]"><main className="flex flex-1 flex-col"><Outlet /></main></div>;
+    return <div className="flex min-h-dvh flex-col bg-white"><main className="flex flex-1 flex-col"><Outlet /></main></div>;
   }
   return (
     <div className="flex min-h-screen flex-col bg-background">

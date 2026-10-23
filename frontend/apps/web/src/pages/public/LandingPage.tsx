@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { ArrowUp, LoaderCircle, Plus } from "lucide-react";
+import { ArrowUp, ChevronDown, LoaderCircle, Plus } from "lucide-react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AIAnalysisShell } from "@/components/public/AIAnalysisShell";
 import { AIAnalysisTimeline } from "@/components/public/AIAnalysisTimeline";
@@ -38,10 +38,16 @@ export function LandingPage() {
   }, []);
 
   // 吸底自动滚动：流式输出时贴底跟随，用户上翻回看就不再抢滚动（学习 VR AiMessages）。
+  // atBottom 只在布尔翻转时 setState（React 同值 bail-out），滚动事件不会引发重渲染。
+  const [atBottom, setAtBottom] = useState(true);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onScroll = () => { stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140; };
+    const onScroll = () => {
+      const next = el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+      stickToBottom.current = next;
+      setAtBottom(prev => (prev === next ? prev : next));
+    };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
   }, []);
@@ -195,19 +201,22 @@ export function LandingPage() {
   const showSuggestions = !turns.length && !pendingQuestion && !draft.trim();
   const hasConversation = turns.length > 0 || Boolean(pendingQuestion);
   const composer = <div data-testid="analysis-composer" className="mx-auto w-full max-w-[760px] px-5 sm:px-7">
-    <form onSubmit={submit} className="rounded-[24px] border border-white/[0.12] bg-[#0f151d]/95 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,.05),0_24px_60px_rgba(2,6,12,.55)] backdrop-blur transition-[border-color,box-shadow] focus-within:border-teal-400/45 focus-within:shadow-[0_0_0_3px_rgba(45,212,191,.13),inset_0_1px_0_rgba(255,255,255,.05),0_24px_60px_rgba(2,6,12,.55)]"><div className="flex items-end gap-1.5"><span className="mb-1 ml-1 grid h-8 w-8 place-items-center rounded-full border border-white/[0.09] text-slate-400 transition-colors hover:border-teal-400/40 hover:text-teal-300"><Plus className="h-[18px] w-[18px] stroke-[1.8]" /></span><textarea ref={draftRef} aria-label="研究问题" rows={1} value={draft} onChange={event => { setDraft(event.target.value); setTemplate(null); }} onKeyDown={event => { // 中文输入法选字期间的 Enter 是确认候选词，不是发送（isComposing 只在原生事件上）。
+    {/* ChatGPT 式白色大圆角胶囊：左下＋圆钮、右下圆形深色发送，几乎无彩色 */}
+    <form onSubmit={submit} className="rounded-[24px] border border-[#e5e5e5] bg-white p-2 shadow-[0_8px_30px_rgba(0,0,0,.06)] transition-[border-color,box-shadow] focus-within:border-[#c9c9c9] focus-within:shadow-[0_8px_34px_rgba(0,0,0,.09)]"><div className="flex items-end gap-1.5"><span className="mb-1 ml-1 grid h-8 w-8 place-items-center rounded-full border border-[#e5e5e5] text-[#4d4d4d]"><Plus className="h-[18px] w-[18px] stroke-[1.8]" /></span><textarea ref={draftRef} aria-label="研究问题" rows={1} value={draft} onChange={event => { setDraft(event.target.value); setTemplate(null); }} onKeyDown={event => { // 中文输入法选字期间的 Enter 是确认候选词，不是发送（isComposing 只在原生事件上）。
       if (event.nativeEvent.isComposing) return;
       if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
-    }} placeholder={deepMode ? "输入 6 位股票代码，如 600519" : turns.length ? "继续追问" : "给 AI 发现发送消息"} className="max-h-32 min-h-[38px] flex-1 resize-none overflow-y-auto bg-transparent px-1 py-[7px] text-[13.5px] leading-6 text-slate-100 outline-none placeholder:text-slate-500" /><button type="submit" aria-label="发送消息" disabled={busy || !draft.trim()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-transparent bg-gradient-to-b from-teal-300 to-teal-400 text-[#03211d] shadow-[0_0_18px_rgba(45,212,191,.35)] transition-all hover:from-teal-200 hover:to-teal-300 disabled:cursor-not-allowed disabled:border-white/[0.08] disabled:bg-white/[0.05] disabled:bg-none disabled:shadow-none disabled:text-slate-400">{busy ? <LoaderCircle className="h-4 w-4 animate-spin text-teal-300" /> : <ArrowUp className="h-4 w-4 stroke-[2.2]" />}</button></div></form>
+    }} placeholder={deepMode ? "输入 6 位股票代码，如 600519" : turns.length ? "继续追问" : "给 AI 发现发送消息"} className="max-h-32 min-h-[38px] flex-1 resize-none overflow-y-auto bg-transparent px-1 py-[7px] text-[14px] leading-6 text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f]" /><button type="submit" aria-label="发送消息" disabled={busy || !draft.trim()} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[#0d0d0d] text-white transition-colors hover:bg-[#2a2a2a] disabled:cursor-not-allowed disabled:bg-[#d9d9e3] disabled:text-white">{busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4 stroke-[2.2]" />}</button></div></form>
     {/* 建议 chips 放输入框下方（学习 ChatGPT：输入为主、建议为辅），开始输入即隐藏 */}
-    {showSuggestions && <div className="mt-3 flex justify-center gap-2 overflow-x-auto pb-1">{templates.map(item => <button key={item.id} type="button" onClick={() => chooseTemplate(item)} className="shrink-0 rounded-full border border-white/[0.1] bg-gradient-to-b from-white/[0.06] to-white/[0.03] px-4 py-2 text-[12.5px] font-medium text-slate-300 transition-colors hover:border-teal-400/40 hover:to-white/[0.07] hover:text-teal-200">{item.label}</button>)}<button type="button" aria-pressed={deepMode} onClick={activateDeepResearch} className={deepMode ? "shrink-0 rounded-full border border-teal-400/50 bg-teal-400/[0.14] px-4 py-2 text-[12.5px] font-semibold text-teal-200" : "shrink-0 rounded-full border border-white/[0.1] bg-gradient-to-b from-white/[0.06] to-white/[0.03] px-4 py-2 text-[12.5px] font-medium text-slate-300 transition-colors hover:border-teal-400/40 hover:to-white/[0.07] hover:text-teal-200"}>个股深度研究</button></div>}
-    <p className="pt-2.5 text-center text-[10.5px] leading-4 text-slate-500">AI 分析仅供研究参考，不构成投资建议</p>
+    {showSuggestions && <div className="mt-3 flex justify-center gap-2 overflow-x-auto pb-1">{templates.map(item => <button key={item.id} type="button" onClick={() => chooseTemplate(item)} className="shrink-0 rounded-full border border-[#e5e5e5] bg-white px-4 py-2 text-[12.5px] font-medium text-[#4d4d4d] transition-colors hover:bg-[#f7f7f7]">{item.label}</button>)}<button type="button" aria-pressed={deepMode} onClick={activateDeepResearch} className={deepMode ? "shrink-0 rounded-full border border-[#0d0d0d] bg-[#0d0d0d] px-4 py-2 text-[12.5px] font-semibold text-white" : "shrink-0 rounded-full border border-[#e5e5e5] bg-white px-4 py-2 text-[12.5px] font-medium text-[#4d4d4d] transition-colors hover:bg-[#f7f7f7]"}>个股深度研究</button></div>}
+    <p className="pt-2.5 text-center text-[10.5px] leading-4 text-[#8f8f8f]">AI 分析仅供研究参考，不构成投资建议</p>
   </div>;
 
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={turns[turns.length - 1]?.task.id ?? conversationId} onNewAnalysis={resetConversation}>
     <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1 flex-col">
       <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "flex min-h-0 flex-1 flex-col"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
-      <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-[#0b0f14] via-[#0b0f14] via-75% to-transparent pb-3 pt-6">{composer}</div>
+      {/* 对话中上翻后浮现的居中回底圆钮（对齐 ChatGPT 截图细节） */}
+      {hasConversation && !atBottom && <button type="button" aria-label="回到底部" onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; stickToBottom.current = true; setAtBottom(true); }} className="absolute bottom-[128px] left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-black/10 bg-white text-[#4d4d4d] shadow-[0_4px_16px_rgba(0,0,0,.12)] transition-colors hover:bg-[#f7f7f7]"><ChevronDown className="h-4 w-4 stroke-[2]" /></button>}
+      <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-white via-white via-75% to-transparent pb-3 pt-6">{composer}</div>
     </div>
   </AIAnalysisShell>;
 }
