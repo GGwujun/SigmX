@@ -122,7 +122,8 @@ def test_index_history_not_in_run_daily_sync_chain():
 
 def test_daily_reference_source_unavailable_does_not_block(monkeypatch):
     """A PARTIAL caused only by unavailable reference SOURCES (weekend / third-party
-    down) must publish in lenient mode — not freeze the backfill."""
+    down) must publish in lenient mode — not freeze the backfill.
+    (The data itself must be present; the empty-day case is guarded separately.)"""
     import src.data.market_sync_worker as mw
 
     # 宽松路径会把报告升格为 PUBLISHED 再落库（worker lenient-promote 块），
@@ -131,9 +132,9 @@ def test_daily_reference_source_unavailable_does_not_block(monkeypatch):
         dataset="daily",
         trade_date="2026-07-17",
         status=mw.QualityStatus.PARTIAL,
-        expected_rows=0,
-        received_rows=0,
-        valid_rows=0,
+        expected_rows=5000,
+        received_rows=5000,
+        valid_rows=5000,
         blocking_reasons=["suspension_reference_unavailable", "cross_source_reference_unavailable"],
         source="stub",
     )
@@ -145,13 +146,61 @@ def test_daily_reference_source_unavailable_does_not_block(monkeypatch):
     monkeypatch.setattr(mw, "fetch_daily_reference_closes", lambda *a, **k: ReferenceResult.success({}))
     monkeypatch.setattr(mw, "fetch_tdx_reference_closes", lambda *a, **k: ReferenceResult.success({}))
 
+    recorded: list = []
+
     class _Shadow:
         def daily_codes_for_run(self, *a): return []
         def daily_rows_for_run(self, *a): return []
-        def record_dataset_result(self, *a, **k): pass
+        def record_dataset_result(self, *a, **k): recorded.append(a)
 
-    # Must NOT raise — source-unavailable is environmental, publishes in lenient mode.
+    # Must NOT raise — source-unavailable with data present is environmental,
+    # publishes in lenient mode (promoted report recorded as PUBLISHED).
     mw._validate_daily_reference(_Shadow(), "2026-07-17", "run-x", [])
+    promoted = [r for r in recorded if getattr(r[1], "status", None) is mw.QualityStatus.PUBLISHED]
+    assert promoted, "lenient promote must record a PUBLISHED dataset report when data is present"
+    assert promoted[0][1].source.endswith("+lenient_promoted")
+
+
+def test_daily_reference_empty_day_never_lenient_promoted(monkeypatch):
+    """2026-10 事故回归：源全天空转返回 0 行 + 参考源自然不可用时，绝不允许
+    宽松发布成 status=published/received=0 —— tier 元数据键落定后当天被标记
+    "已完成"永不再补，数据洞被发布成功掩盖。空日必须抛错走重试。"""
+    import src.data.market_sync_worker as mw
+    from src.data.market_quality import ReferenceResult, SuspensionResult
+
+    report = mw.DatasetQualityReport(
+        dataset="daily",
+        trade_date="2026-10-08",
+        status=mw.QualityStatus.PARTIAL,
+        expected_rows=5000,
+        received_rows=0,
+        valid_rows=0,
+        blocking_reasons=["suspension_reference_unavailable", "cross_source_reference_unavailable"],
+        source="",
+    )
+    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: report)
+    monkeypatch.setattr(mw, "fetch_suspended_codes", lambda *a, **k: SuspensionResult.success(set()))
+    monkeypatch.setattr(mw, "fetch_daily_reference_closes", lambda *a, **k: ReferenceResult.success({}))
+    monkeypatch.setattr(mw, "fetch_tdx_reference_closes", lambda *a, **k: ReferenceResult.success({}))
+
+    recorded: list = []
+    finished: list = []
+
+    class _Shadow:
+        def daily_codes_for_run(self, *a): return []
+        def daily_rows_for_run(self, *a): return []
+        def record_dataset_result(self, *a, **k): recorded.append(a)
+        def finish_sync_run(self, *a, **k): finished.append(a)
+
+    with pytest.raises(mw.MarketDataQualityError):
+        mw._validate_daily_reference(_Shadow(), "2026-10-08", "run-x", [])
+
+    # 不留任何 PUBLISHED 面目的记录（原始 PARTIAL 报告可以有），run 以
+    # 非 PUBLISHED 收尾 —— 缺口对 readiness/监控 诚实可见。
+    assert not [r for r in recorded
+                if getattr(r[1], "status", None) is mw.QualityStatus.PUBLISHED]
+    assert finished, "empty day must finish the run (PARTIAL), not leave it dangling"
+    assert finished[0][1] is not mw.QualityStatus.PUBLISHED
 
 
 def test_daily_reference_data_shortage_still_blocks(monkeypatch):
@@ -160,11 +209,18 @@ def test_daily_reference_data_shortage_still_blocks(monkeypatch):
     import src.data.market_sync_worker as mw
     from src.data.market_quality import ReferenceResult, SuspensionResult
 
-    class _Report:
-        status = mw.QualityStatus.PARTIAL
-        blocking_reasons = ["unexplained_missing_codes"]  # real data shortage
+    report = mw.DatasetQualityReport(
+        dataset="daily",
+        trade_date="2026-07-17",
+        status=mw.QualityStatus.PARTIAL,
+        expected_rows=5000,
+        received_rows=3000,
+        valid_rows=3000,
+        blocking_reasons=["unexplained_missing_codes"],  # real data shortage
+        source="stub",
+    )
 
-    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: _Report())
+    monkeypatch.setattr(mw, "validate_daily_dataset", lambda *a, **k: report)
     monkeypatch.setattr(mw, "fetch_suspended_codes", lambda *a, **k: SuspensionResult.success(set()))
     monkeypatch.setattr(mw, "fetch_daily_reference_closes", lambda *a, **k: ReferenceResult.success({}))
     monkeypatch.setattr(mw, "fetch_tdx_reference_closes", lambda *a, **k: ReferenceResult.success({}))

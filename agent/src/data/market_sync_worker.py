@@ -558,7 +558,13 @@ def _validate_daily_reference(
     reasons = set(report.blocking_reasons)
     source_down = bool(reasons & _SOURCE_UNAVAILABLE_REASONS)
     strict = os.getenv("MARKET_SYNC_DAILY_REFERENCE_STRICT", "0") == "1"
-    if (not source_down) or strict:
+    # 数据本身缺席 ≠ 参考源缺席：空日（received_rows=0）绝不允许宽松发布。
+    # 2026-10 事故：tpdog 全天空转返回 0 行，参考源自然也不可用，旧逻辑照样
+    # lenient_promoted 成 status=published/received=0 —— tier 元数据键落定后
+    # 当天被标记"已完成"永不再补，数据洞被发布成功掩盖。空日必须抛错走
+    # 重试（键不落，源恢复当晚 post_close 窗口内重试即自愈）。
+    empty_day = report.received_rows <= 0
+    if (not source_down) or strict or empty_day:
         shadow_store.finish_sync_run(
             run_id,
             report.status,

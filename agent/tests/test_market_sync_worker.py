@@ -338,7 +338,28 @@ def test_swallowed_dataset_failure_blocks_publication(tmp_path: Path, monkeypatc
     live = tmp_path / "live.db"
     shadow = tmp_path / "shadow.db"
     _seed_live(live)
-    monkeypatch.setattr(worker, "run_daily_sync", lambda *args, **kwargs: {"daily": 1})
+    def _fake_daily_sync(*args, **kwargs):
+        # 真写一行 daily（绑定 run_id）。只返回计数不落行的话，daily 报告
+        # received=0 会触发空日禁发布闸（2026-10 事故修复），本测试关注的
+        # missing-index lenient 路径就走不到了。
+        kwargs["store"].upsert_daily_bars(
+            "600000.SH",
+            [{"date": "2026-07-14", "open": 10.0, "high": 11.0, "low": 9.5,
+              "close": 10.5, "volume": 1000}],
+            source="tushare.daily",
+            sync_run_id=kwargs["sync_run_id"],
+        )
+        return {"daily": 1}
+
+    monkeypatch.setattr(worker, "run_daily_sync", _fake_daily_sync)
+    # 参考源 stub 成"可用但无数据"：coverage 低 → PARTIAL 带 source-down
+    # 原因 → 有数据时 lenient 发布（修复后仍保留的合法宽松路径）。
+    monkeypatch.setattr(worker, "fetch_suspended_codes",
+                        lambda *a, **k: SuspensionResult.success(set()))
+    monkeypatch.setattr(worker, "fetch_daily_reference_closes",
+                        lambda *a, **k: ReferenceResult.success({}))
+    monkeypatch.setattr(worker, "fetch_tdx_reference_closes",
+                        lambda *a, **k: ReferenceResult.success({}), raising=False)
 
     # Default (lenient): missing index does NOT raise; the run still publishes.
     monkeypatch.delenv("MARKET_SYNC_CORE_STRICT", raising=False)
