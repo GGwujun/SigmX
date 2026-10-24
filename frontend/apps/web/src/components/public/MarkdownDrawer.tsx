@@ -20,19 +20,21 @@ interface Props {
 }
 
 const components = {
-  h1: (props: React.ComponentProps<"h1">) => <h1 className="mb-4 mt-2 text-[24px] font-semibold leading-[1.3] tracking-[-0.015em] text-[#0d0d0d]" {...props} />,
-  h2: (props: React.ComponentProps<"h2">) => <h2 className="mb-3 mt-7 text-[18px] font-semibold leading-[1.4] text-[#0d0d0d]" {...props} />,
-  h3: (props: React.ComponentProps<"h3">) => <h3 className="mb-2 mt-5 text-[16px] font-semibold text-[#0d0d0d]" {...props} />,
-  p: (props: React.ComponentProps<"p">) => <p className="mb-3.5 text-[14.5px] leading-[1.8] text-[#2d2d2d]" {...props} />,
-  ul: (props: React.ComponentProps<"ul">) => <ul className="mb-3.5 list-disc space-y-1.5 pl-6 text-[14px] leading-[1.75] text-[#2d2d2d]" {...props} />,
-  ol: (props: React.ComponentProps<"ol">) => <ol className="mb-3.5 list-decimal space-y-1.5 pl-6 text-[14px] leading-[1.75] text-[#2d2d2d]" {...props} />,
-  blockquote: (props: React.ComponentProps<"blockquote">) => <blockquote className="mb-4 rounded-r-lg border-l-2 border-[#d9d9d9] bg-[#fafafa] py-2 pl-4 pr-3 text-[13px] leading-[1.7] text-[#5d5d5d]" {...props} />,
-  table: (props: React.ComponentProps<"table">) => <div className="mb-4 overflow-x-auto"><table className="w-full border-collapse text-[13px]" {...props} /></div>,
-  th: (props: React.ComponentProps<"th">) => <th className="border border-[#e5e5e5] bg-[#fafafa] px-2.5 py-2 text-left font-medium text-[#0d0d0d]" {...props} />,
-  td: (props: React.ComponentProps<"td">) => <td className="border border-[#e5e5e5] px-2.5 py-2 align-top text-[#2d2d2d]" {...props} />,
+  h1: (props: React.ComponentProps<"h1">) => <h1 className="mb-3.5 mt-1.5 text-[22px] font-semibold leading-[1.35] tracking-[-0.015em] text-[#0d0d0d]" {...props} />,
+  h2: (props: React.ComponentProps<"h2">) => <h2 className="mb-2.5 mt-6 text-[17px] font-semibold leading-[1.4] text-[#0d0d0d]" {...props} />,
+  h3: (props: React.ComponentProps<"h3">) => <h3 className="mb-2 mt-4 text-[15px] font-semibold text-[#0d0d0d]" {...props} />,
+  p: (props: React.ComponentProps<"p">) => <p className="mb-3 text-[15px] leading-[1.7] text-[#2d2d2d]" {...props} />,
+  ul: (props: React.ComponentProps<"ul">) => <ul className="mb-3 list-disc space-y-1.5 pl-6 text-[15px] leading-[1.7] text-[#2d2d2d]" {...props} />,
+  ol: (props: React.ComponentProps<"ol">) => <ol className="mb-3 list-decimal space-y-1.5 pl-6 text-[15px] leading-[1.7] text-[#2d2d2d]" {...props} />,
+  blockquote: (props: React.ComponentProps<"blockquote">) => <blockquote className="mb-3.5 rounded-r-lg border-l-2 border-[#d9d9d9] bg-[#fafafa] py-2 pl-4 pr-3 text-[13px] leading-[1.7] text-[#5d5d5d]" {...props} />,
+  // ChatGPT canvas 式表格：只保留横线（表头下加重、行间浅灰），无竖线网格。
+  table: (props: React.ComponentProps<"table">) => <div className="mb-4 overflow-x-auto"><table className="w-full border-collapse text-[13.5px]" {...props} /></div>,
+  thead: (props: React.ComponentProps<"thead">) => <thead className="border-b border-[#d9d9e3]" {...props} />,
+  th: (props: React.ComponentProps<"th">) => <th className="border-0 px-3 py-2.5 text-left text-[12.5px] font-semibold text-[#5d5d5d] first:pl-0 last:pr-0" {...props} />,
+  td: (props: React.ComponentProps<"td">) => <td className="border-b border-[#ececec] px-3 py-2.5 align-top text-[#2d2d2d] first:pl-0 last:pr-0" {...props} />,
   hr: () => <hr className="my-6 border-black/10" />,
-  code: (props: React.ComponentProps<"code">) => <code className="rounded bg-[#f5f5f5] px-1 py-0.5 font-mono text-[12.5px] text-[#0d0d0d]" {...props} />,
-  pre: (props: React.ComponentProps<"pre">) => <pre className="mb-4 overflow-x-auto rounded-lg bg-[#fafafa] p-3.5 text-[12.5px] leading-[1.6]" {...props} />,
+  code: (props: React.ComponentProps<"code">) => <code className="rounded bg-[#f5f5f5] px-1 py-0.5 font-mono text-[13px] text-[#0d0d0d]" {...props} />,
+  pre: (props: React.ComponentProps<"pre">) => <pre className="mb-3.5 overflow-x-auto rounded-lg bg-[#fafafa] p-3.5 text-[13px] leading-[1.6]" {...props} />,
   a: (props: React.ComponentProps<"a">) => <a className="text-[#2563eb] underline underline-offset-2" {...props} />,
   strong: (props: React.ComponentProps<"strong">) => <strong className="font-semibold text-[#0d0d0d]" {...props} />,
 };
@@ -55,12 +57,13 @@ export function MarkdownDrawer({ file, mdFiles, onSwitch, onClose }: Props) {
   return <div data-testid="markdown-preview" role="dialog" aria-label={`预览 ${file.name}`} className={full
     ? "absolute inset-0 z-50 flex w-full flex-col bg-white"
     : "absolute inset-0 z-40 flex w-full flex-col bg-white lg:static lg:z-auto lg:w-[45%] lg:shrink-0 lg:border-l lg:border-[#e5e5e5]"}>
-    <header className="relative flex h-14 shrink-0 items-center gap-2.5 border-b border-[#e5e5e5] px-3 sm:px-4">
-      <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#f0f0f0]"><FileText className="h-4 w-4 text-[#2563eb]" /></span>
+    <header className="relative flex h-14 shrink-0 items-center gap-3 border-b border-[#e5e5e5] px-4 sm:px-5">
+      {/* 文件类型徽章：白底文档形+折角，蓝色系点明 md 文档（顶栏视觉锚点）。 */}
+      <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-[#dbeafe] bg-[#eff6ff]"><FileText className="h-[18px] w-[18px] text-[#2563eb]" strokeWidth={1.9} /></span>
       <div className="relative min-w-0 flex-1">
-        <button type="button" aria-expanded={switcherOpen} aria-haspopup="menu" disabled={mdFiles.length <= 1} onClick={() => setSwitcherOpen(value => !value)} className="flex max-w-full items-center gap-1 rounded-md px-1.5 py-1 text-left transition-colors hover:bg-[#f5f5f5] disabled:hover:bg-transparent">
-          <span className="truncate text-[14px] font-medium text-[#0d0d0d]">{file.name}</span>
-          {mdFiles.length > 1 && <ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 text-[#8f8f8f] transition-transform duration-200 ${switcherOpen ? "rotate-180" : ""}`} />}
+        <button type="button" aria-expanded={switcherOpen} aria-haspopup="menu" disabled={mdFiles.length <= 1} onClick={() => setSwitcherOpen(value => !value)} className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-[#f5f5f5] disabled:hover:bg-transparent">
+          <span className="truncate text-[14.5px] font-semibold text-[#0d0d0d]">{file.name}</span>
+          {mdFiles.length > 1 && <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-[#8f8f8f] transition-transform duration-200 ${switcherOpen ? "rotate-180" : ""}`} />}
         </button>
         {switcherOpen && <div role="menu" className="absolute left-0 top-10 z-10 w-72 max-w-[calc(100vw-48px)] rounded-xl border border-[#e5e5e5] bg-white p-1.5 shadow-[0_12px_40px_rgba(0,0,0,.12)]">
           {mdFiles.map(item => <button key={item.id} role="menuitem" type="button" onClick={() => { onSwitch(item); setSwitcherOpen(false); }} className={`block w-full truncate rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors hover:bg-[#f5f5f5] ${item.id === file.id ? "bg-[#f0f0f0] font-medium text-[#0d0d0d]" : "text-[#0d0d0d]"}`}>{item.name}</button>)}
