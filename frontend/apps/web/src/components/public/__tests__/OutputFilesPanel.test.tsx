@@ -14,9 +14,9 @@ const json = (id: string, name: string): ConversationFile => ({ id, name, kind: 
 
 beforeEach(() => vi.mocked(downloadTextFile).mockClear());
 
-describe("OutputFilesPanel（与聊天同层的输出面板列）", () => {
+describe("OutputFilesPanel（浮在聊天区右上角的输出文件卡片）", () => {
   it("渲染面板与文件行：名称 + 类型标签", () => {
-    render(<OutputFilesPanel files={[md("f1", "分析报告-01-低估值.md"), json("f2", "证据数据-01.json")]} onPreview={vi.fn()} onClose={vi.fn()} />);
+    render(<OutputFilesPanel files={[md("f1", "分析报告-01-低估值.md"), json("f2", "证据数据-01.json")]} onPreview={vi.fn()} />);
     expect(screen.getByTestId("output-files-panel")).toBeInTheDocument();
     expect(screen.getByText("输出")).toBeInTheDocument();
     expect(screen.getByText("分析报告-01-低估值.md")).toBeInTheDocument();
@@ -27,7 +27,7 @@ describe("OutputFilesPanel（与聊天同层的输出面板列）", () => {
   it("md 点击走预览回调，json 点击直接下载", async () => {
     const onPreview = vi.fn();
     const files = [md("f1", "分析报告-01-测试.md"), json("f2", "证据数据-01.json")];
-    render(<OutputFilesPanel files={files} onPreview={onPreview} onClose={vi.fn()} />);
+    render(<OutputFilesPanel files={files} onPreview={onPreview} />);
     await userEvent.click(screen.getByRole("button", { name: /分析报告-01-测试/ }));
     expect(onPreview).toHaveBeenCalledWith(files[0]);
     expect(downloadTextFile).not.toHaveBeenCalled();
@@ -38,21 +38,14 @@ describe("OutputFilesPanel（与聊天同层的输出面板列）", () => {
 
   it("超过 5 个文件时折叠并提供「显示更多」，展开后可见全部", async () => {
     const files = Array.from({ length: 7 }, (_, i) => md(`f${i}`, `分析报告-0${i + 1}.md`));
-    render(<OutputFilesPanel files={files} onPreview={vi.fn()} onClose={vi.fn()} />);
+    render(<OutputFilesPanel files={files} onPreview={vi.fn()} />);
     expect(screen.queryByText("分析报告-07.md")).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /显示更多 2 个/ }));
     expect(screen.getByText("分析报告-07.md")).toBeInTheDocument();
   });
 
   it("空态给出引导文案", () => {
-    render(<OutputFilesPanel files={[]} onPreview={vi.fn()} onClose={vi.fn()} />);
+    render(<OutputFilesPanel files={[]} onPreview={vi.fn()} />);
     expect(screen.getByText(/本次对话还没有可输出的文件/)).toBeInTheDocument();
-  });
-
-  it("关闭输出面板按钮回调 onClose", async () => {
-    const onClose = vi.fn();
-    render(<OutputFilesPanel files={[md("f1", "a.md")]} onPreview={vi.fn()} onClose={onClose} />);
-    await userEvent.click(screen.getByRole("button", { name: "关闭输出面板" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

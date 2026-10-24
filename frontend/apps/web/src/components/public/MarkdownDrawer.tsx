@@ -1,6 +1,8 @@
 /**
- * Markdown 预览抽屉（对齐截图：右侧 ~45% 宽覆盖式面板）。顶栏=文件类型块+文件名（∨ 可
- * 换其他 md）+下载+全屏+关闭；正文用 react-markdown 渲染，样式逐级手写对齐文档排版。
+ * Markdown 文档面板（对齐 ChatGPT canvas 交互）：从浮层文件列表点开具体 md 才
+ * 打开，此时它作为与聊天区同层的右侧面板把聊天往左挤压（桌面 ~45% 宽、左缘
+ * 分隔线）；移动端全屏覆盖。顶栏=文件类型块+文件名（∨ 可换其他 md）+下载+
+ * 全屏+关闭；正文用 react-markdown 渲染，样式逐级手写对齐文档排版。
  */
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
@@ -51,8 +53,8 @@ export function MarkdownDrawer({ file, mdFiles, onSwitch, onClose }: Props) {
   }, [switcherOpen, onClose]);
 
   return <div data-testid="markdown-preview" role="dialog" aria-label={`预览 ${file.name}`} className={full
-    ? "absolute inset-0 z-50 flex flex-col bg-white shadow-[-12px_0_40px_rgba(0,0,0,.08)]"
-    : "absolute inset-y-0 right-0 z-40 flex w-full flex-col border-l border-[#e5e5e5] bg-white shadow-[-12px_0_40px_rgba(0,0,0,.08)] sm:w-[45%]"}>
+    ? "absolute inset-0 z-50 flex w-full flex-col bg-white"
+    : "absolute inset-0 z-40 flex w-full flex-col bg-white lg:static lg:z-auto lg:w-[45%] lg:shrink-0 lg:border-l lg:border-[#e5e5e5]"}>
     <header className="relative flex h-14 shrink-0 items-center gap-2.5 border-b border-[#e5e5e5] px-3 sm:px-4">
       <span aria-hidden="true" className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-[#f0f0f0]"><FileText className="h-4 w-4 text-[#2563eb]" /></span>
       <div className="relative min-w-0 flex-1">
