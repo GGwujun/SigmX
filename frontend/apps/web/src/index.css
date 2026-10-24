@@ -163,3 +163,5 @@
 .aiw ::-webkit-scrollbar-track { background: transparent; }
 .aiw ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.15); border-radius: 999px; }
 .aiw ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); }
+/* Firefox：等价的细滚动条（Windows 默认条粗且带槽，与聊天白净风格冲突）。 */
+.aiw { scrollbar-width: thin; scrollbar-color: rgba(0, 0, 0, 0.22) transparent; }

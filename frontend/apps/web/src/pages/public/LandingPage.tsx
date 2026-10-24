@@ -240,14 +240,18 @@ export function LandingPage() {
   </div>;
 
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={turns[turns.length - 1]?.task.id ?? conversationId} onNewAnalysis={resetConversation}>
-    <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1 flex-col">
-      {hasConversation && <ChatTopActions busy={busy} shareTaskId={lastTurn?.task.id ?? null} runningTaskId={runningTaskId} conversationUrl={conversationUrl} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen(value => !value)} onNewAnalysis={resetConversation} onCancel={() => void cancelRunning()} onExportMarkdown={exportConversation} />}
-      {panelOpen && <OutputFilesPanel files={files} onPreview={setPreviewFile} />}
-      {previewFile && <MarkdownDrawer file={previewFile} mdFiles={mdFiles} onSwitch={setPreviewFile} onClose={() => setPreviewFile(null)} />}
-      <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "flex min-h-0 flex-1 flex-col"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
-      {/* 对话中上翻后浮现的居中回底圆钮（对齐 ChatGPT 截图细节） */}
-      {hasConversation && !atBottom && <button type="button" aria-label="回到底部" onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; stickToBottom.current = true; setAtBottom(true); }} className="absolute bottom-[128px] left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-black/10 bg-white text-[#4d4d4d] shadow-[0_4px_16px_rgba(0,0,0,.12)] transition-colors hover:bg-[#f7f7f7]"><ChevronDown className="h-4 w-4 stroke-[2]" /></button>}
-      <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-white via-white via-75% to-transparent pb-3 pt-6">{composer}</div>
+    {/* 聊天列与「输出」面板列同层并排（对齐 ChatGPT canvas：面板不是浮层，
+        打开时聊天流收窄，关闭时全宽）。Markdown 预览抽屉相对聊天列覆盖。 */}
+    <div data-testid="ai-analysis-body" className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        {hasConversation && <ChatTopActions busy={busy} shareTaskId={lastTurn?.task.id ?? null} runningTaskId={runningTaskId} conversationUrl={conversationUrl} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen(value => !value)} onNewAnalysis={resetConversation} onCancel={() => void cancelRunning()} onExportMarkdown={exportConversation} />}
+        {previewFile && <MarkdownDrawer file={previewFile} mdFiles={mdFiles} onSwitch={setPreviewFile} onClose={() => setPreviewFile(null)} />}
+        <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "flex min-h-0 flex-1 flex-col"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
+        {/* 对话中上翻后浮现的居中回底圆钮（对齐 ChatGPT 截图细节） */}
+        {hasConversation && !atBottom && <button type="button" aria-label="回到底部" onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; stickToBottom.current = true; setAtBottom(true); }} className="absolute bottom-[128px] left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-black/10 bg-white text-[#4d4d4d] shadow-[0_4px_16px_rgba(0,0,0,.12)] transition-colors hover:bg-[#f7f7f7]"><ChevronDown className="h-4 w-4 stroke-[2]" /></button>}
+        <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-white via-white via-75% to-transparent pb-3 pt-6">{composer}</div>
+      </div>
+      {panelOpen && <OutputFilesPanel files={files} onPreview={setPreviewFile} onClose={() => setPanelOpen(false)} />}
     </div>
   </AIAnalysisShell>;
 }
