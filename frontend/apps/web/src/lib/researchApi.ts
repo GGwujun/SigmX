@@ -148,9 +148,21 @@ export const getResearchShare = (taskId: string) =>
 export const revokeResearchShare = (taskId: string) =>
   json<{ ok: boolean }>(`/api/research/tasks/${encodeURIComponent(taskId)}/share`, { method: "DELETE", headers: authHeaders() });
 
-/** 匿名读取公开分享的对话（/s/:slug 页面数据源）。 */
-export const getPublicConversation = (slug: string) =>
-  json<SharedConversation>(`/api/public/conversations/${encodeURIComponent(slug)}`);
+/** 公开分享对话的错误带状态码：/s/:slug 页面按 410（已撤销）/404（不存在）分支。 */
+export class PublicConversationError extends Error {
+  constructor(message: string, public status: number) { super(message); }
+}
+
+/** 匿名读取公开分享的对话（/s/:slug 页面数据源，不走带登录副作用的 json 助手）。 */
+export async function getPublicConversation(slug: string): Promise<SharedConversation> {
+  const response = await fetch(`/api/public/conversations/${encodeURIComponent(slug)}`);
+  if (!response.ok) {
+    let detail = `请求失败（${response.status}）`;
+    try { detail = (await response.json()).detail || detail; } catch { /* non-JSON error */ }
+    throw new PublicConversationError(detail, response.status);
+  }
+  return response.json() as Promise<SharedConversation>;
+}
 
 export async function waitForResearchTask(task: ResearchTask, onUpdate?: (task: ResearchTask) => void, interval: number | (() => number) = 700): Promise<ResearchTask> {
   let current = task;

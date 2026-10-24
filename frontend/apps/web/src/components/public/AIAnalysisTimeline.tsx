@@ -5,7 +5,7 @@ import { Link } from "react-router-dom";
 import { buildResearchConversation, stageLabel, type FinalConversationBlock, type ResearchConversationBlock, type StageConversationBlock, type ToolConversationBlock } from "@/lib/researchConversation";
 import type { ResearchConversationTurn, ResearchResult, ResearchTask } from "@/lib/researchApi";
 
-interface Props { turns: ResearchConversationTurn[]; pendingQuestion: string; planning: boolean; pendingError: string; loadError: string; onRetry: (task: ResearchTask) => void }
+interface Props { turns: ResearchConversationTurn[]; pendingQuestion: string; planning: boolean; pendingError: string; loadError: string; onRetry?: (task: ResearchTask) => void }
 
 /** 对话流首条时间戳：居中灰色小字，上下留白较大（截图里作为消息分组分隔，约 40-56px）。 */
 function ConversationTimestamp({ value }: { value: string }) {
@@ -59,16 +59,18 @@ function formatDuration(start?: string | null, end?: string | null): string {
   return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`;
 }
 
-function ConversationTurn({ turn, onRetry }: { turn: ResearchConversationTurn; onRetry: (task: ResearchTask) => void }) {
+function ConversationTurn({ turn, onRetry }: { turn: ResearchConversationTurn; onRetry?: (task: ResearchTask) => void }) {
   const blocks = buildResearchConversation(turn.events, turn.result);
   const running = ["queued", "running"].includes(turn.task.status);
   const processBlocks = blocks.filter(block => block.kind !== "final");
   const finalBlocks = blocks.filter((block): block is FinalConversationBlock => block.kind === "final");
   const duration = formatDuration(turn.task.created_at, turn.task.finished_at);
+  // onRetry 缺省（公开分享页只读渲染）时不出现「重新尝试/重新生成」按钮。
+  const retry = onRetry ? () => onRetry(turn.task) : undefined;
   return <><UserMessage>{turn.task.question}</UserMessage><Assistant>
-    {turn.task.status === "failed" ? <ErrorReply message={turn.task.error || "分析执行失败"} onRetry={() => onRetry(turn.task)} /> : <>
+    {turn.task.status === "failed" ? <ErrorReply message={turn.task.error || "分析执行失败"} onRetry={retry} /> : <>
       {processBlocks.length > 0 ? <AnalysisProcess blocks={processBlocks} running={running} completed={finalBlocks.length > 0} duration={duration} /> : running ? <div className="flex items-center gap-2.5 text-[14px] text-[#8f8f8f]"><ThinkingDots />正在准备分析</div> : null}
-      {finalBlocks.map(block => <FinalReply key={block.id} block={block} onRetry={() => onRetry(turn.task)} />)}
+      {finalBlocks.map(block => <FinalReply key={block.id} block={block} onRetry={retry} />)}
     </>}
   </Assistant></>;
 }

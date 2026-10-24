@@ -6,6 +6,7 @@
 import type { ReactNode } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 
+import { PublicAppShell } from "@/components/public/PublicAppShell";
 import { PublicHeader } from "@/components/public/PublicHeader";
 
 export interface PublicLayoutProps {
@@ -15,13 +16,21 @@ export interface PublicLayoutProps {
   children?: ReactNode;
 }
 
+/** 并入沉浸左栏壳的内容页（与聊天页同一套 ChatGPT 式布局）。 */
+const APP_SHELL_EXACT = new Set(["/intelligence", "/global-events", "/skills", "/product/desktop", "/product/data-hub", "/pricing"]);
+const APP_SHELL_PREFIXES = ["/skills/", "/stock/", "/fund/"];
+const isAppShellRoute = (pathname: string) => APP_SHELL_EXACT.has(pathname) || APP_SHELL_PREFIXES.some(prefix => pathname.startsWith(prefix));
+
 export function PublicLayout({ ctaLabel = "注册体验", ctaTo = "/register" }: PublicLayoutProps) {
   const { pathname } = useLocation();
-  // 沉浸态：仅根路径（AI 发现聊天工作台）整页交给 AIAnalysisShell 做 ChatGPT 式
-  // 左右布局——左栏从视口顶铺到底、顶栏渲染进右栏、无页脚。/query /stock 等
-  // 内容页保持浅色顶栏 + 页脚的常规布局。
+  // 沉浸态：根路径（AI 发现聊天工作台）与内容页（情报搜索/全球事件/Skills/
+  // 产品与价格/个股基金）一律左栏常驻 + 右侧内容——不再回到上下堆叠布局。
+  // /query /research/* /download /docs/* 保持浅色顶栏 + 页脚的常规布局。
   if (pathname === "/") {
     return <div className="flex min-h-dvh flex-col bg-white"><main className="flex flex-1 flex-col"><Outlet /></main></div>;
+  }
+  if (isAppShellRoute(pathname)) {
+    return <div className="flex min-h-dvh flex-col bg-white"><main className="flex flex-1 flex-col"><PublicAppShell><Outlet /></PublicAppShell></main></div>;
   }
   return (
     <div className="flex min-h-screen flex-col bg-background">

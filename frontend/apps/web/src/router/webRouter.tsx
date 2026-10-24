@@ -18,6 +18,7 @@ const PublicSearchPage = lazy(() => import("@/pages/public/PublicSearchPage").th
 const ResearchResultPage = lazy(() => import("@/pages/public/ResearchResultPage").then(m => ({ default: m.ResearchResultPage })));
 const PublicInstrumentPage = lazy(() => import("@/pages/public/PublicInstrumentPage").then(m => ({ default: m.PublicInstrumentPage })));
 const PublicReportPage = lazy(() => import("@/pages/public/PublicReportPage").then(m => ({ default: m.PublicReportPage })));
+const SharedConversationPage = lazy(() => import("@/pages/public/SharedConversationPage").then(m => ({ default: m.SharedConversationPage })));
 const DataHubDocsPage = lazy(() => import("@/pages/public/DataHubDocsPage").then(m => ({ default: m.DataHubDocsPage })));
 const LoginPage = lazy(() => import("@/pages/auth/LoginPage").then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import("@/pages/auth/RegisterPage").then(m => ({ default: m.RegisterPage })));
@@ -54,6 +55,7 @@ export const webRoutes: RouteObject[] = [
   ] },
   { path: "/login", element: wrap(LoginPage) },
   { path: "/register", element: wrap(RegisterPage) },
+  { path: "/s/:slug", element: wrap(SharedConversationPage) },
   { path: "/portal", element: <Navigate to="/me" replace /> },
   { element: <RequireAuth />, children: [
     { element: <AccountShell />, children: [
