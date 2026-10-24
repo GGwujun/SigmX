@@ -15,6 +15,11 @@ from src.api.auth_routes import require_user
 from src.product.research_plans import AIResearchPlanService, ResearchPlanService
 from src.product.research_tasks import InvalidResearchConstraint, ResearchDataUnavailable, ResearchTaskService
 from src.product.research_orchestrator import ResearchOrchestrator
+from src.product.shared_conversations import (
+    SharedConversationNotFound,
+    SharedConversationRevoked,
+    SharedConversationService,
+)
 from src.session.events import EventBus, SSEEvent
 
 
@@ -151,6 +156,14 @@ class ResearchResultResponse(BaseModel):
     execution_mode: str = "rules_fallback"
 
 
+class SharedConversationResponse(BaseModel):
+    id: str
+    task_id: str
+    slug: str
+    created_at: str
+    revoked_at: str | None
+
+
 router = APIRouter(
     prefix="/api/research/tasks",
     tags=["research-tasks"],
@@ -160,11 +173,14 @@ plan_router = APIRouter(
     prefix="/api/research/plans",
     tags=["research-plans"],
 )
+# 匿名只读分享（无鉴权依赖），路径对齐 /api/public/* 命名约定
+public_router = APIRouter(tags=["research-tasks-public"])
 _service: ResearchTaskService | None = None
 _orchestrator: ResearchOrchestrator | None = None
 _plan_service = None
 _research_file_store = None
 _event_bus: EventBus | None = None
+_shared_conversations: SharedConversationService | None = None
 
 _TERMINAL_EVENT_TYPES = {"completed", "failed", "cancelled"}
 
@@ -245,6 +261,18 @@ def _get_orchestrator() -> ResearchOrchestrator:
         _orchestrator = ResearchOrchestrator(service.store, service, runner_factory=_build_agent_runner,
                                              publisher=_publish_task_event)
     return _orchestrator
+
+
+def _get_shared_conversations() -> SharedConversationService:
+    global _shared_conversations
+    if _shared_conversations is None:
+        # thread_loader 调用期才解析 orchestrator（懒初始化顺序解耦）；
+        # 属主 user_id 来自分享行，公开读取仍走 thread() 的属主过滤，零旁路。
+        _shared_conversations = SharedConversationService(
+            _get_service().store,
+            lambda user_id, task_id: _get_orchestrator().thread(user_id, task_id),
+        )
+    return _shared_conversations
 
 
 def _build_agent_runner():
@@ -483,6 +511,57 @@ async def follow_up_research_task(task_id: str, body: FollowUpResearchRequest, u
     return ResearchTaskResponse(**asdict(task))
 
 
+@router.post("/{task_id}/share", response_model=SharedConversationResponse)
+async def share_research_conversation(task_id: str, user: dict = Depends(require_user)) -> SharedConversationResponse:
+    """把这条对话（含其祖先链）生成公开只读链接；幂等复用未撤销的 slug。"""
+    try:
+        _get_service().get(user["id"], task_id)
+        item = _get_shared_conversations().share(user["id"], task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="分享服务暂时不可用") from exc
+    return SharedConversationResponse(id=item.id, task_id=item.task_id, slug=item.slug,
+                                      created_at=item.created_at, revoked_at=item.revoked_at)
+
+
+@router.get("/{task_id}/share", response_model=SharedConversationResponse)
+async def get_research_share(task_id: str, user: dict = Depends(require_user)) -> SharedConversationResponse:
+    try:
+        _get_service().get(user["id"], task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    item = _get_shared_conversations().get_active(user["id"], task_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="该对话尚未分享")
+    return SharedConversationResponse(id=item.id, task_id=item.task_id, slug=item.slug,
+                                      created_at=item.created_at, revoked_at=item.revoked_at)
+
+
+@router.delete("/{task_id}/share")
+async def revoke_research_share(task_id: str, user: dict = Depends(require_user)) -> dict[str, Any]:
+    try:
+        _get_service().get(user["id"], task_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="研究任务不存在") from exc
+    if not _get_shared_conversations().revoke(user["id"], task_id):
+        raise HTTPException(status_code=404, detail="该对话尚未分享")
+    return {"ok": True}
+
+
+@public_router.get("/api/public/conversations/{slug}")
+async def public_shared_conversation(slug: str) -> dict[str, Any]:
+    """匿名只读分享数据；撤销后 410、未知 slug 404（对齐 /api/public/reports 行为）。"""
+    try:
+        return _get_shared_conversations().public_conversation(slug)
+    except SharedConversationRevoked as exc:
+        raise HTTPException(status_code=410, detail="该对话分享已撤销") from exc
+    except SharedConversationNotFound as exc:
+        raise HTTPException(status_code=404, detail="分享链接不存在") from exc
+
+
 @router.post("/{task_id}/files", status_code=status.HTTP_201_CREATED)
 async def upload_research_file(task_id: str, upload: UploadFile = File(...), user: dict = Depends(require_user)) -> dict[str, Any]:
     try:
@@ -518,4 +597,6 @@ def register_research_task_routes(app: FastAPI) -> APIRouter:
         app.include_router(plan_router)
     if not any(getattr(route, "path", "") == "/api/research/tasks" for route in app.routes):
         app.include_router(router)
+    if not any(getattr(route, "path", "") == "/api/public/conversations/{slug}" for route in app.routes):
+        app.include_router(public_router)
     return router

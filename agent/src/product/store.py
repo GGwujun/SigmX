@@ -670,6 +670,21 @@ class ProductStore:
             CREATE INDEX IF NOT EXISTS idx_report_snapshots_user_created
                 ON report_snapshots(user_id, created_at);
 
+            CREATE TABLE IF NOT EXISTS shared_conversations (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                slug TEXT NOT NULL UNIQUE,
+                created_at TEXT NOT NULL,
+                revoked_at TEXT,
+                FOREIGN KEY (task_id) REFERENCES research_tasks(id)
+            );
+            -- 同一 (user_id, task_id) 至多一条未撤销分享；撤销后重分享生成新 slug，旧链接永久 410
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_shared_conversations_active
+                ON shared_conversations(user_id, task_id) WHERE revoked_at IS NULL;
+            CREATE INDEX IF NOT EXISTS idx_shared_conversations_user_created
+                ON shared_conversations(user_id, created_at);
+
             CREATE TABLE IF NOT EXISTS research_handoffs (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
