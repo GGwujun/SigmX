@@ -20,6 +20,8 @@ export function PublicAppShell({ children }: Props) {
     if (isAuthenticated()) listResearchTasks(20).then(setRecentTasks).catch(() => undefined);
   }, []);
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={null} onNewAnalysis={() => navigate("/")}>
-    <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+    {/* 移动端汉堡钮（absolute left-3 top-3，占顶部约 48px）悬浮在内容区左上，
+        内容页自带的上内边距不够避开，统一让出顶部空间防标题首字被压。 */}
+    <div className="min-h-0 flex-1 overflow-y-auto pt-14 lg:pt-0">{children}</div>
   </AIAnalysisShell>;
 }
