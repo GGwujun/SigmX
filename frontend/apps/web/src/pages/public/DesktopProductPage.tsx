@@ -113,22 +113,22 @@ export function DesktopProductPage() {
   const downloads = useDesktopDownloads();
 
   return (
-    <div className="bg-slate-50 text-slate-950">
-      <section className="overflow-hidden border-b border-slate-800 bg-slate-950 text-white">
-        <div className="mx-auto grid max-w-[1440px] gap-8 px-4 py-14 md:grid-cols-[0.82fr_1.18fr] lg:px-8 lg:py-20">
+    <div className="bg-white text-zinc-950">
+      <section className="border-b border-zinc-100">
+        <div className="mx-auto grid max-w-[1440px] gap-10 px-5 py-12 md:grid-cols-[0.82fr_1.18fr] sm:px-8 lg:py-16">
           <div className="flex flex-col justify-center">
-            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-teal-400/30 bg-teal-400/10 px-3 py-1 text-xs font-semibold text-teal-300">
-              <Monitor className="h-3.5 w-3.5" /> SIGMX DESKTOP
+            <div className="inline-flex w-fit items-center gap-2 rounded-full border border-zinc-200 px-3 py-1 text-[12px] font-medium text-zinc-500">
+              <Monitor className="h-3.5 w-3.5" /> SigmX Desktop
             </div>
-            <h1 className="mt-5 max-w-xl text-4xl font-bold leading-tight tracking-tight sm:text-5xl">
+            <h1 className="mt-5 max-w-xl text-[28px] font-semibold leading-[1.25] tracking-[-0.035em] sm:text-[32px]">
               本地优先的
               <br />
-              <span className="text-teal-300">专业投研工作台</span>
+              <span className="text-emerald-600">专业投研工作台</span>
             </h1>
-            <p className="mt-5 max-w-xl text-base leading-7 text-slate-300">
+            <p className="mt-5 max-w-xl text-[14px] leading-7 text-zinc-500">
               把一次性的市场发现，变成可验证、可跟踪、可复盘的长期研究任务。持仓、交易日志和私有文件默认只保存在你的设备。
             </p>
-            <div className="mt-6 grid max-w-xl grid-cols-2 gap-3 text-sm text-slate-200">
+            <div className="mt-6 grid max-w-xl grid-cols-2 gap-3 text-[13.5px] text-zinc-700">
               <Value icon={LockKeyhole} label="私有数据不出设备" />
               <Value icon={RefreshCw} label="持续运行的研究任务" />
               <Value icon={LineChart} label="回测与因子验证" />
@@ -143,13 +143,13 @@ export function DesktopProductPage() {
               <DownloadLink href={downloads.mac} platform="Mac" />
               <a
                 href="#workflow"
-                className="inline-flex h-11 items-center gap-2 rounded-lg border border-slate-700 px-5 text-sm font-semibold text-white hover:bg-slate-900"
+                className="inline-flex h-11 items-center gap-2 rounded-xl border border-zinc-200 px-5 text-[13.5px] font-medium text-zinc-950 transition-colors hover:bg-zinc-50"
               >
-                <Play className="h-4 w-4" />
+                <Play className="h-4 w-4 text-zinc-500" />
                 查看工作流演示
               </a>
             </div>
-            <p className="mt-3 text-xs text-slate-500">
+            <p className="mt-3 text-[12px] text-zinc-400">
               Windows 10/11 · {downloads.mac ? "macOS 12+" : "Mac 版正在构建"} · {downloads.version} · 安装包由 GitHub
               Releases 提供
             </p>
@@ -160,7 +160,7 @@ export function DesktopProductPage() {
 
       <section
         id="workflow"
-        className="mx-auto max-w-[1280px] px-4 py-16 lg:px-8"
+        className="mx-auto max-w-[1280px] px-5 py-12 sm:px-8 lg:py-16"
       >
         <SectionTitle
           eyebrow="从发现到持续研究"
@@ -171,35 +171,35 @@ export function DesktopProductPage() {
           {workflow.map(([number, title, description], index) => (
             <div
               key={title}
-              className="relative rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+              className="relative rounded-2xl border border-zinc-200 bg-white p-5 transition-colors hover:border-zinc-300"
             >
-              <div className="text-xs font-bold text-teal-600">{number}</div>
-              <h3 className="mt-3 font-semibold">{title}</h3>
-              <p className="mt-2 text-sm leading-6 text-slate-500">
+              <div className="font-mono text-[12px] font-medium text-emerald-600">{number}</div>
+              <h3 className="mt-3 text-[15px] font-semibold">{title}</h3>
+              <p className="mt-2 text-[13px] leading-6 text-zinc-500">
                 {description}
               </p>
               {index < workflow.length - 1 && (
-                <ChevronRight className="absolute -right-4 top-1/2 z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full bg-slate-50 text-slate-400 lg:block" />
+                <ChevronRight className="absolute -right-4 top-1/2 z-10 hidden h-5 w-5 -translate-y-1/2 rounded-full bg-white text-zinc-300 lg:block" />
               )}
             </div>
           ))}
         </div>
       </section>
 
-      <section className="border-y border-slate-200 bg-white">
-        <div className="mx-auto grid max-w-[1280px] gap-10 px-4 py-16 lg:grid-cols-[0.8fr_1.2fr] lg:px-8">
+      <section className="border-y border-zinc-100 bg-zinc-50/50">
+        <div className="mx-auto grid max-w-[1280px] gap-10 px-5 py-12 sm:px-8 lg:grid-cols-[0.8fr_1.2fr] lg:py-16">
           <div>
             <SectionTitle
               eyebrow="两种运行方式"
               title="本地独立，也能连接云端"
               description="你决定哪些能力留在本机，什么时候使用 Data Hub。"
             />
-            <div className="mt-7 grid grid-cols-2 rounded-lg bg-slate-100 p-1">
+            <div className="mt-7 grid grid-cols-2 rounded-xl bg-zinc-200/60 p-1">
               <button
                 type="button"
                 aria-pressed={mode === "standalone"}
                 onClick={() => setMode("standalone")}
-                className={`rounded-md px-4 py-2.5 text-sm font-semibold ${mode === "standalone" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+                className={`rounded-lg px-4 py-2.5 text-[13.5px] font-medium ${mode === "standalone" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-500"}`}
               >
                 Standalone
               </button>
@@ -207,27 +207,27 @@ export function DesktopProductPage() {
                 type="button"
                 aria-pressed={mode === "connected"}
                 onClick={() => setMode("connected")}
-                className={`rounded-md px-4 py-2.5 text-sm font-semibold ${mode === "connected" ? "bg-white text-slate-950 shadow-sm" : "text-slate-500"}`}
+                className={`rounded-lg px-4 py-2.5 text-[13.5px] font-medium ${mode === "connected" ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-500"}`}
               >
                 Connected
               </button>
             </div>
           </div>
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 p-7">
-            <div className="text-xs font-bold uppercase tracking-wider text-teal-600">
+          <div className="rounded-2xl border border-zinc-200 bg-white p-7">
+            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-zinc-400">
               {activeMode.eyebrow}
             </div>
-            <h3 className="mt-2 text-2xl font-bold">{activeMode.title}</h3>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
+            <h3 className="mt-2 text-[20px] font-semibold tracking-[-0.02em]">{activeMode.title}</h3>
+            <p className="mt-3 max-w-2xl text-[13.5px] leading-7 text-zinc-500">
               {activeMode.description}
             </p>
             <div className="mt-6 grid gap-3 sm:grid-cols-2">
               {activeMode.points.map((point) => (
                 <div
                   key={point}
-                  className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm font-medium"
+                  className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-zinc-50/60 px-3 py-3 text-[13px] font-medium text-zinc-800"
                 >
-                  <Check className="h-4 w-4 text-teal-600" />
+                  <Check className="h-4 w-4 shrink-0 text-emerald-600" />
                   {point}
                 </div>
               ))}
@@ -236,33 +236,33 @@ export function DesktopProductPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-[1100px] px-4 py-16 lg:px-8">
+      <section className="mx-auto max-w-[1100px] px-5 py-12 sm:px-8 lg:py-16">
         <SectionTitle
           eyebrow="产品边界"
           title="不是 Web 的复制，而是长期研究的主场"
           description="三个产品共享账号、数据定义和研究资产，但承担不同任务。"
           align="center"
         />
-        <div className="mt-9 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <table aria-label="产品能力边界" className="w-full text-left text-sm">
-            <thead className="bg-slate-950 text-white">
+        <div className="mt-9 overflow-hidden rounded-2xl border border-zinc-200 bg-white">
+          <table aria-label="产品能力边界" className="w-full text-left text-[13.5px]">
+            <thead className="border-b border-zinc-200 bg-zinc-50">
               <tr>
                 <th className="px-5 py-4 font-semibold">能力</th>
                 <th className="px-5 py-4 font-semibold">Web</th>
-                <th className="px-5 py-4 font-semibold text-teal-300">
+                <th className="px-5 py-4 font-semibold text-emerald-700">
                   Desktop
                 </th>
                 <th className="px-5 py-4 font-semibold">Data Hub</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-zinc-100">
               {capabilityRows.map((row) => (
                 <tr key={row[0]}>
                   <td className="px-5 py-4 font-medium">{row[0]}</td>
                   {row.slice(1).map((value, index) => (
                     <td
                       key={`${row[0]}-${index}`}
-                      className={`px-5 py-4 ${index === 1 ? "bg-teal-50/50 font-semibold text-teal-700" : "text-slate-500"}`}
+                      className={`px-5 py-4 ${index === 1 ? "bg-emerald-50/50 font-semibold text-emerald-700" : "text-zinc-500"}`}
                     >
                       {value}
                     </td>
@@ -274,14 +274,14 @@ export function DesktopProductPage() {
         </div>
       </section>
 
-      <section className="border-t border-slate-800 bg-slate-950 text-white">
-        <div className="mx-auto flex max-w-[1100px] flex-col items-center justify-between gap-6 px-4 py-12 text-center md:flex-row md:text-left lg:px-8">
+      <section className="border-t border-zinc-100">
+        <div className="mx-auto flex max-w-[1100px] flex-col items-center justify-between gap-6 px-5 py-12 text-center sm:px-8 md:flex-row md:text-left">
           <div>
-            <div className="text-xs font-bold text-teal-300">SIGMX DESKTOP</div>
-            <h2 className="mt-2 text-2xl font-bold">
+            <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-zinc-400">SigmX Desktop</div>
+            <h2 className="mt-2 text-[20px] font-semibold tracking-[-0.02em]">
               设备保持运行，研究任务就能持续执行
             </h2>
-            <p className="mt-2 text-sm text-slate-400">
+            <p className="mt-2 text-[13.5px] leading-6 text-zinc-500">
               任务在你的设备本地运行；休眠或关机时会暂停，恢复后继续。需要时可连接
               Data Hub。
             </p>
@@ -312,7 +312,7 @@ function DownloadLink({
   primary?: boolean;
   arrow?: boolean;
 }) {
-  const className = `inline-flex h-11 shrink-0 items-center gap-2 rounded-lg px-5 text-sm font-bold ${primary ? "bg-teal-400 text-slate-950 hover:bg-teal-300" : "border border-slate-700 text-white hover:bg-slate-900"}`;
+  const className = `inline-flex h-11 shrink-0 items-center gap-2 rounded-xl px-5 text-[13.5px] font-medium ${primary ? "bg-zinc-950 text-white transition-colors hover:bg-zinc-800" : "border border-zinc-200 text-zinc-950 transition-colors hover:bg-zinc-50"}`;
   if (!href)
     return (
       <span
@@ -334,38 +334,38 @@ function DownloadLink({
 
 function DesktopPreview() {
   return (
-    <div className="self-center overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
-      <div className="flex h-9 items-center justify-between border-b border-slate-700 px-4 text-[10px] text-slate-500">
+    <div className="self-center overflow-hidden rounded-2xl border border-zinc-200 bg-white shadow-[0_8px_40px_rgba(0,0,0,.06)]">
+      <div className="flex h-9 items-center justify-between border-b border-zinc-100 bg-zinc-50 px-4 text-[11px] text-zinc-400">
         <span>SigmX Desktop · 研究工作台</span>
-        <span className="inline-flex items-center gap-1 text-teal-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-teal-400" />
+        <span className="inline-flex items-center gap-1.5 text-emerald-600">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
           本地运行中
         </span>
       </div>
       <div className="grid min-h-[390px] grid-cols-[145px_minmax(0,1fr)] sm:grid-cols-[170px_minmax(0,1fr)]">
-        <aside className="border-r border-slate-800 p-3">
-          <div className="flex items-center gap-2 rounded-md bg-slate-800 px-2 py-2 text-xs text-slate-300">
+        <aside className="border-r border-zinc-100 bg-zinc-50/60 p-3">
+          <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2 py-2 text-xs text-zinc-400">
             <Search className="h-3.5 w-3.5" />
             搜索研究资产
           </div>
-          <div className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+          <div className="mt-4 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             今日任务
           </div>
           {["早盘市场扫描", "持仓风险检查", "AI 算力产业链"].map(
             (item, index) => (
               <div
                 key={item}
-                className={`mt-2 rounded-md px-2 py-2 text-xs ${index === 2 ? "bg-teal-400/10 text-teal-300" : "text-slate-400"}`}
+                className={`mt-2 rounded-lg px-2 py-2 text-xs ${index === 2 ? "bg-emerald-50 font-medium text-emerald-700" : "text-zinc-500"}`}
               >
                 {item}
               </div>
             ),
           )}
-          <div className="mt-5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+          <div className="mt-5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
             本地资产
           </div>
           {["我的持仓", "自选列表", "历史报告"].map((item) => (
-            <div key={item} className="mt-2 px-2 text-xs text-slate-400">
+            <div key={item} className="mt-2 px-2 text-xs text-zinc-500">
               {item}
             </div>
           ))}
@@ -373,12 +373,12 @@ function DesktopPreview() {
         <div className="min-w-0 p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-xs text-teal-300">持续研究任务</div>
-              <div className="mt-1 text-sm font-semibold">
+              <div className="text-[11px] text-zinc-400">持续研究任务</div>
+              <div className="mt-1 text-sm font-semibold text-zinc-950">
                 国产算力产业链跟踪
               </div>
             </div>
-            <span className="rounded bg-teal-400/10 px-2 py-1 text-[10px] text-teal-300">
+            <span className="rounded-md bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700">
               运行中
             </span>
           </div>
@@ -390,19 +390,19 @@ function DesktopPreview() {
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="rounded-lg border border-slate-800 bg-slate-950 p-3"
+                className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3"
               >
-                <div className="text-[10px] text-slate-500">{label}</div>
-                <div className="mt-1 text-lg font-semibold text-slate-100">
+                <div className="text-[10px] text-zinc-400">{label}</div>
+                <div className="mt-1 text-lg font-semibold tabular-nums text-zinc-950">
                   {value}
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-4 rounded-lg border border-slate-800 bg-slate-950 p-3">
+          <div className="mt-4 rounded-xl border border-zinc-200 bg-zinc-50/60 p-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium">Agent 执行过程</span>
-              <Sparkles className="h-3.5 w-3.5 text-teal-300" />
+              <span className="text-xs font-medium text-zinc-700">Agent 执行过程</span>
+              <Sparkles className="h-3.5 w-3.5 text-zinc-400" />
             </div>
             {[
               "同步最新公告与行业数据",
@@ -411,10 +411,10 @@ function DesktopPreview() {
             ].map((item, index) => (
               <div
                 key={item}
-                className="mt-3 flex items-center gap-2 text-[11px] text-slate-400"
+                className="mt-3 flex items-center gap-2 text-[11px] text-zinc-500"
               >
                 <span
-                  className={`flex h-4 w-4 items-center justify-center rounded-full ${index < 2 ? "bg-teal-400/15 text-teal-300" : "bg-slate-800 text-slate-500"}`}
+                  className={`flex h-4 w-4 items-center justify-center rounded-full ${index < 2 ? "bg-emerald-50 text-emerald-600" : "bg-zinc-200 text-zinc-500"}`}
                 >
                   {index < 2 ? "✓" : "3"}
                 </span>
@@ -422,16 +422,16 @@ function DesktopPreview() {
               </div>
             ))}
           </div>
-          <div className="mt-4 flex items-center justify-between rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+          <div className="mt-4 flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50 p-3">
             <div>
-              <div className="text-[10px] font-semibold text-amber-300">
+              <div className="text-[10px] font-semibold text-amber-700">
                 新风险事件
               </div>
-              <div className="mt-1 text-xs text-slate-300">
+              <div className="mt-1 text-xs text-zinc-600">
                 海外管制政策可能影响上游设备交付
               </div>
             </div>
-            <BellRing className="h-4 w-4 text-amber-300" />
+            <BellRing className="h-4 w-4 text-amber-600" />
           </div>
         </div>
       </div>
@@ -447,9 +447,9 @@ function Value({
   label: string;
 }) {
   return (
-    <div className="flex items-center gap-2">
-      <span className="flex h-7 w-7 items-center justify-center rounded-md bg-slate-900">
-        <Icon className="h-4 w-4 text-teal-300" />
+    <div className="flex items-center gap-2.5">
+      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-100">
+        <Icon className="h-4 w-4 text-zinc-600" />
       </span>
       {label}
     </div>
@@ -468,14 +468,14 @@ function SectionTitle({
 }) {
   return (
     <div className={align === "center" ? "text-center" : ""}>
-      <div className="text-xs font-bold uppercase tracking-wider text-teal-600">
+      <div className="text-[12px] font-medium uppercase tracking-[0.14em] text-zinc-400">
         {eyebrow}
       </div>
-      <h2 className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl">
+      <h2 className="mt-2 text-[22px] font-semibold tracking-[-0.03em] sm:text-[24px]">
         {title}
       </h2>
       <p
-        className={`mt-3 text-sm leading-6 text-slate-500 ${align === "center" ? "mx-auto max-w-2xl" : "max-w-xl"}`}
+        className={`mt-3 text-[13.5px] leading-7 text-zinc-500 ${align === "center" ? "mx-auto max-w-2xl" : "max-w-xl"}`}
       >
         {description}
       </p>
