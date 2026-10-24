@@ -16,6 +16,8 @@ export interface ResearchResult { task_id: string; question: string; template_id
 export interface ResearchEvent { id: number; type: string; payload: Record<string, unknown>; created_at?: string }
 export interface ResearchConversationTurn { task: ResearchTask; events: ResearchEvent[]; result: ResearchResult | null }
 export interface ResearchThread { turns: ResearchConversationTurn[] }
+export interface ResearchShare { id: string; task_id: string; slug: string; created_at: string; revoked_at: string | null }
+export interface SharedConversation { slug: string; question: string; created_at: string; turns: ResearchConversationTurn[] }
 
 async function json<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -133,6 +135,22 @@ export const getResearchThread = (taskId: string) =>
 
 export const followUpResearchTask = (taskId: string, question: string) =>
   json<ResearchTask>(`/api/research/tasks/${encodeURIComponent(taskId)}/follow-up`, { method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() }, body: JSON.stringify({ question }) });
+
+export const cancelResearchTask = (taskId: string) =>
+  json<ResearchTask>(`/api/research/tasks/${encodeURIComponent(taskId)}/cancel`, { method: "POST", headers: authHeaders() });
+
+export const shareConversation = (taskId: string) =>
+  json<ResearchShare>(`/api/research/tasks/${encodeURIComponent(taskId)}/share`, { method: "POST", headers: authHeaders() });
+
+export const getResearchShare = (taskId: string) =>
+  json<ResearchShare>(`/api/research/tasks/${encodeURIComponent(taskId)}/share`, { headers: authHeaders() });
+
+export const revokeResearchShare = (taskId: string) =>
+  json<{ ok: boolean }>(`/api/research/tasks/${encodeURIComponent(taskId)}/share`, { method: "DELETE", headers: authHeaders() });
+
+/** 匿名读取公开分享的对话（/s/:slug 页面数据源）。 */
+export const getPublicConversation = (slug: string) =>
+  json<SharedConversation>(`/api/public/conversations/${encodeURIComponent(slug)}`);
 
 export async function waitForResearchTask(task: ResearchTask, onUpdate?: (task: ResearchTask) => void, interval: number | (() => number) = 700): Promise<ResearchTask> {
   let current = task;

@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { ArrowUp, ChevronDown, LoaderCircle, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { AIAnalysisShell } from "@/components/public/AIAnalysisShell";
 import { AIAnalysisTimeline } from "@/components/public/AIAnalysisTimeline";
-import { buildDeepResearchPlan, createResearchPlan, createResearchTask, followUpResearchTask, getDiscovery, getResearchResult, getResearchThread, listResearchEvents, listResearchTasks, streamResearchEvents, waitForResearchTask, type PublicDiscovery, type ResearchConversationTurn, type ResearchEvent, type ResearchPlan, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
+import { ChatTopActions } from "@/components/public/ChatTopActions";
+import { OutputFilesPanel } from "@/components/public/OutputFilesPanel";
+import { MarkdownDrawer } from "@/components/public/MarkdownDrawer";
+import { buildDeepResearchPlan, cancelResearchTask, createResearchPlan, createResearchTask, followUpResearchTask, getDiscovery, getResearchResult, getResearchThread, listResearchEvents, listResearchTasks, streamResearchEvents, waitForResearchTask, type PublicDiscovery, type ResearchConversationTurn, type ResearchEvent, type ResearchPlan, type ResearchTask, type ResearchTemplate } from "@/lib/researchApi";
+import { buildConversationFiles, buildConversationMarkdown, downloadTextFile, type ConversationFile } from "@/lib/conversationFiles";
 import { clearPendingResearchPlan, loadPendingResearchPlan, savePendingResearchPlan } from "@/lib/pendingResearchPlan";
 import { isAuthenticated } from "@/lib/apiAuth";
 import { trackPersonalFunnel } from "@/lib/personalFunnel";
@@ -194,12 +199,34 @@ export function LandingPage() {
     void startAnalysis(question, template?.id ?? null);
   };
 
-  const resetConversation = () => { setDraft(""); setDeepMode(false); setTemplate(null); setTurns([]); setPendingQuestion(""); setPendingError(""); setPlanning(false); clearPendingResearchPlan(); setParams({}, { replace: true }); };
+  const resetConversation = () => { setDraft(""); setDeepMode(false); setTemplate(null); setTurns([]); setPendingQuestion(""); setPendingError(""); setPlanning(false); setPanelOpen(false); setPreviewFile(null); clearPendingResearchPlan(); setParams({}, { replace: true }); };
   const chooseTemplate = (item: ResearchTemplate) => { setDeepMode(false); setTemplate(item); setDraft(item.prompt); };
   const activateDeepResearch = () => { setDeepMode(true); setTemplate(null); setDraft(""); };
   const templates = discovery?.templates ?? [];
   const showSuggestions = !turns.length && !pendingQuestion && !draft.trim();
   const hasConversation = turns.length > 0 || Boolean(pendingQuestion);
+
+  // 右上角操作区与「输出」面板：文件由真实研究结果派生；分享锚定最后一个 turn。
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [previewFile, setPreviewFile] = useState<ConversationFile | null>(null);
+  const files = useMemo(() => buildConversationFiles(turns), [turns]);
+  const mdFiles = useMemo(() => files.filter(file => file.kind === "md"), [files]);
+  const runningTaskId = turns.find(turn => ["queued", "running"].includes(turn.task.status))?.task.id ?? null;
+  const lastTurn = turns[turns.length - 1];
+  const conversationUrl = conversationId ? `${window.location.origin}/?conversation=${encodeURIComponent(conversationId)}` : null;
+  const cancelRunning = async () => {
+    if (!runningTaskId) return;
+    try {
+      const task = await cancelResearchTask(runningTaskId);
+      updateTurn(task.id, turn => ({ ...turn, task }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "取消失败，请稍后再试");
+    }
+  };
+  const exportConversation = () => {
+    const date = new Date().toISOString().slice(0, 10);
+    downloadTextFile(`SigmX-对话导出-${date}.md`, buildConversationMarkdown(turns), "text/markdown;charset=utf-8");
+  };
   const composer = <div data-testid="analysis-composer" className="mx-auto w-full max-w-[760px] px-5 sm:px-7">
     {/* 截图 composer 微细节：~26px 圆角接近半高、1px #e5e5e5 描边、阴影极淡；
         ＋钮透明无底、发送钮 36px 圆（禁用态浅灰底+中灰箭头）、输入文字 15px。 */}
@@ -214,6 +241,9 @@ export function LandingPage() {
 
   return <AIAnalysisShell recentTasks={recentTasks} activeTaskId={turns[turns.length - 1]?.task.id ?? conversationId} onNewAnalysis={resetConversation}>
     <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1 flex-col">
+      {hasConversation && <ChatTopActions busy={busy} shareTaskId={lastTurn?.task.id ?? null} runningTaskId={runningTaskId} conversationUrl={conversationUrl} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen(value => !value)} onNewAnalysis={resetConversation} onCancel={() => void cancelRunning()} onExportMarkdown={exportConversation} />}
+      {panelOpen && <OutputFilesPanel files={files} onPreview={setPreviewFile} />}
+      {previewFile && <MarkdownDrawer file={previewFile} mdFiles={mdFiles} onSwitch={setPreviewFile} onClose={() => setPreviewFile(null)} />}
       <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "flex min-h-0 flex-1 flex-col"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
       {/* 对话中上翻后浮现的居中回底圆钮（对齐 ChatGPT 截图细节） */}
       {hasConversation && !atBottom && <button type="button" aria-label="回到底部" onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; stickToBottom.current = true; setAtBottom(true); }} className="absolute bottom-[128px] left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-black/10 bg-white text-[#4d4d4d] shadow-[0_4px_16px_rgba(0,0,0,.12)] transition-colors hover:bg-[#f7f7f7]"><ChevronDown className="h-4 w-4 stroke-[2]" /></button>}
