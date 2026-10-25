@@ -42,7 +42,7 @@ const components = {
   strong: (props: React.ComponentProps<"strong">) => <strong className="font-semibold text-[#0d0d0d]" {...props} />,
 };
 
-const iconButton = "grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#4d4d4d] transition-colors hover:bg-[#f0f0f0] hover:text-[#0d0d0d]";
+const iconButton = "grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#4d4d4d] transition-colors hover:bg-black/[0.06] hover:text-[#0d0d0d]";
 
 export function MarkdownDrawer({ files, activeId, onSelect, onCloseFile, onClose }: Props) {
   const [full, setFull] = useState(false);
@@ -60,12 +60,15 @@ export function MarkdownDrawer({ files, activeId, onSelect, onCloseFile, onClose
   return <div data-testid="markdown-preview" role="dialog" aria-label={`预览 ${active.name}`} className={full
     ? "absolute inset-0 z-50 flex w-full flex-col bg-white"
     : "absolute inset-0 z-40 flex w-full flex-col bg-white lg:static lg:z-auto lg:w-[45%] lg:shrink-0 lg:border-l lg:border-[#e5e5e5]"}>
-    <header className="flex h-14 shrink-0 items-center gap-1 border-b border-[#e5e5e5] pl-2 pr-2 sm:pl-3 sm:pr-3">
-      {/* tab 行：每个打开的文档一个 tab，可横向滚动；活动 tab 浅灰高亮。 */}
-      <div role="tablist" aria-label="打开的文档" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1.5">
+    {/* tab 栏：浅灰底条 + 文件夹式 tab——活动 tab 白底带上圆角边框、-mb-px 盖住
+        底部分割线，与下方白色正文连成一体；非活动 tab 透明灰字，悬停微底色。 */}
+    <header className="flex h-12 shrink-0 items-stretch border-b border-[#e5e5e5] bg-[#f7f7f8] pl-1.5 pr-2 pt-1.5 sm:pl-2.5">
+      <div role="tablist" aria-label="打开的文档" className="aiw flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto">
         {files.map(file => {
           const isActive = file.id === active.id;
-          return <div key={file.id} role="tab" aria-selected={isActive} className={`flex h-9 min-w-0 max-w-[230px] shrink-0 items-center rounded-lg pl-2 pr-1 transition-colors ${isActive ? "bg-[#f0f0f0]" : "hover:bg-[#f5f5f5]"}`}>
+          return <div key={file.id} role="tab" aria-selected={isActive} className={`flex max-w-[240px] shrink-0 items-center ${isActive
+            ? "-mb-px h-[37px] rounded-t-[10px] border border-b-0 border-[#e5e5e5] bg-white pr-1 pl-2"
+            : "h-8 rounded-t-[10px] pl-2 pr-1.5 transition-colors hover:bg-black/[0.045]"}`}>
             <button type="button" onClick={() => onSelect(file)} className="flex min-w-0 items-center gap-1.5 py-1 pl-1 pr-1 text-left">
               <FileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
               <span className={`truncate text-[13px] ${isActive ? "font-medium text-[#0d0d0d]" : "text-[#5d5d5d]"}`}>{file.name}</span>
@@ -74,7 +77,7 @@ export function MarkdownDrawer({ files, activeId, onSelect, onCloseFile, onClose
           </div>;
         })}
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-0.5 self-center">
         <button type="button" aria-label="下载当前文档" onClick={() => downloadTextFile(active.name, active.build(), "text/markdown;charset=utf-8")} className={iconButton}><Download className="h-[18px] w-[18px]" /></button>
         <button type="button" aria-label={full ? "退出全屏" : "全屏查看"} onClick={() => setFull(value => !value)} className={iconButton}>{full ? <Minimize2 className="h-[18px] w-[18px]" /> : <Maximize2 className="h-[18px] w-[18px]" />}</button>
         <button type="button" aria-label="关闭文档面板" onClick={onClose} className={iconButton}><X className="h-[18px] w-[18px]" /></button>

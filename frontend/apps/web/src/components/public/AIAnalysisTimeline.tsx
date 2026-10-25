@@ -7,17 +7,18 @@ import type { ResearchConversationTurn, ResearchResult, ResearchTask } from "@/l
 
 interface Props { turns: ResearchConversationTurn[]; pendingQuestion: string; planning: boolean; pendingError: string; loadError: string; onRetry?: (task: ResearchTask) => void }
 
-/** 对话流首条时间戳：居中灰色小字，上下留白较大（截图里作为消息分组分隔，约 40-56px）。 */
+/** 对话流首条时间戳：居中灰色小字（消息分组分隔）；顶部留白由 stream 的 pt-14 统一给足。 */
 function ConversationTimestamp({ value }: { value: string }) {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return null;
   const pad = (n: number) => `${n}`.padStart(2, "0");
-  return <p className="pb-3 pt-8 text-center text-[12.5px] text-[#8f8f8f]">{d.getMonth() + 1}月{d.getDate()}日 {pad(d.getHours())}:{pad(d.getMinutes())}</p>;
+  return <p className="pb-3 text-center text-[12.5px] text-[#8f8f8f]">{d.getMonth() + 1}月{d.getDate()}日 {pad(d.getHours())}:{pad(d.getMinutes())}</p>;
 }
 
 export function AIAnalysisTimeline({ turns, pendingQuestion, planning, pendingError, loadError, onRetry }: Props) {
   if (!turns.length && !pendingQuestion) return <Welcome loadError={loadError} />;
-  return <div data-testid="conversation-stream" className="mx-auto w-full max-w-[760px] space-y-7 px-5 pb-8 pt-5 sm:px-7 lg:pt-6">
+  /* pt-14=56px：给顶部悬浮行（左上模式选择器 + 右上操作区，48px 高）让位，首条消息不被压住。 */
+  return <div data-testid="conversation-stream" className="mx-auto w-full max-w-[760px] space-y-7 px-5 pb-8 pt-14 sm:px-7">
     {turns.map((turn, index) => <section key={turn.task.id} className="aiw-enter space-y-5">{index === 0 && <ConversationTimestamp value={turn.task.created_at} />}<ConversationTurn turn={turn} onRetry={onRetry} /></section>)}
     {pendingQuestion && <><UserMessage>{pendingQuestion}</UserMessage><Assistant>{planning ? <WaitingNote /> : <ErrorReply message={pendingError || "暂时无法开始本次分析，请稍后再试。"} />}</Assistant></>}
   </div>;
@@ -99,9 +100,9 @@ function AnalysisProcess({ blocks, running, completed, duration }: { blocks: Exc
 
 function StreamingCursor() { return <span data-testid="assistant-streaming-cursor" aria-hidden="true" className="ml-1 inline-block h-[1.05em] w-[2px] animate-pulse translate-y-[2px] bg-[#0d0d0d]" />; }
 
-/** 截图气泡形态：四角同半径 18px、浅蓝 #e8f1fb、无边框无阴影、medium 字重，
- * 最大宽度约占聊天列 65-70%。 */
-function UserMessage({ children }: { children: React.ReactNode }) { return <div className="flex justify-end"><div className="max-w-[82%] rounded-[18px] bg-[#e8f1fb] px-4 py-2.5 text-[15px] font-medium leading-[1.65] text-[#0d0d0d] sm:max-w-[68%]">{children}</div></div>; }
+/** 参考图气泡形态：四角同半径 18px、浅灰 #f0f0f0（对齐 ChatGPT 用户气泡，非蓝）、
+ * 无边框无阴影、medium 字重，最大宽度约占聊天列 65-70%。 */
+function UserMessage({ children }: { children: React.ReactNode }) { return <div className="flex justify-end"><div className="max-w-[82%] rounded-[18px] bg-[#f0f0f0] px-4 py-2.5 text-[15px] font-medium leading-[1.65] text-[#0d0d0d] sm:max-w-[68%]">{children}</div></div>; }
 function Assistant({ children }: { children: React.ReactNode }) { return <article aria-label="AI 分析回复" className="space-y-3.5">{children}</article>; }
 
 function ToolDetail({ block }: { block: ToolConversationBlock }) {
