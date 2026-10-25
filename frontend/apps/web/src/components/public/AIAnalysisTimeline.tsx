@@ -68,10 +68,14 @@ function ConversationTurn({ turn, onRetry }: { turn: ResearchConversationTurn; o
   const duration = formatDuration(turn.task.created_at, turn.task.finished_at);
   // onRetry 缺省（公开分享页只读渲染）时不出现「重新尝试/重新生成」按钮。
   const retry = onRetry ? () => onRetry(turn.task) : undefined;
+  // 六阶段深研（有 stage 块）产出的是报告而非筛选候选，空候选不算异常；只读
+  // 渲染（公开分享页，无 onRetry）没有输入框可追问——两种场景都不给筛选引导。
+  const deepPipeline = blocks.some(block => block.kind === "stage");
+  const screening = !deepPipeline && Boolean(retry);
   return <><UserMessage>{turn.task.question}</UserMessage><Assistant>
     {turn.task.status === "failed" ? <ErrorReply message={turn.task.error || "分析执行失败"} onRetry={retry} /> : <>
       {processBlocks.length > 0 ? <AnalysisProcess blocks={processBlocks} running={running} completed={finalBlocks.length > 0} duration={duration} /> : running ? <div className="flex items-center gap-2.5 text-[14px] text-[#8f8f8f]"><ThinkingDots />正在准备分析</div> : null}
-      {finalBlocks.map(block => <FinalReply key={block.id} block={block} onRetry={retry} />)}
+      {finalBlocks.map(block => <FinalReply key={block.id} block={block} onRetry={retry} screening={screening} />)}
     </>}
   </Assistant></>;
 }
@@ -122,7 +126,7 @@ function StageDetail({ block }: { block: StageConversationBlock }) {
   </div>;
 }
 
-function FinalReply({ block, onRetry }: { block: FinalConversationBlock; onRetry?: () => void }) {
+function FinalReply({ block, onRetry, screening }: { block: FinalConversationBlock; onRetry?: () => void; screening: boolean }) {
   const [copied, setCopied] = useState(false);
   const plainText = [block.summary, ...block.conclusions.map(item => item.text), ...block.risks.map(risk => `风险提示：${risk}`)].join("\n\n");
   const copy = async () => {
@@ -132,8 +136,8 @@ function FinalReply({ block, onRetry }: { block: FinalConversationBlock; onRetry
     <div className="flex items-center gap-3"><h2 className="text-[16px] font-semibold tracking-[-0.01em] text-[#0d0d0d]">分析结论</h2><span aria-hidden="true" className="h-px flex-1 bg-black/[0.08]" /></div>
     <p className="text-[15px] leading-[1.75] text-[#0d0d0d]">{block.summary}</p>
     {block.conclusions.length > 0 && <div className="space-y-2">{block.conclusions.map((item, index) => <div key={index} className="rounded-xl border border-[#e5e5e5] px-4 py-3"><div className="flex items-center gap-2">{item.stage && <span className="rounded-md bg-[#f0f0f0] px-1.5 py-0.5 text-[10.5px] font-medium text-[#5d5d5d]">{stageLabel(item.stage)}</span>}<span className="font-mono text-[10.5px] font-medium tracking-wide text-[#b0b0b0]">{String(index + 1).padStart(2, "0")}</span></div><p className="mt-1.5 text-[14px] leading-[1.7] text-[#3d3d3d]">{item.text}</p></div>)}</div>}
-    {block.risks.length > 0 && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"><h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-amber-800"><AlertCircle className="h-3.5 w-3.5" />风险提示</h3><ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] leading-6 text-amber-900/80">{block.risks.map((risk, index) => <li key={index}>{risk}</li>)}</ul></div>}
-    {block.result && <CandidateList result={block.result} />}
+    {block.risks.length > 0 && <div className="rounded-xl border border-[#e5e5e5] bg-[#fafafa] px-4 py-3.5"><h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-[#0d0d0d]"><AlertCircle aria-hidden="true" className="h-3.5 w-3.5 text-amber-600" />风险提示</h3><ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] leading-6 text-[#5d5d5d]">{block.risks.map((risk, index) => <li key={index}>{risk}</li>)}</ul></div>}
+    {block.result && <CandidateList result={block.result} showEmptyHint={screening} />}
     <div className="flex items-center gap-1">
       <button type="button" aria-label="复制回答" onClick={copy} className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-[11.5px] text-[#8f8f8f] transition-colors hover:bg-[#f0f0f0] hover:text-[#0d0d0d]">{copied ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}{copied && "已复制"}</button>
       {onRetry && <button type="button" aria-label="重新生成" onClick={onRetry} className="rounded-lg p-1.5 text-[#8f8f8f] transition-colors hover:bg-[#f0f0f0] hover:text-[#0d0d0d]"><RefreshCw className="h-3.5 w-3.5" /></button>}
@@ -141,8 +145,11 @@ function FinalReply({ block, onRetry }: { block: FinalConversationBlock; onRetry
   </div>;
 }
 
-function CandidateList({ result }: { result: ResearchResult }) {
-  if (!result.candidates.length) return null;
+function CandidateList({ result, showEmptyHint }: { result: ResearchResult; showEmptyHint: boolean }) {
+  // 筛选类研究空结果时给一条可执行的引导（不是空白收场）；深研/无候选语义的场景不提示。
+  if (!result.candidates.length) return showEmptyHint
+    ? <p className="rounded-xl border border-dashed border-[#dcdcdc] px-4 py-3 text-[13px] leading-6 text-[#8f8f8f]">这一轮没有筛出满足条件的标的。可以在下方输入框放宽条件（例如去掉股息率下限）或换个问法继续追问。</p>
+    : null;
   return <div className="space-y-2">{result.candidates.map(item => <Link key={item.code} to={`/stock/${item.code}`} aria-label={`${item.name} ${item.code}`} className="group grid gap-2.5 rounded-xl border border-[#e5e5e5] bg-white px-4 py-3.5 transition-colors hover:border-black/25 hover:bg-[#fafafa] sm:grid-cols-[minmax(132px,.75fr)_minmax(0,1.45fr)_auto] sm:items-center"><div><span className="text-[14px] font-medium text-[#0d0d0d]">{item.name}</span><span className="ml-2 font-mono text-[11px] text-[#8f8f8f]">{item.code}</span></div><p className="text-[13px] leading-[22px] text-[#5d5d5d]">{item.reason}</p><div className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-[#4d4d4d]"><span className="rounded-md border border-[#ececec] bg-[#f7f7f7] px-2 py-1">PE {item.pe_ttm ?? "—"}</span><span className="rounded-md border border-[#ececec] bg-[#f7f7f7] px-2 py-1">股息率 {item.dividend_yield == null ? "—" : `${item.dividend_yield}%`}</span><ArrowRight className="ml-1 h-4 w-4 text-[#b0b0b0] transition group-hover:translate-x-0.5 group-hover:text-[#0d0d0d]" /></div></Link>)}</div>;
 }
 

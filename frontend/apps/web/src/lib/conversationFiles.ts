@@ -4,7 +4,7 @@
  * 确定性重建——内容全部来自真实返回，不虚构字段。
  */
 import type { ResearchConversationTurn, ResearchResult } from "@/lib/researchApi";
-import { stageLabel } from "@/lib/researchConversation";
+import { humanizeResearchText, stageLabel } from "@/lib/researchConversation";
 
 export interface ConversationFile {
   id: string;
@@ -31,33 +31,36 @@ function formatDateTime(value: string | null | undefined): string {
 
 function reportMarkdown(turn: ResearchConversationTurn): string {
   const result = turn.result as ResearchResult;
+  // 元信息条：as_of 缺失时整段省略，不输出「数据截至 —」这类裸占位符。
+  const meta = ["SigmX 研究报告", `生成于 ${formatDateTime(turn.task.finished_at || turn.task.created_at)}`, result.as_of ? `数据截至 ${result.as_of}` : null].filter(Boolean).join(" · ");
   const lines: string[] = [
     `# ${turn.task.question}`,
     "",
-    `> SigmX 研究报告 · 生成于 ${formatDateTime(turn.task.finished_at || turn.task.created_at)} · 数据截至 ${result.as_of ?? "—"}`,
+    `> ${meta}`,
     "",
     "## 摘要",
     "",
-    result.summary,
+    humanizeResearchText(result.summary),
   ];
   const conclusions = result.conclusions ?? [];
   if (conclusions.length) {
     lines.push("", "## 分析结论", "");
     conclusions.forEach((item, index) => {
-      lines.push(`${index + 1}. ${item.stage ? `**${stageLabel(item.stage)}**　` : ""}${item.text}`);
+      lines.push(`${index + 1}. ${item.stage ? `**${stageLabel(item.stage)}**　` : ""}${humanizeResearchText(item.text)}`);
     });
   }
   if (result.risks.length) {
     lines.push("", "## 风险提示", "");
-    result.risks.forEach(risk => lines.push(`- ${risk}`));
+    result.risks.forEach(risk => lines.push(`- ${humanizeResearchText(risk)}`));
   }
   if (result.candidates.length) {
     lines.push("", "## 候选标的", "", "| 名称 | 代码 | PE(TTM) | 股息率 | 入选理由 |", "| --- | --- | --- | --- | --- |");
     result.candidates.forEach(item => {
-      lines.push(`| ${item.name} | ${item.code} | ${item.pe_ttm ?? "—"} | ${item.dividend_yield == null ? "—" : `${item.dividend_yield}%`} | ${item.reason.replace(/\|/g, "/")} |`);
+      lines.push(`| ${item.name} | ${item.code} | ${item.pe_ttm ?? "—"} | ${item.dividend_yield == null ? "—" : `${item.dividend_yield}%`} | ${humanizeResearchText(item.reason).replace(/\|/g, "/")} |`);
     });
   }
-  lines.push("", "---", "", "AI 分析仅供研究参考，不构成投资建议。", "");
+  // 免责已在页面上常驻展示（composer 下方），报告正文含「风险提示」一节，不再重复脚注。
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -67,11 +70,11 @@ export function buildConversationMarkdown(turns: ResearchConversationTurn[]): st
   turns.forEach((turn, index) => {
     parts.push(`## 第 ${index + 1} 轮 · ${turn.task.question}`, "");
     if (turn.result) {
-      parts.push(turn.result.summary, "");
+      parts.push(humanizeResearchText(turn.result.summary), "");
       (turn.result.conclusions ?? []).forEach((item, i) => {
-        parts.push(`${i + 1}. ${item.stage ? `**${stageLabel(item.stage)}**　` : ""}${item.text}`);
+        parts.push(`${i + 1}. ${item.stage ? `**${stageLabel(item.stage)}**　` : ""}${humanizeResearchText(item.text)}`);
       });
-      if (turn.result.risks.length) parts.push("", "风险提示：", ...turn.result.risks.map(risk => `- ${risk}`));
+      if (turn.result.risks.length) parts.push("", "风险提示：", ...turn.result.risks.map(risk => `- ${humanizeResearchText(risk)}`));
     } else {
       parts.push(`（本轮${turn.task.status === "failed" ? "执行失败" : "未生成结论"}）`, "");
     }

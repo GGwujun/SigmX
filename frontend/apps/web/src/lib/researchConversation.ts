@@ -69,6 +69,11 @@ const PIPELINE_TOOL_LABELS: Record<string, string> = {
 const stringValue = (value: unknown) => typeof value === "string" ? value : "";
 const numberValue = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : undefined;
 
+/** 展示层文案净化：内部数据源标识翻成中文名（连同两侧空格一起替换，避免
+ * 「基于 本地市场数据 的…」这类残空格）。存量结果的摘要仍带着旧文案
+ * （如「基于 local_market_store …」），新旧数据统一在这里兜底成人话。 */
+export const humanizeResearchText = (text: string) => text.replace(/\s*local_market_store\s*/g, "本地市场数据");
+
 export function buildResearchConversation(
   events: ResearchEvent[],
   result: ResearchResult | null,
@@ -194,11 +199,11 @@ export function buildResearchConversation(
       blocks.push({
         kind: "final",
         id: `final-${event.id}`,
-        summary: stringValue(event.payload.summary) || result?.summary || "研究已完成",
+        summary: humanizeResearchText(stringValue(event.payload.summary) || result?.summary || "研究已完成"),
         conclusions: Array.isArray(event.payload.conclusions)
-          ? event.payload.conclusions as Array<{ text: string; evidence_ids: string[] }>
-          : result?.conclusions ?? [],
-        risks: Array.isArray(event.payload.risks) ? event.payload.risks.map(String) : result?.risks ?? [],
+          ? (event.payload.conclusions as Array<{ text: string; evidence_ids: string[] }>).map(item => ({ ...item, text: humanizeResearchText(item.text) }))
+          : (result?.conclusions ?? []).map(item => ({ ...item, text: humanizeResearchText(item.text) })),
+        risks: (Array.isArray(event.payload.risks) ? event.payload.risks.map(String) : result?.risks ?? []).map(humanizeResearchText),
         result,
       });
     }
@@ -208,9 +213,9 @@ export function buildResearchConversation(
     blocks.push({
       kind: "final",
       id: "legacy-final",
-      summary: result.summary,
-      conclusions: result.conclusions ?? [],
-      risks: result.risks,
+      summary: humanizeResearchText(result.summary),
+      conclusions: (result.conclusions ?? []).map(item => ({ ...item, text: humanizeResearchText(item.text) })),
+      risks: result.risks.map(humanizeResearchText),
       result,
     });
   }

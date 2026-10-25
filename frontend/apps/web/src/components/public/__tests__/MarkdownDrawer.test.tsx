@@ -27,19 +27,19 @@ function renderDrawer(activeId = "f1", overrides: Partial<Parameters<typeof Mark
 }
 
 describe("MarkdownDrawer（多文档 tab 面板）", () => {
-  it("渲染每个打开文档一个 tab，激活 tab 标记 aria-selected 并显示其正文", () => {
+  it("渲染每个打开文档一个 tab（展示名去扩展名），激活 tab 标记 aria-selected 并显示其正文", () => {
     renderDrawer("f1");
     const tabs = screen.getAllByRole("tab");
     expect(tabs).toHaveLength(2);
-    expect(screen.getByText("分析报告-01-低估值.md")).toBeInTheDocument();
-    expect(screen.getByText("分析报告-02-高股息.md")).toBeInTheDocument();
+    expect(screen.getByText("分析报告-01-低估值")).toBeInTheDocument();
+    expect(screen.getByText("分析报告-02-高股息")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: /分析报告-01/ })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: /分析报告-02/ })).toHaveAttribute("aria-selected", "false");
     expect(screen.getByText("低估值结论。")).toBeInTheDocument();
     expect(screen.queryByText("高股息结论。")).not.toBeInTheDocument();
   });
 
-  it("点击其他 tab 触发 onSelect 切换", async () => {
+  it("点击其他 tab 触发 onSelect 切换（完整文件名作为可访问名）", async () => {
     const props = renderDrawer("f1");
     await userEvent.click(screen.getByRole("button", { name: "分析报告-02-高股息.md" }));
     expect(props.onSelect).toHaveBeenCalledWith(second);

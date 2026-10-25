@@ -19,13 +19,14 @@ function HistoryList({ tasks, query, activeTaskId, onSelect }: { tasks: Research
   }, [tasks, query]);
   if (!tasks.length) return <p className="px-2.5 py-6 text-[13px] leading-5 text-[#8f8f8f]">还没有分析记录，开始一次分析后会显示在这里。</p>;
   if (query.trim() && !groups.today.length && !groups.earlier.length) return <p className="px-2.5 py-4 text-[13px] text-[#8f8f8f]">没有匹配的对话</p>;
-  const group = (label: string, items: ResearchTask[]) => items.length ? <section className="mt-3"><h3 className="px-2.5 text-[11px] font-medium text-[#8f8f8f]">{label}</h3><div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.id} to={`/?conversation=${item.id}`} aria-label={item.question} aria-current={item.id === activeTaskId ? "page" : undefined} onClick={onSelect} className={`block truncate rounded-lg px-2.5 py-[7px] text-[13px] leading-5 transition-colors ${item.id === activeTaskId ? "bg-[#ececec] font-medium text-[#0d0d0d]" : "text-[#3d3d3d] hover:bg-[#f0f0f0] hover:text-[#0d0d0d]"}`}>{item.question}</Link>)}</div></section> : null;
+  const group = (label: string, items: ResearchTask[]) => items.length ? <section className="mt-3"><h3 className="px-2.5 text-[11px] font-medium text-[#8f8f8f]">{label}</h3><div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.id} to={`/?conversation=${item.id}`} aria-label={item.question} aria-current={item.id === activeTaskId ? "page" : undefined} onClick={onSelect} className={`block truncate rounded-lg px-2.5 py-[7px] text-[14px] leading-5 transition-colors ${item.id === activeTaskId ? "bg-[#ececec] font-medium text-[#0d0d0d]" : "text-[#3d3d3d] hover:bg-[#f0f0f0] hover:text-[#0d0d0d]"}`}>{item.question}</Link>)}</div></section> : null;
   return <>{group("今天", groups.today)}{group("更早", groups.earlier)}</>;
 }
 
-// ChatGPT 式浅色侧栏（与用户截图逐项对齐）：顶行=品牌+搜索图标钮；
-// 新建分析与产品导航全部一级 icon 行（无分组标签）；「对话历史」小灰字分组；
-// 底部头像账号行。白底近无彩色，active 为浅灰圆角底。
+// ChatGPT 式浅色侧栏（与用户截图逐项对齐）：顶行只有品牌（移动端外加关闭 ×）；
+// 「新建分析」「搜索对话」与产品导航全部一级 icon 行（搜索是整行而非裸图标，
+// 对齐 ChatGPT 的 Search chats 行）；「对话历史」小灰字分组；底部头像账号行。
+// 白底近无彩色，active 为浅灰圆角底。
 function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Props, "children"> & { onClose?: () => void }) {
   const { pathname } = useLocation();
   const items = publicNavItems(pathname);
@@ -38,14 +39,14 @@ function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Pro
   return <div className="flex h-full flex-col bg-[#f9f9f9]">
     <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 pt-3">
       <Link to="/" className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-[15px] font-semibold text-[#0d0d0d]"><SigmXLogo className="h-[22px] w-[22px]" />SigmX</Link>
-      <div className="flex items-center gap-0.5">
-        <button type="button" aria-label={searchOpen ? "关闭搜索" : "搜索对话"} aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setQuery(""); }} className={`grid h-9 w-9 place-items-center rounded-lg transition-colors ${searchOpen ? "bg-[#ececec] text-[#0d0d0d]" : "text-[#5d5d5d] hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"}`}><Search className="h-[18px] w-[18px] stroke-[1.8]" /></button>
-        {onClose && <button type="button" aria-label="关闭菜单" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-[#5d5d5d] transition-colors hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"><X className="h-[18px] w-[18px]" /></button>}
-      </div>
+      {onClose && <button type="button" aria-label="关闭菜单" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-[#5d5d5d] transition-colors hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"><X className="h-[18px] w-[18px]" /></button>}
     </div>
-    {searchOpen && <div className="px-3 pb-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索对话" className="h-9 w-full rounded-lg border border-[#e0e0e0] bg-white px-3 text-[13px] text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f] focus:border-[#c9c9c9]" /></div>}
     <nav aria-label="产品导航" className="px-2">
       <button type="button" onClick={() => { onNewAnalysis(); onClose?.(); }} className={`${rowClass(false)} w-full`}><SquarePen className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />新建分析</button>
+      <div className="mt-0.5 space-y-0.5">
+        <button type="button" aria-label="搜索对话" aria-expanded={searchOpen} aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setQuery(""); }} className={`${rowClass(searchOpen)} w-full`}><Search className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />搜索对话</button>
+        {searchOpen && <input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话关键词" className="mt-0.5 h-9 w-full rounded-lg border border-[#e0e0e0] bg-white px-3 text-[13px] text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f] focus:border-[#c9c9c9]" />}
+      </div>
       <div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={rowClass(item.active)}><item.icon className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />{item.label}</Link>)}</div>
     </nav>
     <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">

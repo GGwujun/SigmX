@@ -66,6 +66,20 @@ describe("buildResearchConversation", () => {
 
     expect(blocks).toEqual([expect.objectContaining({ kind: "final", id: "legacy-final", summary: "旧任务结论", result })]);
   });
+
+  it("final 块的摘要/结论/风险把内部数据源标识翻成中文（存量旧结果兜底）", () => {
+    const result = {
+      task_id: "t2", question: "问题", template_id: null, summary: "基于 local_market_store 的当前数据，没有找到候选。",
+      source: "local_market_store", as_of: null, scope: {}, candidates: [], risks: ["local_market_store 有延迟"],
+      created_at: "2026-10-24", conclusions: [{ text: "local_market_store 无匹配", evidence_ids: [] }],
+    } satisfies ResearchResult;
+
+    const blocks = buildResearchConversation([], result);
+    const final = blocks[0];
+
+    expect(final).toMatchObject({ kind: "final", summary: "基于本地市场数据的当前数据，没有找到候选。", risks: ["本地市场数据有延迟"] });
+    expect((final as { conclusions: Array<{ text: string }> }).conclusions[0].text).toBe("本地市场数据无匹配");
+  });
 });
 
 describe("buildResearchConversation · 六阶段管线事件", () => {

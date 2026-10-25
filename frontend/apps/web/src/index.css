@@ -165,3 +165,7 @@
 .aiw ::-webkit-scrollbar-thumb:hover { background: rgba(0, 0, 0, 0.28); }
 /* Firefox：等价的细滚动条（Windows 默认条粗且带槽，与聊天白净风格冲突）。 */
 .aiw { scrollbar-width: thin; scrollbar-color: rgba(0, 0, 0, 0.22) transparent; }
+
+/* 横向 tab/pill 条（文档面板 tab 栏、建议 pills）：可滚动但不显示滚动条（对齐 ChatGPT）。 */
+.noscrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+.noscrollbar::-webkit-scrollbar { display: none; }

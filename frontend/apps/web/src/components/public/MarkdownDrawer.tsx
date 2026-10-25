@@ -44,6 +44,9 @@ const components = {
 
 const iconButton = "grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#4d4d4d] transition-colors hover:bg-black/[0.06] hover:text-[#0d0d0d]";
 
+/** tab 展示名去掉文件扩展名（对齐 ChatGPT canvas 的 tab 形态）；下载/关闭仍用完整文件名。 */
+const tabLabel = (name: string) => name.replace(/\.(md|json)$/i, "");
+
 export function MarkdownDrawer({ files, activeId, onSelect, onCloseFile, onClose }: Props) {
   const [full, setFull] = useState(false);
   const active = files.find(file => file.id === activeId) ?? files[0];
@@ -63,15 +66,15 @@ export function MarkdownDrawer({ files, activeId, onSelect, onCloseFile, onClose
     {/* tab 栏：浅灰底条 + 文件夹式 tab——活动 tab 白底带上圆角边框、-mb-px 盖住
         底部分割线，与下方白色正文连成一体；非活动 tab 透明灰字，悬停微底色。 */}
     <header className="flex h-12 shrink-0 items-stretch border-b border-[#e5e5e5] bg-[#f7f7f8] pl-1.5 pr-2 pt-1.5 sm:pl-2.5">
-      <div role="tablist" aria-label="打开的文档" className="aiw flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto">
+      <div role="tablist" aria-label="打开的文档" className="aiw noscrollbar flex min-w-0 flex-1 items-end gap-0.5 overflow-x-auto">
         {files.map(file => {
           const isActive = file.id === active.id;
           return <div key={file.id} role="tab" aria-selected={isActive} className={`flex max-w-[240px] shrink-0 items-center ${isActive
             ? "-mb-px h-[37px] rounded-t-[10px] border border-b-0 border-[#e5e5e5] bg-white pr-1 pl-2"
             : "h-8 rounded-t-[10px] pl-2 pr-1.5 transition-colors hover:bg-black/[0.045]"}`}>
-            <button type="button" onClick={() => onSelect(file)} className="flex min-w-0 items-center gap-1.5 py-1 pl-1 pr-1 text-left">
+            <button type="button" aria-label={file.name} onClick={() => onSelect(file)} className="flex min-w-0 items-center gap-1.5 py-1 pl-1 pr-1 text-left">
               <FileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
-              <span className={`truncate text-[13px] ${isActive ? "font-medium text-[#0d0d0d]" : "text-[#5d5d5d]"}`}>{file.name}</span>
+              <span className={`truncate text-[13px] ${isActive ? "font-medium text-[#0d0d0d]" : "text-[#5d5d5d]"}`}>{tabLabel(file.name)}</span>
             </button>
             <button type="button" aria-label={`关闭 ${file.name}`} onClick={() => onCloseFile(file)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[#8f8f8f] transition-colors hover:bg-black/[0.06] hover:text-[#0d0d0d]"><X className="h-3.5 w-3.5" /></button>
           </div>;

@@ -39,12 +39,14 @@ describe("buildConversationFiles", () => {
     expect(files.map(file => file.kind)).toEqual(["md"]);
   });
 
-  it("md 内容包含摘要/阶段结论/风险/候选表与免责脚注", () => {
+  it("md 内容包含元信息/摘要/阶段结论/风险/候选表；免责由页面常驻，报告不重复脚注", () => {
     const files = buildConversationFiles([turn(task(), result({
       candidates: [{ code: "000001.SZ", name: "平安银行", industry: "银行", close: 11.2, pe_ttm: 6, pb: 0.6, dividend_yield: 5, total_market_value: 2173, reason: "PE 6|股息率 5%", evidence: [] }],
     }))]);
     const md = files[0].build();
     expect(md).toContain("# 低估值 高股息");
+    expect(md).toContain("> SigmX 研究报告 · 生成于 2026-10-24");
+    expect(md).toContain("· 数据截至 2026-10-23");
     expect(md).toContain("## 摘要");
     expect(md).toContain("筛选出 1 个候选。");
     expect(md).toContain("## 分析结论");
@@ -53,7 +55,21 @@ describe("buildConversationFiles", () => {
     expect(md).toContain("- 数据存在延迟");
     expect(md).toContain("## 候选标的");
     expect(md).toContain("| 平安银行 | 000001.SZ | 6 | 5% | PE 6/股息率 5% |");
-    expect(md).toContain("不构成投资建议");
+    expect(md).not.toContain("AI 分析仅供研究参考");
+  });
+
+  it("as_of 缺失时元信息省略「数据截至」段（不输出裸占位符），数据源标识翻成中文", () => {
+    const files = buildConversationFiles([turn(task(), result({
+      as_of: null,
+      summary: "基于 local_market_store 的当前数据，没有找到候选。",
+      conclusions: [{ text: "local_market_store 无匹配", evidence_ids: [] }],
+      risks: ["local_market_store 有延迟"],
+    }))]);
+    const md = files[0].build();
+    expect(md).not.toContain("数据截至");
+    expect(md).toContain("> SigmX 研究报告 · 生成于 2026-10-24");
+    expect(md).toContain("基于本地市场数据的当前数据，没有找到候选。");
+    expect(md).not.toContain("local_market_store");
   });
 
   it("json 内容是结构化证据数据", () => {
