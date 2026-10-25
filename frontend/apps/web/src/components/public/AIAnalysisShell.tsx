@@ -23,10 +23,9 @@ function HistoryList({ tasks, query, activeTaskId, onSelect }: { tasks: Research
   return <>{group("今天", groups.today)}{group("更早", groups.earlier)}</>;
 }
 
-// ChatGPT 式浅色侧栏（与用户截图逐项对齐）：顶行只有品牌（移动端外加关闭 ×）；
-// 「新建分析」「搜索对话」与产品导航全部一级 icon 行（搜索是整行而非裸图标，
-// 对齐 ChatGPT 的 Search chats 行）；「对话历史」小灰字分组；底部头像账号行。
-// 白底近无彩色，active 为浅灰圆角底。
+// ChatGPT 式浅色侧栏（与用户截图逐项对齐）：顶行=品牌+搜索图标钮（搜索是
+// 顶行右侧图标而非整行，用户确认此形态）；新建分析与产品导航一级 icon 行；
+// 「对话历史」小灰字分组；底部头像账号行。白底近无彩色，active 为浅灰圆角底。
 function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Props, "children"> & { onClose?: () => void }) {
   const { pathname } = useLocation();
   const items = publicNavItems(pathname);
@@ -39,14 +38,14 @@ function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Pro
   return <div className="flex h-full flex-col bg-[#f9f9f9]">
     <div className="flex shrink-0 items-center justify-between px-3 pb-1.5 pt-3">
       <Link to="/" className="flex items-center gap-2 rounded-lg px-1.5 py-1 text-[15px] font-semibold text-[#0d0d0d]"><SigmXLogo className="h-[22px] w-[22px]" />SigmX</Link>
-      {onClose && <button type="button" aria-label="关闭菜单" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-[#5d5d5d] transition-colors hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"><X className="h-[18px] w-[18px]" /></button>}
+      <div className="flex items-center gap-0.5">
+        <button type="button" aria-label={searchOpen ? "关闭搜索" : "搜索对话"} aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setQuery(""); }} className={`grid h-9 w-9 place-items-center rounded-lg transition-colors ${searchOpen ? "bg-[#ececec] text-[#0d0d0d]" : "text-[#5d5d5d] hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"}`}><Search className="h-[18px] w-[18px] stroke-[1.8]" /></button>
+        {onClose && <button type="button" aria-label="关闭菜单" onClick={onClose} className="grid h-9 w-9 place-items-center rounded-lg text-[#5d5d5d] transition-colors hover:bg-[#ececec]/60 hover:text-[#0d0d0d]"><X className="h-[18px] w-[18px]" /></button>}
+      </div>
     </div>
+    {searchOpen && <div className="px-3 pb-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话关键词" className="h-9 w-full rounded-lg border border-[#e0e0e0] bg-white px-3 text-[13px] text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f] focus:border-[#c9c9c9]" /></div>}
     <nav aria-label="产品导航" className="px-2">
       <button type="button" onClick={() => { onNewAnalysis(); onClose?.(); }} className={`${rowClass(false)} w-full`}><SquarePen className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />新建分析</button>
-      <div className="mt-0.5 space-y-0.5">
-        <button type="button" aria-label="搜索对话" aria-expanded={searchOpen} aria-pressed={searchOpen} onClick={() => { setSearchOpen(value => !value); if (searchOpen) setQuery(""); }} className={`${rowClass(searchOpen)} w-full`}><Search className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />搜索对话</button>
-        {searchOpen && <input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话关键词" className="mt-0.5 h-9 w-full rounded-lg border border-[#e0e0e0] bg-white px-3 text-[13px] text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f] focus:border-[#c9c9c9]" />}
-      </div>
       <div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={rowClass(item.active)}><item.icon className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />{item.label}</Link>)}</div>
     </nav>
     <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
@@ -55,7 +54,7 @@ function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Pro
       {(historyOpen || query.trim()) && <HistoryList tasks={recentTasks} query={query} activeTaskId={activeTaskId} onSelect={onClose} />}
     </div>
     <div className="shrink-0 border-t border-[#ececec] p-2">
-      {user ? <AccountMenu user={user} align="left" /> : <div className="flex items-center gap-2 px-0.5"><Link to="/login" className="flex h-8 flex-1 items-center justify-center rounded-full border border-[#d9d9e3] text-[13px] font-medium text-[#0d0d0d] transition-colors hover:bg-[#f3f3f3]">登录</Link><Link to="/register" className="flex h-8 flex-1 items-center justify-center rounded-full bg-[#0d0d0d] text-[13px] font-medium text-white transition-opacity hover:opacity-90">注册体验</Link></div>}
+      {user ? <AccountMenu user={user} align="left" direction="up" /> : <div className="flex items-center gap-2 px-0.5"><Link to="/login" className="flex h-8 flex-1 items-center justify-center rounded-full border border-[#d9d9e3] text-[13px] font-medium text-[#0d0d0d] transition-colors hover:bg-[#f3f3f3]">登录</Link><Link to="/register" className="flex h-8 flex-1 items-center justify-center rounded-full bg-[#0d0d0d] text-[13px] font-medium text-white transition-opacity hover:opacity-90">注册体验</Link></div>}
     </div>
   </div>;
 }

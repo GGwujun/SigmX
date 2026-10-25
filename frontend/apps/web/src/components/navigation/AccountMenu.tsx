@@ -12,7 +12,7 @@ const ACCOUNT_LINKS = [
   { to: "/account/devices", label: "Desktop 设备" },
 ] as const;
 
-export function AccountMenu({ user, tone = "light", align = "right" }: { user: AuthUser; tone?: "light" | "dark"; align?: "left" | "right" }) {
+export function AccountMenu({ user, tone = "light", align = "right", direction = "down" }: { user: AuthUser; tone?: "light" | "dark"; align?: "left" | "right"; direction?: "up" | "down" }) {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -58,7 +58,7 @@ export function AccountMenu({ user, tone = "light", align = "right" }: { user: A
         <ChevronDown className={`h-3.5 w-3.5 transition ${open ? "rotate-180" : ""}`} />
       </button>
       {open && (
-        <div role="menu" className={`absolute top-11 z-50 w-64 overflow-hidden rounded-xl border p-1.5 shadow-2xl ${align === "left" ? "left-0" : "right-0"} ${tone === "dark" ? "border-white/[0.1] bg-[#151d29] text-slate-200 ring-1 ring-black/40" : "bg-background text-foreground ring-1 ring-black/5"}`}>
+        <div role="menu" className={`absolute ${direction === "up" ? "bottom-11" : "top-11"} z-50 w-64 overflow-hidden rounded-xl border p-1.5 shadow-2xl ${align === "left" ? "left-0" : "right-0"} ${tone === "dark" ? "border-white/[0.1] bg-[#151d29] text-slate-200 ring-1 ring-black/40" : "bg-background text-foreground ring-1 ring-black/5"}`}>
           <div className="border-b px-3 py-2 sm:hidden"><p className={`truncate text-xs ${tone === "dark" ? "text-slate-400" : "text-muted-foreground"}`}>{user.email}</p></div>
           {ACCOUNT_LINKS.map((item) => <Link role="menuitem" key={item.to} to={item.to} onClick={() => setOpen(false)} className={`block rounded-md px-3 py-2 text-sm ${tone === "dark" ? "hover:bg-white/[0.06]" : "hover:bg-muted"}`}>{item.label}</Link>)}
           {user.is_admin && <><div className="my-1 border-t" /><Link role="menuitem" to="/admin" onClick={() => setOpen(false)} className={`flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium ${tone === "dark" ? "hover:bg-white/[0.06]" : "hover:bg-muted"}`}><ShieldCheck className="h-4 w-4 text-primary" />运营后台</Link></>}
