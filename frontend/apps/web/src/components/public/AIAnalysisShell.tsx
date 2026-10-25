@@ -9,6 +9,8 @@ import { publicNavItems } from "@/components/public/publicNav";
 
 interface Props { recentTasks: ResearchTask[]; activeTaskId: string | null; onNewAnalysis: () => void; children: ReactNode }
 const isToday = (value: string) => new Date(value).toDateString() === new Date().toDateString();
+/** 「查看更多」展开状态记忆键（1=展开，缺省收起）。 */
+const SIDEBAR_MORE_KEY = "sigmx.sidebar.more";
 
 function HistoryList({ tasks, query, activeTaskId, onSelect }: { tasks: ResearchTask[]; query: string; activeTaskId: string | null; onSelect?: () => void }) {
   const groups = useMemo(() => {
@@ -24,11 +26,23 @@ function HistoryList({ tasks, query, activeTaskId, onSelect }: { tasks: Research
 }
 
 // ChatGPT 式浅色侧栏（与用户截图逐项对齐）：顶行=品牌+搜索图标钮（搜索是
-// 顶行右侧图标而非整行，用户确认此形态）；新建分析与产品导航一级 icon 行；
-// 「对话历史」小灰字分组；底部头像账号行。白底近无彩色，active 为浅灰圆角底。
+// 顶行右侧图标而非整行，用户确认此形态）；新建分析与一级产品导航 icon 行，
+// 低频产品页默认折叠进「查看更多」（ChatGPT See more 式，记忆展开状态）；
+// 「对话历史」小灰字分组；底部头像账号行（菜单向上弹）。白底近无彩色。
 function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Props, "children"> & { onClose?: () => void }) {
   const { pathname } = useLocation();
   const items = publicNavItems(pathname);
+  // 低频产品页默认折叠进「查看更多」（ChatGPT See more 式）；正在其中一页时
+  // 强制展开且不出切换行——active 项永不能被收起藏掉。
+  const primary = items.filter(item => !item.secondary);
+  const secondary = items.filter(item => item.secondary);
+  const secondaryActive = secondary.some(item => item.active);
+  const [moreOpen, setMoreOpen] = useState(() => secondaryActive || localStorage.getItem(SIDEBAR_MORE_KEY) === "1");
+  const toggleMore = () => setMoreOpen(value => {
+    localStorage.setItem(SIDEBAR_MORE_KEY, value ? "0" : "1");
+    return !value;
+  });
+  const showMore = moreOpen || secondaryActive;
   const user = isAuthenticated() ? getUser() : null;
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -46,7 +60,11 @@ function Sidebar({ recentTasks, activeTaskId, onNewAnalysis, onClose }: Omit<Pro
     {searchOpen && <div className="px-3 pb-2"><input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder="搜索对话" aria-label="搜索对话关键词" className="h-9 w-full rounded-lg border border-[#e0e0e0] bg-white px-3 text-[13px] text-[#0d0d0d] outline-none placeholder:text-[#8f8f8f] focus:border-[#c9c9c9]" /></div>}
     <nav aria-label="产品导航" className="px-2">
       <button type="button" onClick={() => { onNewAnalysis(); onClose?.(); }} className={`${rowClass(false)} w-full`}><SquarePen className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />新建分析</button>
-      <div className="mt-0.5 space-y-0.5">{items.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={rowClass(item.active)}><item.icon className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />{item.label}</Link>)}</div>
+      <div className="mt-0.5 space-y-0.5">
+        {primary.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={rowClass(item.active)}><item.icon className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />{item.label}</Link>)}
+        {showMore && secondary.map(item => <Link key={item.to} to={item.to} aria-current={item.active ? "page" : undefined} onClick={onClose} className={rowClass(item.active)}><item.icon className="h-[17px] w-[17px] shrink-0 stroke-[1.7]" />{item.label}</Link>)}
+        {!secondaryActive && <button type="button" aria-expanded={moreOpen} onClick={toggleMore} className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] text-[#5d5d5d] transition-colors hover:bg-[#f0f0f0] hover:text-[#0d0d0d]"><ChevronDown aria-hidden="true" className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${moreOpen ? "rotate-180" : ""}`} />{moreOpen ? "收起" : "查看更多"}</button>}
+      </div>
     </nav>
     <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
       {/* 截图「项目」小标题带 chevron 可折叠；外层 h2 保住 heading 语义（契约测试）。搜索过滤时强制展开。 */}

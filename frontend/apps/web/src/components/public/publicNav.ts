@@ -7,6 +7,8 @@ export interface PublicNavItem {
   active: boolean;
   /** 侧栏一级行的图标（内容页顶栏纯文字链接，不用它）。 */
   icon: LucideIcon;
+  /** 低频产品页：侧栏默认折叠进「查看更多」（内容页顶栏仍全部展示）。 */
+  secondary?: boolean;
 }
 
 export function publicNavItems(pathname: string): PublicNavItem[] {
@@ -15,8 +17,8 @@ export function publicNavItems(pathname: string): PublicNavItem[] {
     { to: "/intelligence", label: "情报搜索", active: pathname.startsWith("/intelligence"), icon: ScanSearch },
     { to: "/global-events", label: "全球事件", active: pathname.startsWith("/global-events"), icon: Globe2 },
     { to: "/skills", label: "投研 Skills", active: pathname.startsWith("/skills"), icon: Blocks },
-    { to: "/product/desktop", label: "Desktop", active: pathname.startsWith("/product/desktop"), icon: Monitor },
-    { to: "/product/data-hub", label: "Data Hub", active: pathname.startsWith("/product/data-hub") || pathname.startsWith("/docs/data-hub"), icon: Database },
-    { to: "/pricing", label: "套餐", active: pathname.startsWith("/pricing"), icon: Tag },
+    { to: "/product/desktop", label: "Desktop", active: pathname.startsWith("/product/desktop"), icon: Monitor, secondary: true },
+    { to: "/product/data-hub", label: "Data Hub", active: pathname.startsWith("/product/data-hub") || pathname.startsWith("/docs/data-hub"), icon: Database, secondary: true },
+    { to: "/pricing", label: "套餐", active: pathname.startsWith("/pricing"), icon: Tag, secondary: true },
   ];
 }
