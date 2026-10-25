@@ -1,21 +1,24 @@
 /**
- * Markdown 文档面板（对齐 ChatGPT canvas 交互）：从浮层文件列表点开具体 md 才
- * 打开，此时它作为与聊天区同层的右侧面板把聊天往左挤压（桌面 ~45% 宽、左缘
- * 分隔线）；移动端全屏覆盖。顶栏=文件类型块+文件名（∨ 可换其他 md）+下载+
- * 全屏+关闭；正文用 react-markdown 渲染，样式逐级手写对齐文档排版。
+ * Markdown 文档面板（对齐参考图的多文档 tab 交互）：可同时打开多个文档，
+ * 顶栏每个文档一个 tab（图标+文件名+单个关闭 ×，点 tab 切换、点 × 关单个，
+ * 全关即收面板）；tab 行右侧是当前文档的下载/全屏/关闭面板操作。桌面与聊天
+ * 区同层并排（~45% 宽，把聊天往左挤压），移动端全屏覆盖。正文用 react-markdown
+ * 渲染，样式逐级手写对齐文档排版。
  */
 import { useEffect, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ChevronDown, Download, FileText, Maximize2, Minimize2, X } from "lucide-react";
+import { Download, FileText, Maximize2, Minimize2, X } from "lucide-react";
 
 import { downloadTextFile, type ConversationFile } from "@/lib/conversationFiles";
 
 interface Props {
-  file: ConversationFile;
-  /** 可切换的其他 md 文件（含当前），仅 1 个时不显示切换下拉。 */
-  mdFiles: ConversationFile[];
-  onSwitch: (file: ConversationFile) => void;
+  /** 当前打开的文档列表（≥1，面板才渲染）。 */
+  files: ConversationFile[];
+  /** 激活（正在查看）的文档 id。 */
+  activeId: string;
+  onSelect: (file: ConversationFile) => void;
+  onCloseFile: (file: ConversationFile) => void;
   onClose: () => void;
 }
 
@@ -41,41 +44,45 @@ const components = {
 
 const iconButton = "grid h-9 w-9 shrink-0 place-items-center rounded-lg text-[#4d4d4d] transition-colors hover:bg-[#f0f0f0] hover:text-[#0d0d0d]";
 
-export function MarkdownDrawer({ file, mdFiles, onSwitch, onClose }: Props) {
+export function MarkdownDrawer({ files, activeId, onSelect, onCloseFile, onClose }: Props) {
   const [full, setFull] = useState(false);
-  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const active = files.find(file => file.id === activeId) ?? files[0];
 
   useEffect(() => {
-    if (switcherOpen) return;
     const escape = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
     };
     document.addEventListener("keydown", escape);
     return () => document.removeEventListener("keydown", escape);
-  }, [switcherOpen, onClose]);
+  }, [onClose]);
 
-  return <div data-testid="markdown-preview" role="dialog" aria-label={`预览 ${file.name}`} className={full
+  if (!active) return null;
+  return <div data-testid="markdown-preview" role="dialog" aria-label={`预览 ${active.name}`} className={full
     ? "absolute inset-0 z-50 flex w-full flex-col bg-white"
     : "absolute inset-0 z-40 flex w-full flex-col bg-white lg:static lg:z-auto lg:w-[45%] lg:shrink-0 lg:border-l lg:border-[#e5e5e5]"}>
-    <header className="relative flex h-14 shrink-0 items-center gap-3 border-b border-[#e5e5e5] px-4 sm:px-5">
-      {/* 文件类型徽章：白底文档形+折角，蓝色系点明 md 文档（顶栏视觉锚点）。 */}
-      <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] border border-[#dbeafe] bg-[#eff6ff]"><FileText className="h-[18px] w-[18px] text-[#2563eb]" strokeWidth={1.9} /></span>
-      <div className="relative min-w-0 flex-1">
-        <button type="button" aria-expanded={switcherOpen} aria-haspopup="menu" disabled={mdFiles.length <= 1} onClick={() => setSwitcherOpen(value => !value)} className="flex max-w-full items-center gap-1.5 rounded-md px-1 py-1 text-left transition-colors hover:bg-[#f5f5f5] disabled:hover:bg-transparent">
-          <span className="truncate text-[14.5px] font-semibold text-[#0d0d0d]">{file.name}</span>
-          {mdFiles.length > 1 && <ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 text-[#8f8f8f] transition-transform duration-200 ${switcherOpen ? "rotate-180" : ""}`} />}
-        </button>
-        {switcherOpen && <div role="menu" className="absolute left-0 top-10 z-10 w-72 max-w-[calc(100vw-48px)] rounded-xl border border-[#e5e5e5] bg-white p-1.5 shadow-[0_12px_40px_rgba(0,0,0,.12)]">
-          {mdFiles.map(item => <button key={item.id} role="menuitem" type="button" onClick={() => { onSwitch(item); setSwitcherOpen(false); }} className={`block w-full truncate rounded-lg px-2.5 py-2 text-left text-[13px] transition-colors hover:bg-[#f5f5f5] ${item.id === file.id ? "bg-[#f0f0f0] font-medium text-[#0d0d0d]" : "text-[#0d0d0d]"}`}>{item.name}</button>)}
-        </div>}
+    <header className="flex h-14 shrink-0 items-center gap-1 border-b border-[#e5e5e5] pl-2 pr-2 sm:pl-3 sm:pr-3">
+      {/* tab 行：每个打开的文档一个 tab，可横向滚动；活动 tab 浅灰高亮。 */}
+      <div role="tablist" aria-label="打开的文档" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-1.5">
+        {files.map(file => {
+          const isActive = file.id === active.id;
+          return <div key={file.id} role="tab" aria-selected={isActive} className={`flex h-9 min-w-0 max-w-[230px] shrink-0 items-center rounded-lg pl-2 pr-1 transition-colors ${isActive ? "bg-[#f0f0f0]" : "hover:bg-[#f5f5f5]"}`}>
+            <button type="button" onClick={() => onSelect(file)} className="flex min-w-0 items-center gap-1.5 py-1 pl-1 pr-1 text-left">
+              <FileText aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#2563eb]" />
+              <span className={`truncate text-[13px] ${isActive ? "font-medium text-[#0d0d0d]" : "text-[#5d5d5d]"}`}>{file.name}</span>
+            </button>
+            <button type="button" aria-label={`关闭 ${file.name}`} onClick={() => onCloseFile(file)} className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[#8f8f8f] transition-colors hover:bg-black/[0.06] hover:text-[#0d0d0d]"><X className="h-3.5 w-3.5" /></button>
+          </div>;
+        })}
       </div>
-      <button type="button" aria-label="下载文件" onClick={() => downloadTextFile(file.name, file.build(), "text/markdown;charset=utf-8")} className={iconButton}><Download className="h-[18px] w-[18px]" /></button>
-      <button type="button" aria-label={full ? "退出全屏" : "全屏查看"} onClick={() => setFull(value => !value)} className={iconButton}>{full ? <Minimize2 className="h-[18px] w-[18px]" /> : <Maximize2 className="h-[18px] w-[18px]" />}</button>
-      <button type="button" aria-label="关闭预览" onClick={onClose} className={iconButton}><X className="h-[18px] w-[18px]" /></button>
+      <div className="flex shrink-0 items-center gap-0.5">
+        <button type="button" aria-label="下载当前文档" onClick={() => downloadTextFile(active.name, active.build(), "text/markdown;charset=utf-8")} className={iconButton}><Download className="h-[18px] w-[18px]" /></button>
+        <button type="button" aria-label={full ? "退出全屏" : "全屏查看"} onClick={() => setFull(value => !value)} className={iconButton}>{full ? <Minimize2 className="h-[18px] w-[18px]" /> : <Maximize2 className="h-[18px] w-[18px]" />}</button>
+        <button type="button" aria-label="关闭文档面板" onClick={onClose} className={iconButton}><X className="h-[18px] w-[18px]" /></button>
+      </div>
     </header>
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-[640px] px-6 py-8 sm:px-8">
-        <Markdown remarkPlugins={[remarkGfm]} components={components}>{file.build()}</Markdown>
+      <div className="mx-auto max-w-[640px] px-6 py-7 sm:px-8">
+        <Markdown remarkPlugins={[remarkGfm]} components={components}>{active.build()}</Markdown>
       </div>
     </div>
   </div>;

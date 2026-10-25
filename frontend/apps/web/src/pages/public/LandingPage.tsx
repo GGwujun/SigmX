@@ -199,7 +199,7 @@ export function LandingPage() {
     void startAnalysis(question, template?.id ?? null);
   };
 
-  const resetConversation = () => { setDraft(""); setDeepMode(false); setTemplate(null); setTurns([]); setPendingQuestion(""); setPendingError(""); setPlanning(false); setPanelOpen(false); setPreviewFile(null); clearPendingResearchPlan(); setParams({}, { replace: true }); };
+  const resetConversation = () => { setDraft(""); setDeepMode(false); setTemplate(null); setTurns([]); setPendingQuestion(""); setPendingError(""); setPlanning(false); setPanelOpen(false); setOpenFiles([]); setActiveFileId(null); clearPendingResearchPlan(); setParams({}, { replace: true }); };
   const chooseTemplate = (item: ResearchTemplate) => { setDeepMode(false); setTemplate(item); setDraft(item.prompt); };
   const activateDeepResearch = () => { setDeepMode(true); setTemplate(null); setDraft(""); };
   const templates = discovery?.templates ?? [];
@@ -207,10 +207,22 @@ export function LandingPage() {
   const hasConversation = turns.length > 0 || Boolean(pendingQuestion);
 
   // 右上角操作区与「输出」面板：文件由真实研究结果派生；分享锚定最后一个 turn。
+  // 文档面板支持多开：openFiles 是当前打开的 md 列表（tab），activeFileId 是正在看的。
   const [panelOpen, setPanelOpen] = useState(false);
-  const [previewFile, setPreviewFile] = useState<ConversationFile | null>(null);
+  const [openFiles, setOpenFiles] = useState<ConversationFile[]>([]);
+  const [activeFileId, setActiveFileId] = useState<string | null>(null);
   const files = useMemo(() => buildConversationFiles(turns), [turns]);
-  const mdFiles = useMemo(() => files.filter(file => file.kind === "md"), [files]);
+  const openDocument = (file: ConversationFile) => {
+    setOpenFiles(current => current.some(item => item.id === file.id) ? current : [...current, file]);
+    setActiveFileId(file.id);
+    setPanelOpen(false);
+  };
+  const closeDocument = (file: ConversationFile) => {
+    const next = openFiles.filter(item => item.id !== file.id);
+    setOpenFiles(next);
+    if (activeFileId === file.id) setActiveFileId(next.length ? next[next.length - 1].id : null);
+  };
+  const closeDocumentPanel = () => { setOpenFiles([]); setActiveFileId(null); };
   const runningTaskId = turns.find(turn => ["queued", "running"].includes(turn.task.status))?.task.id ?? null;
   const lastTurn = turns[turns.length - 1];
   const conversationUrl = conversationId ? `${window.location.origin}/?conversation=${encodeURIComponent(conversationId)}` : null;
@@ -246,13 +258,13 @@ export function LandingPage() {
     <div data-testid="ai-analysis-body" className="relative flex min-h-0 flex-1">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {hasConversation && <ChatTopActions busy={busy} shareTaskId={lastTurn?.task.id ?? null} runningTaskId={runningTaskId} conversationUrl={conversationUrl} panelOpen={panelOpen} onTogglePanel={() => setPanelOpen(value => !value)} onNewAnalysis={resetConversation} onCancel={() => void cancelRunning()} onExportMarkdown={exportConversation} />}
-        {panelOpen && <OutputFilesPanel files={files} onPreview={file => { setPreviewFile(file); setPanelOpen(false); }} />}
+        {panelOpen && <OutputFilesPanel files={files} onPreview={openDocument} />}
         <div data-testid="active-conversation-scroll" ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto pb-32"><div className={hasConversation ? "" : "flex min-h-full flex-col"}><div className={hasConversation ? "" : "flex min-h-0 flex-1 flex-col"}><AIAnalysisTimeline turns={turns} pendingQuestion={pendingQuestion} planning={planning} pendingError={pendingError} loadError={loadError} onRetry={task => void startAnalysis(task.question, task.template_id)} /></div></div></div>
         {/* 对话中上翻后浮现的居中回底圆钮（对齐 ChatGPT 截图细节） */}
         {hasConversation && !atBottom && <button type="button" aria-label="回到底部" onClick={() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; stickToBottom.current = true; setAtBottom(true); }} className="absolute bottom-[128px] left-1/2 z-20 grid h-9 w-9 -translate-x-1/2 place-items-center rounded-full border border-black/10 bg-white text-[#4d4d4d] shadow-[0_4px_16px_rgba(0,0,0,.12)] transition-colors hover:bg-[#f7f7f7]"><ChevronDown className="h-4 w-4 stroke-[2]" /></button>}
         <div data-testid="composer-dock" className="absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-white via-white via-75% to-transparent pb-3 pt-6">{composer}</div>
       </div>
-      {previewFile && <MarkdownDrawer file={previewFile} mdFiles={mdFiles} onSwitch={setPreviewFile} onClose={() => setPreviewFile(null)} />}
+      {openFiles.length > 0 && activeFileId && <MarkdownDrawer files={openFiles} activeId={activeFileId} onSelect={file => setActiveFileId(file.id)} onCloseFile={closeDocument} onClose={closeDocumentPanel} />}
     </div>
   </AIAnalysisShell>;
 }
