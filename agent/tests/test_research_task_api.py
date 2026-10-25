@@ -130,6 +130,9 @@ def test_research_task_persists_source_attributed_result() -> None:
     assert [step.status for step in task.steps] == ["completed"] * 4
     result = asyncio.run(routes.get_research_result(task.id, user={"id": "u1"}))
     assert result.source == "local_market_store"
+    # 摘要面向用户：数据源必须用中文名，不裸露内部标识
+    assert "local_market_store" not in result.summary
+    assert "本地市场数据" in result.summary
     assert result.as_of == "20260822"
     assert result.candidates[0].code == "000001.SZ"
     assert "市盈率 0-20" in result.candidates[0].reason

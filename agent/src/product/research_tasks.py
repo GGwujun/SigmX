@@ -271,10 +271,12 @@ class ResearchTaskService:
             candidates = [self._candidate(item, search.interpretation) for item in items]
             observed = [item.as_of for item in items if item.as_of]
             as_of = max(observed) if observed else None
+            # 摘要是用户可见文案：数据源标识（local_market_store）翻成中文名，不裸露内部实现名。
+            source_label = "本地市场数据" if search.source == "local_market_store" else search.source
             summary = (
-                f"基于 {search.source} 的可用数据，本次研究找到 {len(candidates)} 个满足已确认条件的候选。"
+                f"基于{source_label}，本次研究找到 {len(candidates)} 个满足已确认条件的候选。"
                 if candidates
-                else f"基于 {search.source} 的当前可用数据，没有找到满足已确认条件的候选。"
+                else f"基于{source_label}的当前数据，没有找到满足已确认条件的候选。"
             )
             risks = ["公开市场数据可能延迟；结果不构成投资建议。"]
             with self.store.transaction() as conn:
